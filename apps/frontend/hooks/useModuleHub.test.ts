@@ -6,10 +6,9 @@ import { ageInDays, toDelta } from './useModuleHub';
  *
  * `toDelta` is the one that matters: three hub figures have no history to
  * reconstruct a baseline from — `AssetItem.status` and `ProjectStatus` have no
- * history table, and neither `Reimbursement` nor `LetterRequest` carries a
- * `rejectedAt` — so the server sends `null` and the card must draw NO badge.
- * A `0%` badge would say the number held steady, which is a different claim
- * from "we cannot tell".
+ * history table, and `LetterRequest` carries no `rejectedAt` — so the server
+ * sends `null` and the card must draw NO badge. A `0%` badge would say the
+ * number held steady, which is a different claim from "we cannot tell".
  */
 describe('toDelta', () => {
   const label = 'vs Jul 2026';

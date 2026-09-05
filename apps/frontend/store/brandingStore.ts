@@ -46,51 +46,15 @@ export interface BrandingData {
   overtime_require_reason: boolean;
   attendance_day_end_time: string;
   leave_approval_hierarchy_enabled: boolean;
-  reimbursement_enabled: boolean;
 
   // ── Payroll extensions ──────────────────────────────────────────────
   // Each is additive on top of the base payroll and each defaults OFF, so
   // they are read as `=== true` and never `!== false`: an instance that has
   // never heard of a key must not have the feature switched on for it.
   payroll_item_lines_enabled: boolean;
-  payroll_eosb_enabled: boolean;
-  /**
-   * The two EOSB sub-switches. `FinalSettlementsService` refuses every route
-   * unless the master AND the settlement switch are both on, so a screen that
-   * read only the master rendered a usable page over a 404ing API.
-   *
-   * `undefined` on purpose, and it is a THIRD value rather than sloppiness: a
-   * backend built before these sub-switches existed does not publish the keys
-   * at all — /system-settings/public returns `payroll_eosb_enabled` and
-   * nothing else — while its `FinalSettlementsService` gates on the master
-   * alone. Coerced to `false` here, the settlement and accrual screens print
-   * "switched off" against a server that would have served them, and no
-   * amount of flipping the switch in Settings changes it. So absent means
-   * "this server has one switch, follow the master", and only an explicit
-   * `false` means an admin turned the sub-switch off.
-   */
-  payroll_eosb_accrual_enabled?: boolean;
-  payroll_eosb_settlement_enabled?: boolean;
-  payroll_calendar_enabled: boolean;
-  payroll_preflight_enabled: boolean;
   /** Ships OFF, so a missing key must read as off rather than as "not fetched". */
   document_engine_enabled: boolean;
   document_visual_editor_enabled: boolean;
-  payroll_employee_recovery_enabled: boolean;
-  leave_encashment_enabled: boolean;
-  payroll_reports_enabled: boolean;
-  employee_transfer_enabled: boolean;
-  employee_grade_enabled: boolean;
-  reimbursement_approver_roles: string;
-  reimbursement_types: string;
-  advance_loan_enabled: boolean;
-  advance_loan_approver_roles: string;
-  /** Roles allowed to write off a loan balance; gates the action in the UI. */
-  advance_loan_writeoff_roles: string;
-  advance_loan_max_installments: string;
-  /** Whether interest terms may be offered on the request form at all. */
-  loan_interest_enabled: boolean;
-  advance_max_percent_of_salary: string;
   theme_preset: string;
   theme_font: string;
   theme_custom_colors: string;      // JSON: { brandPrimary, brandPrimaryDark, ... }
@@ -160,30 +124,9 @@ export const useBrandingStore = create<BrandingState>((set) => ({
     overtime_require_reason: true,
     attendance_day_end_time: '23:59',
     leave_approval_hierarchy_enabled: false,
-    reimbursement_enabled: true,
     payroll_item_lines_enabled: false,
-    payroll_eosb_enabled: false,
-    // Left unset, not false — see the type. `loaded` is what tells a screen
-    // the answer has not arrived yet.
-    payroll_eosb_accrual_enabled: undefined,
-    payroll_eosb_settlement_enabled: undefined,
-    payroll_calendar_enabled: false,
-    payroll_preflight_enabled: false,
     document_engine_enabled: false,
     document_visual_editor_enabled: false,
-    payroll_employee_recovery_enabled: false,
-    leave_encashment_enabled: false,
-    payroll_reports_enabled: false,
-    employee_transfer_enabled: false,
-    employee_grade_enabled: false,
-    reimbursement_approver_roles: 'HR_MANAGER,ADMIN',
-    reimbursement_types: 'Travel,Medical,Food,Office Supplies,Other',
-    advance_loan_enabled: true,
-    advance_loan_approver_roles: 'HR_MANAGER,ADMIN',
-    advance_loan_writeoff_roles: 'ADMIN',
-    advance_loan_max_installments: '12',
-    loan_interest_enabled: false,
-    advance_max_percent_of_salary: '100',
     theme_preset: 'default',
     theme_font: 'montserrat',
     theme_custom_colors: '',
@@ -239,44 +182,15 @@ export const useBrandingStore = create<BrandingState>((set) => ({
             overtime_require_reason: res.data.overtime_require_reason !== false,
             attendance_day_end_time: res.data.attendance_day_end_time || '23:59',
             leave_approval_hierarchy_enabled: res.data.leave_approval_hierarchy_enabled === true,
-            reimbursement_enabled: res.data.reimbursement_enabled !== false,
             payroll_item_lines_enabled: res.data.payroll_item_lines_enabled === true,
-            payroll_eosb_enabled: res.data.payroll_eosb_enabled === true,
-            // Boolean-or-undefined, deliberately not `=== true`: the
-            // difference between a server that published `false` and one that
-            // has never heard of the key is the whole point of these two. Any
-            // non-boolean (a string, a null) still reads as "not published".
-            payroll_eosb_accrual_enabled:
-              typeof res.data.payroll_eosb_accrual_enabled === 'boolean'
-                ? res.data.payroll_eosb_accrual_enabled
-                : undefined,
-            payroll_eosb_settlement_enabled:
-              typeof res.data.payroll_eosb_settlement_enabled === 'boolean'
-                ? res.data.payroll_eosb_settlement_enabled
-                : undefined,
-            payroll_calendar_enabled: res.data.payroll_calendar_enabled === true,
-            payroll_preflight_enabled: res.data.payroll_preflight_enabled === true,
             // `=== true`, not `!== false`: this feature ships OFF, so an older
             // backend that does not send the key must hide it rather than
             // surface a screen whose API answers 404.
             document_engine_enabled: res.data.document_engine_enabled === true,
             document_visual_editor_enabled: res.data.document_visual_editor_enabled === true,
-            payroll_employee_recovery_enabled: res.data.payroll_employee_recovery_enabled === true,
-            leave_encashment_enabled: res.data.leave_encashment_enabled === true,
-            payroll_reports_enabled: res.data.payroll_reports_enabled === true,
-            employee_transfer_enabled: res.data.employee_transfer_enabled === true,
-            employee_grade_enabled: res.data.employee_grade_enabled === true,
-            reimbursement_approver_roles: res.data.reimbursement_approver_roles || 'HR_MANAGER,ADMIN',
-            reimbursement_types: res.data.reimbursement_types || 'Travel,Medical,Food,Office Supplies,Other',
-            advance_loan_enabled: res.data.advance_loan_enabled !== false,
-            advance_loan_approver_roles: res.data.advance_loan_approver_roles || 'HR_MANAGER,ADMIN',
-            advance_loan_writeoff_roles: res.data.advance_loan_writeoff_roles || 'ADMIN',
-            advance_loan_max_installments: res.data.advance_loan_max_installments || '12',
-            advance_max_percent_of_salary: res.data.advance_max_percent_of_salary || '100',
             // Defaults FALSE when the server does not publish it: offering an
             // interest field the server would refuse is worse than hiding one
             // it would have honoured.
-            loan_interest_enabled: res.data.loan_interest_enabled === true,
             theme_preset: res.data.theme_preset || 'default',
             theme_font: res.data.theme_font || 'montserrat',
             theme_custom_colors: res.data.theme_custom_colors || '',

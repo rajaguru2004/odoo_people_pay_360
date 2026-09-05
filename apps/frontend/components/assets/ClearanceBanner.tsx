@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import assetService from '@/services/assetService';
-import { formatCurrency } from '@/utils/formatters';
 import { ClearanceStatus } from '@/types/asset';
 
 /**
@@ -11,13 +10,9 @@ import { ClearanceStatus } from '@/types/asset';
  *
  * The block itself is enforced server-side on all three deactivation paths;
  * this exists so an approver sees *why* an approval is going to fail before
- * they click it, and knows exactly which items to chase.
- *
- * "Why" is TWO things, not one: `ClearanceService` blocks on an asset whose
- * `returnedAt` is null AND on an unrecovered advance/loan balance. Both halves
- * are rendered, each with its own rows and its own remedy — advising "record
- * the return in the Asset Register" to someone held up by a loan sends them to
- * a screen that will show them nothing (R20).
+ * they click it, and knows exactly which items to chase — so the rows are
+ * listed, not only the count. "Blocked: 0 company assets not returned" is the
+ * failure mode this has to stay clear of (R20).
  */
 export default function ClearanceBanner({
   employeeId,
@@ -78,38 +73,23 @@ export default function ClearanceBanner({
       >
         <CheckCircle2 className="h-3.5 w-3.5" />
         <span data-testid="clearance-status" data-cleared="true">
-          Clearance passed — no company property and no loan balance outstanding.
+          Clearance passed — no company property outstanding.
         </span>
       </div>
     );
   }
 
-  // Defensive reads: an older backend (or a hand-rolled fixture) may not carry
-  // the loan half at all, and a banner that throws is worse than one that
-  // under-reports.
+  // Defensive read: a hand-rolled fixture may not carry the list at all, and a
+  // banner that throws is worse than one that under-reports.
   const openAssets = status.openAssets ?? [];
-  const outstandingLoans = status.outstandingLoans ?? [];
   const assetCount = openAssets.length;
-  const loanCount = outstandingLoans.length;
 
-  // The headline names EVERY obligation that is blocking, in the server's own
-  // terms. Quoting "0 company assets not returned" at someone held up by an
-  // advance is what R20 was: the one screen whose job is to name the blocker
-  // naming the wrong one, and then advising a remedy that cannot apply.
-  const reasons: string[] = [];
-  if (assetCount > 0) {
-    reasons.push(`${assetCount} company asset${assetCount === 1 ? '' : 's'} not returned`);
-  }
-  if (loanCount > 0) {
-    reasons.push(
-      `${loanCount} outstanding loan balance${loanCount === 1 ? '' : 's'}`,
-    );
-  }
   // `cleared: false` with nothing itemised should not happen, but if the server
   // ever blocks for a reason it does not list, say that rather than "0 assets".
-  const headline = reasons.length
-    ? `Blocked: ${reasons.join(' and ')}`
-    : 'Blocked: clearance obligations are outstanding';
+  const headline =
+    assetCount > 0
+      ? `Blocked: ${assetCount} company asset${assetCount === 1 ? '' : 's'} not returned`
+      : 'Blocked: clearance obligations are outstanding';
 
   return (
     <div
@@ -123,7 +103,6 @@ export default function ClearanceBanner({
           data-testid="clearance-status"
           data-cleared="false"
           data-open-assets={assetCount}
-          data-outstanding-loans={loanCount}
           className="font-semibold"
         >
           {headline}
@@ -140,19 +119,8 @@ export default function ClearanceBanner({
             ))}
           </ul>
         )}
-        {loanCount > 0 && (
-          <ul className="mt-1 space-y-0.5">
-            {outstandingLoans.map((l) => (
-              <li key={l.loanId} data-testid={`clearance-outstanding-loan-${l.loanId}`}>
-                <span className="font-mono">{l.referenceNo ?? l.loanId.slice(0, 8)}</span> —{' '}
-                {l.type.replace(/_/g, ' ')} · {formatCurrency(l.outstanding)} outstanding
-              </li>
-            ))}
-          </ul>
-        )}
         <p className="mt-1 text-amber-800">
           {assetCount > 0 && 'Record the return in the Asset Register. '}
-          {loanCount > 0 && 'Settle or write off the balance in Advances & Loans. '}
           An ADMIN/HR Manager can override with a reason (audited).
         </p>
       </div>

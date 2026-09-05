@@ -26,13 +26,11 @@ const plural = (v: number, word: string) => `${v} ${word}${v === 1 ? '' : 's'}`;
  */
 export function buildEvidence(metrics: Record<string, any> | null | undefined): {
   byDimension: EvidenceMap;
-  extras: EvidenceFact[];
   sources: number;
 } {
   const byDimension = Object.fromEntries(
     SCORE_DIMENSIONS.map((d) => [d, [] as EvidenceFact[]]),
   ) as EvidenceMap;
-  const extras: EvidenceFact[] = [];
   const m = metrics ?? {};
   const get = (tool: string): any => {
     const p = m[tool];
@@ -196,14 +194,5 @@ export function buildEvidence(metrics: Record<string, any> | null | undefined): 
     }
   }
 
-  // ── Extras (context, not scored dimensions) ─────────────────────────────
-  const reimb = get('reimbursement_employee_summary');
-  if (reimb) {
-    const claims = n(reimb.totalClaims) ?? 0;
-    if (claims > 0) {
-      extras.push(info(`${plural(claims, 'expense claim')} filed, ${n(reimb.approvedClaims) ?? 0} approved`));
-    }
-  }
-
-  return { byDimension, extras, sources: Object.keys(m).length };
+  return { byDimension, sources: Object.keys(m).length };
 }

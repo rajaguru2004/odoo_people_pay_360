@@ -79,14 +79,5 @@ describe('APPROVAL_KINDS registry', () => {
       );
     });
 
-    it('never hydrates raw bank account details', async () => {
-      const findMany = jest.fn().mockResolvedValue([]);
-      const prisma = { bankChangeRequest: { findMany } } as any;
-
-      await APPROVAL_KINDS.BANK_CHANGE.hydrate(prisma, ['a']);
-
-      const select = findMany.mock.calls[0][0].select;
-      expect(Object.keys(select)).toEqual(['id', 'status', 'bank', 'employee']);
-    });
   });
 });

@@ -43,7 +43,6 @@ describe('isDeveloperSettingKey', () => {
       'overtime_enabled',
       'office_start_time',
       'theme_preset',
-      'reimbursement_enabled',
       'supervisor_approval_enabled',
       'attendance_day_end_time',
     ]) {

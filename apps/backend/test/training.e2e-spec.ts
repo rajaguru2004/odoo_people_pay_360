@@ -184,7 +184,6 @@ describe('Training management (e2e)', () => {
 
   afterAll(async () => {
     const { prisma } = ctx;
-    await prisma.reimbursement.deleteMany({ where: { employee: { branchId } } });
     await prisma.trainingNomination.deleteMany({
       where: { employee: { branchId } },
     });
@@ -280,12 +279,6 @@ describe('Training management (e2e)', () => {
       expect(Number(row?.cost)).toBe(COST_PER_SEAT);
     });
 
-    it('spawns NO claim when the company pays the provider directly', async () => {
-      const claims = await ctx.prisma.reimbursement.findMany({
-        where: { sourceType: 'TRAINING', sourceId: nominationId },
-      });
-      expect(claims).toHaveLength(0);
-    });
 
     it('refuses a second nomination for the same employee and session', async () => {
       await ctx
@@ -354,38 +347,6 @@ describe('Training management (e2e)', () => {
   });
 
   describe('employee-paid training spawns a reimbursement', () => {
-    it('creates an ordinary claim tagged sourceType=TRAINING', async () => {
-      await setPaidBy('EMPLOYEE');
-
-      const session3 = await ctx.prisma.trainingSession.create({
-        data: {
-          courseId,
-          branchId,
-          startDate: new Date('2026-12-01'),
-          endDate: new Date('2026-12-02'),
-          costPerSeat: 150,
-        },
-      });
-
-      const res = await ctx
-        .http()
-        .post('/training/nominations')
-        .set(bearer(adminToken))
-        .send({ sessionId: session3.id, employeeId: empA })
-        .expect(201);
-
-      const claims = await ctx.prisma.reimbursement.findMany({
-        where: { sourceType: 'TRAINING', sourceId: res.body.data.id },
-      });
-      expect(claims).toHaveLength(1);
-      expect(claims[0].status).toBe('APPROVED');
-      expect(Number(claims[0].amount)).toBe(150);
-      expect(claims[0].budgetCategory).toBe('Training');
-      // Not linked to payroll yet — the normal run picks it up like any claim.
-      expect(claims[0].payrollItemId).toBeNull();
-
-      await setPaidBy('COMPANY');
-    });
   });
 
   describe('appraisal-derived training needs', () => {

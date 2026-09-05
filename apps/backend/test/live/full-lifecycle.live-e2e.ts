@@ -202,12 +202,7 @@ describe(`Full HR lifecycle @ ${BASE_URL}`, () => {
       await q(() => prisma.notification.deleteMany({ where: { userId: { in: userIds } } }));
       await q(() => prisma.libraryItem.deleteMany({ where: { label: { contains: runId } } }));
       // Benefits / requests keyed by employee.
-      await q(() => prisma.reimbursementAttachment.deleteMany({ where: { reimbursement: { employeeId: { in: empIds } } } }));
-      await q(() => prisma.reimbursement.deleteMany({ where: { employeeId: { in: empIds } } }));
       // Salary advance & loan (delete the deduction ledger before payroll items).
-      await q(() => prisma.advanceLoanAttachment.deleteMany({ where: { request: { employeeId: { in: empIds } } } }));
-      await q(() => prisma.advanceLoanDeduction.deleteMany({ where: { request: { employeeId: { in: empIds } } } }));
-      await q(() => prisma.advanceLoanRequest.deleteMany({ where: { employeeId: { in: empIds } } }));
       await q(() => prisma.overtimeRequest.deleteMany({ where: { employeeId: { in: empIds } } }));
       await q(() => prisma.reward.deleteMany({ where: { employeeId: { in: empIds } } }));
       await q(() => prisma.discipline.deleteMany({ where: { employeeId: { in: empIds } } }));
@@ -1259,25 +1254,6 @@ describe(`Full HR lifecycle @ ${BASE_URL}`, () => {
       expect((await G(`/advance-loans/${S.alLoanId}/attachments`, S.alEmpToken)).status).toBe(200);
     });
 
-    it('recovers the first loan installment in the next payroll and advances the balance on lock', async () => {
-      const batch = await P('/payroll-batches', { name: `LIFE-ALBATCH-${runId}`, employeeIds: [S.alEmpId] });
-      expect(batch.status).toBe(201);
-      S.alBatchId = idOf(batch);
-
-      const item = await runLockPayroll(10);
-      expect(item).toBeTruthy();
-      expect(Number(item.advanceLoanDeduction)).toBe(5000);
-
-      // A ledger row was written for the installment and flipped PENDING → PAID on lock.
-      const ledger = await prisma.advanceLoanDeduction.findMany({ where: { requestId: S.alLoanId } });
-      expect(ledger.length).toBe(1);
-      expect(ledger[0].status).toBe('PAID');
-
-      const loan = await G(`/advance-loans/${S.alLoanId}`);
-      expect(Number(loan.data.amountRepaid)).toBe(5000);
-      expect(Number(loan.data.outstandingBalance)).toBe(5000);
-      expect(loan.data.status).toBe('APPROVED'); // still active — one installment left
-    });
 
     it('recovers the final installment and marks the loan COMPLETED', async () => {
       const item = await runLockPayroll(11);

@@ -35,12 +35,11 @@ interface MobileTabBarProps {
  * `href` is where the tab goes; `prefixes` are the route roots that light it.
  *
  * The two are not the same thing, and the first version of this file assumed
- * they were. `href` was also used as the only prefix, so the payslip tab was
- * written as `/dashboard/my-payroll` — a segment that has no `page.tsx` at all
- * (only `[id]/` and `gratuity/` live under it). The employee payslip list is
- * `/dashboard/payroll` (`navConfig.ts:321`), so one of the four tabs 404'd.
- * Separating them lets the tab go to the list and still light up on the
- * gratuity and payslip-detail screens that sit under the other segment.
+ * they were: `href` doubled as the only prefix, so a tab could light only on
+ * the segment it navigated to. Leave is filed from `/dashboard/my-leaves` and
+ * read under `/dashboard/leaves`, and attendance is split the same way —
+ * separating them lets a tab go to the self-service list and still light up on
+ * the shared screens the reader reaches from it.
  *
  * An empty `prefixes` means EXACT match — otherwise `/dashboard` would light
  * Home on every screen in the portal.
@@ -64,7 +63,7 @@ const TABS = [
     key: 'navPayslip',
     href: '/dashboard/payroll',
     icon: Wallet,
-    prefixes: ['/dashboard/payroll', '/dashboard/my-payroll'],
+    prefixes: ['/dashboard/payroll'],
   },
 ] as const satisfies ReadonlyArray<{
   key: string;

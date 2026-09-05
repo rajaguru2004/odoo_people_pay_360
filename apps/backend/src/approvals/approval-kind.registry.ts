@@ -8,13 +8,7 @@ import type { PrismaService } from '../prisma/prisma.service';
  * run inside a transaction block, so it needs its own migration file) and the
  * `APPROVAL_KINDS` entry below.
  */
-export type ApprovalRequestType =
-  | 'LEAVE'
-  | 'OVERTIME'
-  | 'BANK_CHANGE'
-  | 'TRAVEL'
-  | 'TRAINING'
-  | 'ADVANCE_LOAN';
+export type ApprovalRequestType = 'LEAVE' | 'OVERTIME' | 'TRAINING';
 
 /** One row in the approver's inbox, already hydrated from its domain table. */
 export interface InboxRequest {
@@ -116,29 +110,6 @@ export const APPROVAL_KINDS: Record<ApprovalRequestType, ApprovalKind> = {
       }) as unknown as Promise<InboxRequest[]>,
   },
 
-  TRAVEL: {
-    type: 'TRAVEL',
-    link: '/dashboard/travel',
-    label: 'Travel',
-    requesterOf: employeeIdOf((p) => p.travelRequest as any),
-    hydrate: (prisma, ids, opts) =>
-      prisma.travelRequest.findMany({
-        where: { id: { in: ids }, ...statusFilter(opts) },
-        select: {
-          id: true,
-          status: true,
-          destination: true,
-          country: true,
-          travelType: true,
-          departureDate: true,
-          returnDate: true,
-          estimatedCost: true,
-          purpose: true,
-          employee: { select: empSelect },
-        },
-      }) as unknown as Promise<InboxRequest[]>,
-  },
-
   TRAINING: {
     type: 'TRAINING',
     link: '/dashboard/training',
@@ -165,50 +136,6 @@ export const APPROVAL_KINDS: Record<ApprovalRequestType, ApprovalKind> = {
       }) as unknown as Promise<InboxRequest[]>,
   },
 
-  ADVANCE_LOAN: {
-    type: 'ADVANCE_LOAN',
-    link: '/dashboard/advance-loans',
-    label: 'Advance & Loan',
-    requesterOf: employeeIdOf((p) => p.advanceLoanRequest as any),
-    hydrate: (prisma, ids, opts) =>
-      prisma.advanceLoanRequest.findMany({
-        where: { id: { in: ids }, ...statusFilter(opts) },
-        select: {
-          id: true,
-          status: true,
-          type: true,
-          amount: true,
-          installments: true,
-          interestMethod: true,
-          interestRate: true,
-          reason: true,
-          referenceNo: true,
-          currency: true,
-          createdAt: true,
-          loanType: { select: { code: true, name: true } },
-          employee: { select: empSelect },
-        },
-      }) as unknown as Promise<InboxRequest[]>,
-  },
-
-  BANK_CHANGE: {
-    type: 'BANK_CHANGE',
-    link: '/dashboard/approvals',
-    label: 'Bank Change',
-    requesterOf: employeeIdOf((p) => p.bankChangeRequest as any),
-    hydrate: (prisma, ids, opts) =>
-      prisma.bankChangeRequest.findMany({
-        where: { id: { in: ids }, ...statusFilter(opts) },
-        // Bank/account values are intentionally NOT hydrated — approvers decide
-        // on the fact of a change, not the raw payment details (PII).
-        select: {
-          id: true,
-          status: true,
-          bank: { select: { name: true } },
-          employee: { select: empSelect },
-        },
-      }) as unknown as Promise<InboxRequest[]>,
-  },
 };
 
 /** All governable request types, for DTO validation and the frontend picker. */

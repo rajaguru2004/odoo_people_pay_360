@@ -20,7 +20,6 @@ describe('AnalyticsController', () => {
     projectContribution: jest.fn(async () => ({})),
     worklogSummary: jest.fn(async () => ({})),
     timesheetSummary: jest.fn(async () => ({})),
-    reimbursementSummary: jest.fn(async () => ({})),
     teamMembership: jest.fn(async () => ([])),
   };
 

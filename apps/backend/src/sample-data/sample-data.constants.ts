@@ -245,34 +245,21 @@ export async function resetSampleChildren(prisma: PrismaClient): Promise<void> {
   // 0. The approval engine's runtime trail has no FK to the requests it tracks,
   //    so it must be cleared by id BEFORE those requests disappear.
   if (empIds.length) {
-    const [leaves, overtimes, travels, trainings, bankChanges] = await Promise.all([
+    const [leaves, overtimes, trainings] = await Promise.all([
       prisma.leaveRequest.findMany({ where: { employeeId: { in: empIds } }, select: { id: true } }),
       prisma.overtimeRequest.findMany({ where: { employeeId: { in: empIds } }, select: { id: true } }),
-      prisma.travelRequest.findMany({ where: { employeeId: { in: empIds } }, select: { id: true } }),
       prisma.trainingNomination.findMany({ where: { employeeId: { in: empIds } }, select: { id: true } }),
-      prisma.bankChangeRequest.findMany({ where: { employeeId: { in: empIds } }, select: { id: true } }),
     ]);
-    const requestIds = [...leaves, ...overtimes, ...travels, ...trainings, ...bankChanges].map((r) => r.id);
+    const requestIds = [...leaves, ...overtimes, ...trainings].map((r) => r.id);
     if (requestIds.length) {
       await prisma.requestApproval.deleteMany({ where: { requestId: { in: requestIds } } });
     }
   }
 
-  // 1. Sample payroll first (cascades payroll_items -> advance_loan_deductions;
-  //    nulls reimbursement.payroll_item_id). Then the batch (cascades members).
-  //
-  //    WPS files hold `payroll_id` with onDelete: Restrict, so a wage file left
-  //    over from a previous seed makes the payroll delete below FAIL outright —
-  //    they have to go first. Gratuity accruals and settlements cascade from
-  //    Employee, and employees survive a reset, so they need clearing by hand
-  //    too or a second run doubles every figure on the payroll hub.
-  await prisma.wpsFile.deleteMany({
-    where: { payroll: { batch: { name: { startsWith: 'SMP' } } } },
-  });
+  // 1. Sample payroll first (cascades payroll_items). Then the batch (cascades
+  //    members).
   await prisma.payroll.deleteMany({ where: { batch: { name: { startsWith: 'SMP' } } } });
   await prisma.payrollBatch.deleteMany({ where: { name: { startsWith: 'SMP' } } });
-  await prisma.gratuityAccrual.deleteMany({ where: ofEmp });
-  await prisma.finalSettlement.deleteMany({ where: ofEmp });
 
   // 2. Tasks before projects (tasks.project_id is SetNull, not Cascade).
   //    Timesheets/work logs hang off tasks, so they go first.
@@ -280,13 +267,6 @@ export async function resetSampleChildren(prisma: PrismaClient): Promise<void> {
   await prisma.workLog.deleteMany({ where: ofEmp });
   await prisma.task.deleteMany({ where: sampleFilters.taskByCodePrefix });
   await prisma.project.deleteMany({ where: sampleFilters.projectByCodePrefix });
-
-  // 3. Budgets: commitments -> lines -> budget (all keyed on the SMP budget name).
-  await prisma.budgetCommitment.deleteMany({
-    where: { line: { budget: { name: { startsWith: SMP } } } },
-  });
-  await prisma.budgetLine.deleteMany({ where: { budget: { name: { startsWith: SMP } } } });
-  await prisma.budget.deleteMany({ where: { name: { startsWith: SMP } } });
 
   // 4. Training: nominations before sessions before courses. Nominations also
   //    reference appraisal results, so they must precede the appraisal runs.
@@ -319,9 +299,6 @@ export async function resetSampleChildren(prisma: PrismaClient): Promise<void> {
   await prisma.workSchedule.deleteMany({ where: ofEmp });
   await prisma.leaveRequest.deleteMany({ where: ofEmp }); // -> approvals, attachments
   await prisma.overtimeRequest.deleteMany({ where: ofEmp });
-  await prisma.travelRequest.deleteMany({ where: ofEmp }); // -> itineraries
-  await prisma.reimbursement.deleteMany({ where: ofEmp }); // -> attachments
-  await prisma.advanceLoanRequest.deleteMany({ where: ofEmp }); // -> deductions, attachments
   await prisma.salaryComponent.deleteMany({ where: ofEmp });
   await prisma.leaveTypeBalance.deleteMany({ where: ofEmp });
   await prisma.leaveAccrualHistory.deleteMany({ where: ofEmp });
@@ -338,16 +315,6 @@ export async function resetSampleChildren(prisma: PrismaClient): Promise<void> {
   await prisma.faceDescriptor.deleteMany({ where: ofEmp });
   await prisma.chatHistory.deleteMany({ where: ofEmp });
   await prisma.employeeProfile.deleteMany({ where: ofEmp });
-  await prisma.bankChangeRequest.deleteMany({ where: ofEmp });
-  await prisma.employeeBankDetail.deleteMany({ where: ofEmp });
-  // Written by the Muscat payroll seed. Configuration-shaped rows it also
-  // writes — grades, EOSB rules, the wage-file configuration — are upserted by
-  // natural key and deliberately survive a reset: deleting a branch's wage-file
-  // configuration would leave the pre-flight refusing to open until a re-seed.
-  await prisma.leaveEncashmentRequest.deleteMany({ where: ofEmp });
-  await prisma.employeeRecovery.deleteMany({ where: ofEmp });
-  await prisma.employeeTransfer.deleteMany({ where: ofEmp });
-  await prisma.garnishmentOrder.deleteMany({ where: ofEmp }); // -> garnishment_deductions (cascade)
   await prisma.teamMember.deleteMany({ where: ofEmp });
   await prisma.team.deleteMany({ where: sampleFilters.byCodePrefix });
 
@@ -362,14 +329,8 @@ export async function resetSampleChildren(prisma: PrismaClient): Promise<void> {
   if (branchIds.length) {
     await prisma.attendanceIntegration.deleteMany({ where: { branchId: { in: branchIds } } }); // -> sync runs
     await prisma.holiday.deleteMany({ where: { branchId: { in: branchIds } } });
-    await prisma.payrollCalendar.deleteMany({ where: { branchId: { in: branchIds } } }); // -> periods
-    await prisma.leaveTypePolicy.deleteMany({ where: { branchId: { in: branchIds } } });
+      await prisma.leaveTypePolicy.deleteMany({ where: { branchId: { in: branchIds } } });
     await prisma.leaveCarryForwardRun.deleteMany({ where: { branchId: { in: branchIds } } });
-    // Journal entries point at loan transactions that cascade away with the
-    // loans above, so leaving them behind accumulates orphans on every re-seed.
-    // The chart of accounts and the mappings are configuration and are upserted,
-    // so they stay.
-    await prisma.journalEntry.deleteMany({ where: { branchId: { in: branchIds } } }); // -> lines
   }
 
   // 12. Overtime policies — detach the per-employee override before deleting.

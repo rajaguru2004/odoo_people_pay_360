@@ -18,33 +18,6 @@ import { useBrandingStore, type BrandingData } from '@/store/brandingStore';
 export interface PayrollFeatures {
   /** Payslips carry an itemised earning/deduction breakdown. */
   itemLines: boolean;
-  /** End-of-service benefits: the master switch. */
-  eosb: boolean;
-  /**
-   * Final settlements specifically.
-   *
-   * Its own field because the server needs BOTH — `assertEnabled()` on
-   * `FinalSettlementsService` refuses every route unless `eosb` and this are
-   * on together. A screen gated on the master alone renders a complete
-   * settlements page whose every request answers 404.
-   */
-  eosbSettlement: boolean;
-  /** The monthly gratuity accrual ledger. Same two-switch rule. */
-  eosbAccrual: boolean;
-  /** Per-branch payroll periods with cut-off and payment dates. */
-  calendar: boolean;
-  /** The pre-run validation checklist. */
-  preflight: boolean;
-  /** Asset damage, training bonds and other recoveries through payroll. */
-  recovery: boolean;
-  /** In-service leave encashment requests. */
-  encashment: boolean;
-  /** The payroll reporting suite. */
-  reports: boolean;
-  /** The reviewed branch-transfer flow. */
-  transfer: boolean;
-  /** Employee grades and grade-based salary structures. */
-  grade: boolean;
   /**
    * Whether these values came from the server or are still the store's
    * defaults.
@@ -69,18 +42,6 @@ export function payrollFeaturesFrom(
   // request, a typo — into an enabled feature.
   return {
     itemLines: b?.payroll_item_lines_enabled === true,
-    eosb: b?.payroll_eosb_enabled === true,
-    eosbSettlement:
-      b?.payroll_eosb_enabled === true && b?.payroll_eosb_settlement_enabled === true,
-    eosbAccrual:
-      b?.payroll_eosb_enabled === true && b?.payroll_eosb_accrual_enabled === true,
-    calendar: b?.payroll_calendar_enabled === true,
-    preflight: b?.payroll_preflight_enabled === true,
-    recovery: b?.payroll_employee_recovery_enabled === true,
-    encashment: b?.leave_encashment_enabled === true,
-    reports: b?.payroll_reports_enabled === true,
-    transfer: b?.employee_transfer_enabled === true,
-    grade: b?.employee_grade_enabled === true,
     loaded,
   };
 }
@@ -92,9 +53,7 @@ export function usePayrollFeatures(): PayrollFeatures {
   // it compared, re-rendered to get another new one, and never converged:
   // "The result of getSnapshot should be cached to avoid an infinite loop",
   // then "Maximum update depth exceeded". Every screen calling this hook died
-  // to an error boundary — the payroll calendar, grades, reports, recoveries,
-  // encashment, settlements, transfers, gratuity-rules and validate pages all
-  // rendered nothing at all.
+  // to an error boundary and rendered nothing at all.
   const branding = useBrandingStore((s) => s.branding);
   const loaded = useBrandingStore((s) => s.loaded);
   return useMemo(() => payrollFeaturesFrom(branding, loaded), [branding, loaded]);

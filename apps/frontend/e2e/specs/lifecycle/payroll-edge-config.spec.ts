@@ -24,8 +24,8 @@ import {
  *
  * The catalogue asks for statutory rules to be configurable rather than
  * hardcoded, and they largely are: `SystemSettingsService` holds per-country
- * presets (OM among them) covering work hours, overtime rate, PF, tax brackets
- * and gratuity. But those are **global** settings, shared by every Playwright
+ * presets (OM among them) covering work hours, overtime rate, PF and tax
+ * brackets. But those are **global** settings, shared by every Playwright
  * worker, and this suite runs six in parallel. Flipping one mid-run re-prices
  * every other spec's payroll — the failure lands in a file that never touched the
  * setting, which is the worst attribution failure available here.

@@ -39,9 +39,9 @@ describe('derived breadcrumbs', () => {
   it('names the module on the hub itself', () => {
     // The anchor the deeper trails grow from. Dropping it would make the row
     // appear and disappear as the reader moves in and out of the module.
-    navigationState.pathname = '/dashboard/finance';
+    navigationState.pathname = '/dashboard/people';
     renderWithProviders(<PageBreadcrumbs />, { role: 'ADMIN' });
-    expect(crumbs()).toEqual(['Finance']);
+    expect(crumbs()).toEqual(['People']);
   });
 
   it('shows no trail on a screen the nav does not list', () => {
@@ -62,11 +62,23 @@ describe('derived breadcrumbs', () => {
   });
 
   it('links the section crumb at the module hub', () => {
+    navigationState.pathname = '/dashboard/payroll/batches';
+    renderWithProviders(<PageBreadcrumbs />, { role: 'ADMIN' });
+
+    const link = document.querySelector('nav[aria-label="Breadcrumb"] a[href="/dashboard/payroll/manage"]');
+    expect(link).toBeTruthy();
+  });
+
+  it('drops the href from a section crumb that points at the current page', () => {
+    // Payroll's header points at Run Payroll, the same URL as its first child,
+    // so linking the section crumb would hand the reader a way back to where
+    // they already are.
     navigationState.pathname = '/dashboard/payroll/manage';
     renderWithProviders(<PageBreadcrumbs />, { role: 'ADMIN' });
 
-    const link = document.querySelector('nav[aria-label="Breadcrumb"] a[href="/dashboard/payroll/overview"]');
-    expect(link).toBeTruthy();
+    const nav = document.querySelector('nav[aria-label="Breadcrumb"]')!;
+    expect(crumbs()).toEqual(['Payroll', 'Run Payroll']);
+    expect(nav.querySelector('a[href="/dashboard/payroll/manage"]')).toBeNull();
   });
 
   it('stays out of the header, which owns the title and its description', () => {
@@ -116,7 +128,7 @@ describe('declared breadcrumbs', () => {
     // Guarded on pathname: the outgoing page's cleanup can run after the
     // incoming page's effect, and a stale trail is worse than none. The
     // derived trail for the route we are actually on wins.
-    navigationState.pathname = '/dashboard/reimbursements';
+    navigationState.pathname = '/dashboard/employees';
     usePageHeaderStore.setState({
       entry: {
         pathname: '/dashboard/payroll/manage',
@@ -126,17 +138,17 @@ describe('declared breadcrumbs', () => {
     });
     renderWithProviders(<PageBreadcrumbs />, { role: 'ADMIN' });
 
-    expect(crumbs()).toEqual(['Finance', 'Reimbursements']);
+    expect(crumbs()).toEqual(['People', 'Employee Directory']);
   });
 });
 
 /**
  * The payroll module, whose hub is a SIBLING of the routes it owns.
  *
- * These four routes rendered NO trail at all before `basePath`: the group's
- * href is `/dashboard/payroll/overview`, so nothing under `/dashboard/payroll/`
- * that was not an exact nav child resolved to the module. Reported from the
- * screens themselves — "many screens missing it".
+ * These routes rendered NO trail at all before `basePath`: the group's href is
+ * `/dashboard/payroll/manage`, so nothing under `/dashboard/payroll/` that was
+ * not an exact nav child resolved to the module. Reported from the screens
+ * themselves — "many screens missing it".
  */
 describe('payroll — a module hub that sits beside its own routes', () => {
   it('names the module and the run on a payroll run detail', () => {
@@ -149,36 +161,16 @@ describe('payroll — a module hub that sits beside its own routes', () => {
     expect(crumbs()).toEqual(['Payroll', 'Monthly salary slip 8/2026']);
   });
 
-  it('names the module on a route deeper than any nav entry', () => {
-    navigationState.pathname = '/dashboard/payroll/run-123/wps';
-    usePageHeaderStore.setState({
-      entry: { pathname: '/dashboard/payroll/run-123/wps', title: 'WPS file' },
-    });
-    renderWithProviders(<PageBreadcrumbs />, { role: 'ADMIN' });
-
-    expect(crumbs()).toEqual(['Payroll', 'WPS file']);
-  });
-
-  it('keeps the section crumb on a settlement detail', () => {
+  it('keeps the section crumb on a batch record', () => {
     // The middle crumb is the whole point: without it the trail would end on
-    // "Final Settlements" and mark the LIST as the page the reader is on.
-    navigationState.pathname = '/dashboard/payroll/settlements/s-1';
+    // "Payroll Batches" and mark the LIST as the page the reader is on.
+    navigationState.pathname = '/dashboard/payroll/batches/b-1';
     usePageHeaderStore.setState({
-      entry: { pathname: '/dashboard/payroll/settlements/s-1', title: 'Ahmed Al Balushi' },
+      entry: { pathname: '/dashboard/payroll/batches/b-1', title: 'Engineering' },
     });
-    renderWithProviders(<PageBreadcrumbs />, {
-      role: 'ADMIN',
-      branding: { payroll_eosb_enabled: true } as never,
-    });
-
-    expect(crumbs()).toEqual(['Payroll', 'Final Settlements (EOSB)', 'Ahmed Al Balushi']);
-  });
-
-  it('stays a single crumb on the payroll hub itself', () => {
-    navigationState.pathname = '/dashboard/payroll/overview';
     renderWithProviders(<PageBreadcrumbs />, { role: 'ADMIN' });
 
-    expect(crumbs()).toEqual(['Payroll']);
+    expect(crumbs()).toEqual(['Payroll', 'Payroll Batches', 'Engineering']);
   });
 
   it('routes an employee to the same payslip through their own group', () => {
@@ -219,13 +211,13 @@ describe('exactly one trail, ending where the reader is', () => {
   it('never links the crumb the reader is already standing on', () => {
     // A link to the current page is a dead control, and it makes the trail read
     // as though the destination were somewhere else.
-    navigationState.pathname = '/dashboard/payroll/manage';
+    navigationState.pathname = '/dashboard/payroll/batches';
     renderWithProviders(<PageBreadcrumbs />, { role: 'ADMIN' });
 
     const nav = document.querySelector('nav[aria-label="Breadcrumb"]')!;
-    expect(nav.querySelector('a[href="/dashboard/payroll/manage"]')).toBeNull();
+    expect(nav.querySelector('a[href="/dashboard/payroll/batches"]')).toBeNull();
     // …while the crumb above it stays a working way back.
-    expect(nav.querySelector('a[href="/dashboard/payroll/overview"]')).toBeTruthy();
+    expect(nav.querySelector('a[href="/dashboard/payroll/manage"]')).toBeTruthy();
   });
 });
 

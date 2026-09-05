@@ -27,11 +27,8 @@ export type LineBucket =
   | 'overtimePay'
   | 'foodAllowance'
   | 'siteAllowance'
-  | 'reimbursement'
   | 'leaveEncashment'
   | 'deduction'
-  | 'advanceLoanDeduction'
-  | 'garnishment'
   | 'otherRecovery'
   | 'insurance'
   | 'tax';
@@ -51,11 +48,8 @@ export const BUCKET_CATEGORY: Readonly<Record<LineBucket, LineCategory>> = {
   overtimePay: 'EARNING',
   foodAllowance: 'EARNING',
   siteAllowance: 'EARNING',
-  reimbursement: 'EARNING',
   leaveEncashment: 'EARNING',
   deduction: 'DEDUCTION',
-  advanceLoanDeduction: 'DEDUCTION',
-  garnishment: 'DEDUCTION',
   otherRecovery: 'DEDUCTION',
   insurance: 'DEDUCTION',
   tax: 'DEDUCTION',

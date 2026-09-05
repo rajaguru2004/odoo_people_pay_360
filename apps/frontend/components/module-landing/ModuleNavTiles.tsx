@@ -7,10 +7,8 @@ import {
   Building2, Network, GitPullRequestArrow, Users, UserPlus, UsersRound, FileText, FilePlus2,
   UserMinus, IdCard, Clock, ClipboardCheck, History, BarChart3, SlidersHorizontal, ScanFace,
   CalendarDays, CalendarClock, CalendarRange, CalendarCheck2, Hourglass, TimerReset, Scale,
-  Banknote, PlayCircle, ShieldCheck, Layers, CheckCheck, Coins, Medal, LogOut, Gift, Undo2,
-  ArrowLeftRight, FileSpreadsheet, Landmark, Settings2, Globe2, DatabaseZap, Receipt, Plane,
-  HandCoins, PieChart, Wallet, Award, GraduationCap, Trophy, ThumbsUp, ThumbsDown, MessageSquareWarning,
-  Boxes, Mail, FolderKanban, Settings, ScrollText, ChevronRight,
+  PlayCircle, Layers, CheckCheck, Coins, Award, GraduationCap, Trophy, ThumbsUp, ThumbsDown,
+  MessageSquareWarning, Boxes, Mail, FolderKanban, Settings, ScrollText, ChevronRight,
 } from 'lucide-react';
 import { useModuleNav } from '@/hooks/useModuleNav';
 
@@ -38,15 +36,8 @@ const CHILD_ICONS: Record<string, any> = {
   leaveRequests: CalendarRange, pendingLeaves: CalendarCheck2, leaveBalances: Scale,
   overtimeRequests: Hourglass, logOvertime: TimerReset,
   // Payroll
-  runPayroll: PlayCircle, payrollValidate: ShieldCheck, payrollBatches: Layers,
-  payrollApprovals: CheckCheck, salaryStructures: Coins, payrollGrades: Medal,
-  finalSettlements: LogOut, gratuityRules: Gift, leaveEncashment: Banknote,
-  payrollRecoveries: Undo2, payrollCalendar: CalendarDays, payrollTransfers: ArrowLeftRight,
-  payrollReports: FileSpreadsheet, bankMaster: Landmark, bankFieldConfig: Settings2,
-  bankBranchCountries: Globe2, bankMigration: DatabaseZap,
-  // Finance
-  reimbursements: Receipt, travel: Plane, advancesLoans: HandCoins, loanReports: PieChart,
-  budgets: Wallet,
+  runPayroll: PlayCircle, payrollBatches: Layers, payrollApprovals: CheckCheck,
+  salaryStructures: Coins,
   // Talent
   appraisals: Award, training: GraduationCap, rewardsOverview: Trophy, reward: ThumbsUp,
   discipline: ThumbsDown, grievances: MessageSquareWarning,

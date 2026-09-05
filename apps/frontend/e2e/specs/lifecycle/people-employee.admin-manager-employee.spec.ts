@@ -304,9 +304,8 @@ test.describe('The employee record', () => {
       expect(await detail.hasSection('salary')).toBe(false);
 
       // `crashesOnly`, not `settle`. Once a manager has opened /dashboard, its
-      // ungated widgets have logged four 403s —
-      //   /dashboard/payroll-summary, /payrolls, /reimbursements/pending,
-      //   /dashboard/turnover-stats
+      // ungated widgets have logged 403s —
+      //   /dashboard/payroll-summary, /payrolls, /dashboard/turnover-stats
       // — and react-query replays them on later navigations, so they surface on
       // this screen without originating here (finding P37, which belongs to the
       // Dashboard module). Judging strictly would fail this case for something it

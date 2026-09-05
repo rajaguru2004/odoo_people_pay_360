@@ -10,9 +10,6 @@ import React from 'react';
  * branding mirror — which is how a toggle ends up writing `true` and rendering
  * OFF. These are declared once and rendered by a loop, so adding the next one is
  * a line in this array rather than five edits spread over a 4,600-line file.
- *
- * Modelled on `WpsSection`'s field renderer, which switches on `type` and knows
- * nothing about the fields it draws.
  */
 export interface FeatureSwitch {
   key: string;
@@ -47,100 +44,13 @@ export const PAYROLL_FEATURE_SWITCHES: FeatureSwitch[] = [
     ],
   },
   {
-    key: 'payroll_eosb_enabled',
-    label: 'End-of-service benefits',
-    help:
-      'Gratuity rules, a monthly liability accrual and final-settlement documents.',
-    off: 'No gratuity is accrued and no settlement can be prepared. An exit works exactly as today.',
-    children: [
-      {
-        key: 'payroll_eosb_accrual_enabled',
-        label: 'Accrue the provision each month',
-        help: 'Builds the liability figure Finance can plan against, written when a payroll locks.',
-        off: 'No liability ledger is built.',
-      },
-      {
-        key: 'payroll_eosb_settlement_enabled',
-        label: 'Prepare final settlements',
-        help: 'A settlement document per leaver, every line adjustable with a recorded reason.',
-        off: 'The settlement screens are unavailable.',
-      },
-      {
-        key: 'payroll_eosb_pay_through_final_run',
-        label: 'Pay the benefit through the payroll run',
-        help:
-          'The gratuity appears on the final payslip, so it reaches the wage ' +
-          'file the bank receives. Some jurisdictions require the whole exit ' +
-          'package to be visible there.',
-        off:
-          'Gratuity stays a provision settled outside payroll, and the final ' +
-          'run carries pending salary only. Which is correct is a local legal ' +
-          'question — ask your advisor rather than guessing.',
-      },
-    ],
-  },
-  {
-    key: 'leave_encashment_enabled',
-    label: 'Leave encashment',
-    help: 'Employees can request unused leave as pay, and it reaches the payslip.',
-    off: 'No encashment is computed, in service or on exit.',
-    children: [
-      {
-        key: 'leave_encashment_taxable',
-        label: 'Encashment is taxable',
-        help:
-          'The payment joins the gross, so tax and statutory insurance are ' +
-          'calculated on it. On by default.',
-        off:
-          'It is added after tax, like a reimbursement. The employee receives ' +
-          'the same amount either way — only the tax and insurance bases ' +
-          'differ. Which is correct depends on your jurisdiction.',
-      },
-    ],
-  },
-  {
     key: 'leave_carry_forward_enabled',
     label: 'Year-end leave carry-forward',
     help: 'Carries unused balance into the next year, capped per leave type.',
     off: 'No leave balance is ever moved automatically.',
   },
-  {
-    key: 'payroll_calendar_enabled',
-    label: 'Payroll calendar',
-    help: 'Per-branch periods with a cut-off date and a payment date.',
-    off: 'A period is the calendar month and no cut-off is checked.',
-  },
-  {
-    key: 'payroll_preflight_enabled',
-    label: 'Pre-run validation checklist',
-    help: 'Answers "is this run safe to generate?" before the run exists.',
-    off: "The run's own guards are the only checks.",
-  },
-  {
-    key: 'payroll_employee_recovery_enabled',
-    label: 'Recoveries through payroll',
-    help: 'Asset damage, asset loss, training bonds and notice shortfalls, recovered in instalments.',
-    off: 'Recoveries stay manual salary components or loans, unlinked to the asset.',
-  },
-  {
-    key: 'payroll_reports_enabled',
-    label: 'Payroll reports',
-    help: 'Register, cost by department, statutory summary, YTD and variance.',
-    off: 'The spreadsheet export is the only payroll reporting.',
-  },
-  {
-    key: 'employee_transfer_enabled',
-    label: 'Branch transfers',
-    help: 'A reviewed flow for moving an employee between branches.',
-    off: 'An employee cannot change branch.',
-  },
-  {
-    key: 'employee_grade_enabled',
-    label: 'Employee grades',
-    help: 'Grades and grade-based salary structures.',
-    off: 'Employment type remains the only banding.',
-  },
 ];
+
 
 function Row({
   spec,

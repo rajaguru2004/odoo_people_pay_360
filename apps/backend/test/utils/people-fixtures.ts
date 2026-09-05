@@ -376,17 +376,6 @@ export async function setupPeopleFixtures(
       returnedAt: null,
     },
   });
-  await prisma.advanceLoanRequest.create({
-    data: {
-      employeeId: staffWithLoan.id,
-      type: 'LOAN',
-      amount: 10000,
-      amountRepaid: 0,
-      status: 'ACTIVE',
-      installments: 10,
-      reason: `people fixture loan ${runId}`,
-    },
-  });
 
   const userEmails = [
     adminUser.email,
@@ -562,9 +551,6 @@ export async function setupPeopleFixtures(
       });
       await prisma.assetItem.deleteMany({
         where: { assetTag: { contains: runId } },
-      });
-      await prisma.advanceLoanRequest.deleteMany({
-        where: { employeeId: { in: empIds } },
       });
 
       await prisma.leaveRequest.deleteMany({

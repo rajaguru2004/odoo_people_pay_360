@@ -35,26 +35,26 @@ describe('MobileTabBar', () => {
   });
 
   it('stays lit on a child route of its section', () => {
-    navigationState.pathname = '/dashboard/my-payroll/gratuity';
+    navigationState.pathname = '/dashboard/attendance/corrections';
     renderWithProviders(<MobileTabBar onMoreClick={vi.fn()} />, { role: 'EMPLOYEE' });
-    expect(screen.getByTestId('mobile-tab-navPayslip')).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('mobile-tab-navAttendance')).toHaveAttribute('aria-current', 'page');
   });
 
   /**
-   * The payslip tab's destination and its lit-up routes are deliberately
-   * different segments, and the first version of this component conflated
-   * them: it navigated to `/dashboard/my-payroll`, which has no page, so the
-   * tab 404'd. These two cases are what would have caught that.
+   * A tab's destination and its lit-up routes are deliberately different
+   * segments: leave is filed from `/dashboard/my-leaves` and read under
+   * `/dashboard/leaves`. Conflating the two is what made an earlier version
+   * navigate to a segment that had no page.
    */
-  it('sends the payslip tab to the list that exists, not to the segment it lights on', async () => {
+  it('sends the leave tab to the self-service list, not to the segment it also lights on', async () => {
     const { user } = renderWithProviders(<MobileTabBar onMoreClick={vi.fn()} />, { role: 'EMPLOYEE' });
-    await user.click(screen.getByTestId('mobile-tab-navPayslip'));
-    expect(routerMock.push).toHaveBeenCalledWith('/dashboard/payroll');
+    await user.click(screen.getByTestId('mobile-tab-navLeave'));
+    expect(routerMock.push).toHaveBeenCalledWith('/dashboard/my-leaves');
   });
 
   it.each([
     ['/dashboard/payroll', 'mobile-tab-navPayslip'],
-    ['/dashboard/my-payroll/abc-123', 'mobile-tab-navPayslip'],
+    ['/dashboard/payroll/abc-123', 'mobile-tab-navPayslip'],
     ['/dashboard/leaves/new', 'mobile-tab-navLeave'],
     ['/dashboard/leaves/abc-123', 'mobile-tab-navLeave'],
     ['/dashboard/attendance/corrections', 'mobile-tab-navAttendance'],

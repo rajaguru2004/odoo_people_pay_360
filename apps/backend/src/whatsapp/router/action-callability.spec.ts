@@ -4,24 +4,19 @@ import { AnalyticsTools } from '../../mcp/tools/analytics.tools';
 import { ApprovalsTools } from '../../mcp/tools/approvals.tools';
 import { AssetsTools } from '../../mcp/tools/assets.tools';
 import { AttendanceTools } from '../../mcp/tools/attendance.tools';
-import { BankDetailsTools } from '../../mcp/tools/bank-details.tools';
-import { BudgetsTools } from '../../mcp/tools/budgets.tools';
 import { DepartmentTools } from '../../mcp/tools/departments.tools';
 import { EmployeeTools } from '../../mcp/tools/employees.tools';
 import { HolidayTools } from '../../mcp/tools/holidays.tools';
 import { LeaveTools } from '../../mcp/tools/leave.tools';
-import { LoanTools } from '../../mcp/tools/loans.tools';
 import { OvertimePolicyTools } from '../../mcp/tools/overtime-policy.tools';
 import { OvertimeTools } from '../../mcp/tools/overtime.tools';
 import { PayrollTools } from '../../mcp/tools/payroll.tools';
 import { ProjectTools } from '../../mcp/tools/projects.tools';
-import { ReimbursementTools } from '../../mcp/tools/reimbursements.tools';
 import { ReportTools } from '../../mcp/tools/reports.tools';
 import { ShiftTools } from '../../mcp/tools/shifts.tools';
 import { SupervisorTools } from '../../mcp/tools/supervisor.tools';
 import { TaskTools } from '../../mcp/tools/tasks.tools';
 import { TrainingTools } from '../../mcp/tools/training.tools';
-import { TravelTools } from '../../mcp/tools/travel.tools';
 import { VisaTools } from '../../mcp/tools/visa.tools';
 import { essActions } from './actions/ess.actions';
 import { approvalActions } from './actions/approval.actions';
@@ -107,24 +102,19 @@ const PROVIDERS = [
   ApprovalsTools,
   AssetsTools,
   AttendanceTools,
-  BankDetailsTools,
-  BudgetsTools,
   DepartmentTools,
   EmployeeTools,
   HolidayTools,
   LeaveTools,
-  LoanTools,
   OvertimePolicyTools,
   OvertimeTools,
   PayrollTools,
   ProjectTools,
-  ReimbursementTools,
   ReportTools,
   ShiftTools,
   SupervisorTools,
   TaskTools,
   TrainingTools,
-  TravelTools,
   VisaTools,
 ];
 
@@ -201,7 +191,7 @@ describe('every action can call its tool', () => {
 
   it('covers every action that maps to a tool', () => {
     // Guards against the catalogue or the provider list silently shrinking.
-    expect(catalogue.length).toBeGreaterThanOrEqual(25);
-    expect(tools.size).toBeGreaterThanOrEqual(150);
+    expect(catalogue.length).toBeGreaterThanOrEqual(20);
+    expect(tools.size).toBeGreaterThanOrEqual(120);
   });
 });

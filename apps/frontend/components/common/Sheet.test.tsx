@@ -155,10 +155,10 @@ describe('Sheet', () => {
   });
 
   it('keeps footer children as direct children of the footer', () => {
-    // LOAD-BEARING. `e2e/pages/travel.ts` reaches the confirm dialog's panel by
-    // walking two ancestors up from its confirm button (button → footer →
-    // panel). One more wrapper here silently breaks that page object, and the
-    // failure surfaces as an unrelated travel spec timing out.
+    // LOAD-BEARING. A spec reaches the confirm dialog's panel by walking two
+    // ancestors up from its confirm button (button → footer → panel). One more
+    // wrapper here silently breaks that walk, and the failure surfaces as an
+    // unrelated spec timing out.
     renderWithProviders(
       <Sheet open onClose={vi.fn()} title="Delete" testId="x-sheet" footer={<button data-testid="go">Go</button>}>
         <p>body</p>

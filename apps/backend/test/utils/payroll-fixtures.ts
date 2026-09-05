@@ -108,13 +108,6 @@ export interface PayrollFixtures {
    *  authority here is a data-driven assignment, not an RBAC grant. */
   supervisor: PayrollUser;
 
-  /** Bank Master row for IN, active. */
-  bankInId: string;
-  /** Bank Master row for OM, active, bankCode "018" (matches VALID_OM_IBAN). */
-  bankOmId: string;
-  /** Bank Master row for IN, INACTIVE — refusal cases. */
-  bankInactiveId: string;
-
   /** EMPLOYMENT_TYPE library label with `payBasis: 'DAILY'`. */
   dailyEmploymentType: string;
 
@@ -208,7 +201,7 @@ export async function setupPayrollFixtures(
       name: 'Payroll Branch A',
       isActive: true,
       country: 'IN',
-      bankingCountries: ['IN'],
+      
       timezone: 'Asia/Kolkata',
       officeStartTime: '09:00',
       officeEndTime: '18:00',
@@ -223,7 +216,7 @@ export async function setupPayrollFixtures(
       name: 'Payroll Branch B',
       isActive: true,
       country: 'IN',
-      bankingCountries: ['IN'],
+      
       timezone: 'Asia/Kolkata',
       weeklyOffDays: '0',
     },
@@ -234,7 +227,7 @@ export async function setupPayrollFixtures(
       name: 'Payroll Branch Muscat',
       isActive: true,
       country: 'OM',
-      bankingCountries: ['OM'],
+      
       timezone: 'Asia/Muscat',
       // Oman works Sun–Thu: Friday (5) and Saturday (6) are the weekly off.
       weeklyOffDays: '5,6',
@@ -415,109 +408,6 @@ export async function setupPayrollFixtures(
   await seedAttendance(prisma, [branchBEmp.id], branchB.id, period);
   await seedAttendance(prisma, [omEmp.id], branchOm.id, period);
 
-  // ── Bank Master + banking field schemas ───────────────────────────────────
-  const bankIn = await prisma.bank.create({
-    data: {
-      country: 'IN',
-      name: `Payroll Test Bank IN ${runId}`,
-      bankCode: 'PTB',
-      swift: 'PTBIINBB',
-      isActive: true,
-    },
-  });
-  const bankOm = await prisma.bank.create({
-    data: {
-      country: 'OM',
-      // bankCode 018 is the code embedded in VALID_OM_IBAN positions 5-7, so the
-      // IBAN cross-check in validateBankingData passes against this row.
-      name: `Payroll Test Bank OM ${runId}`,
-      bankCode: '018',
-      swift: 'PTBOOMRX',
-      isActive: true,
-    },
-  });
-  const bankInactive = await prisma.bank.create({
-    data: {
-      country: 'IN',
-      name: `Payroll Retired Bank ${runId}`,
-      bankCode: 'PRB',
-      isActive: false,
-    },
-  });
-
-  // Shared with bank-change / banking-config / wps-flow: UPSERTED, never created
-  // outright, and never deleted in cleanup. A suite that owns these rows would
-  // break every sibling that assumes they exist.
-  const upsertField = (
-    country: string,
-    fieldKey: string,
-    data: {
-      label: string;
-      validationType: string;
-      required: boolean;
-      displayOrder: number;
-      isSensitive: boolean;
-    },
-  ) =>
-    prisma.countryBankingField.upsert({
-      where: { country_fieldKey: { country, fieldKey } },
-      update: {},
-      create: { country, fieldKey, ...data },
-    });
-
-  await upsertField('OM', 'accountHolderName', {
-    label: 'Account Holder Name',
-    validationType: 'NONE',
-    required: true,
-    displayOrder: 1,
-    isSensitive: false,
-  });
-  await upsertField('OM', 'iban', {
-    label: 'IBAN',
-    validationType: 'IBAN',
-    required: true,
-    displayOrder: 2,
-    isSensitive: true,
-  });
-  await upsertField('IN', 'accountHolderName', {
-    label: 'Account Holder Name',
-    validationType: 'NONE',
-    required: true,
-    displayOrder: 1,
-    isSensitive: false,
-  });
-  await upsertField('IN', 'accountNumber', {
-    label: 'Account Number',
-    validationType: 'NUMBER',
-    required: true,
-    displayOrder: 2,
-    isSensitive: true,
-  });
-  await upsertField('IN', 'ifsc', {
-    label: 'IFSC',
-    validationType: 'IFSC',
-    required: true,
-    displayOrder: 3,
-    isSensitive: false,
-  });
-
-  // The Oman employee starts with a bank detail already in place, so WPS and the
-  // freeze guard both have a payable employee to work with from the first case.
-  await prisma.employeeBankDetail.create({
-    data: {
-      employeeId: omEmp.id,
-      bankId: bankOm.id,
-      branchId: branchOm.id,
-      data: {
-        accountHolderName: 'Payroll OMAN',
-        iban: VALID_OM_IBAN,
-      },
-      iban: VALID_OM_IBAN,
-      accountHolderName: 'Payroll OMAN',
-      isActive: true,
-      source: 'MIGRATION',
-    },
-  });
 
   // ── Users ─────────────────────────────────────────────────────────────────
   const mkUser = (
@@ -626,10 +516,6 @@ export async function setupPayrollFixtures(
       token: await login(ctx, supervisorUser.email),
     },
 
-    bankInId: bankIn.id,
-    bankOmId: bankOm.id,
-    bankInactiveId: bankInactive.id,
-
     dailyEmploymentType,
 
     period,
@@ -658,41 +544,6 @@ export async function setupPayrollFixtures(
       const empIn = { employeeId: { in: employeeIds } };
       const branchIds = [branchA.id, branchB.id, branchOm.id];
 
-      // WPS: rows -> files -> per-branch config. Employer profiles are global and
-      // tagged by name.
-      await prisma.wpsFileRow.deleteMany({
-        where: { wpsFile: { branchId: { in: branchIds } } },
-      });
-      await prisma.wpsFile.deleteMany({
-        where: { branchId: { in: branchIds } },
-      });
-      await prisma.wpsConfiguration.deleteMany({
-        where: { branchId: { in: branchIds } },
-      });
-      await prisma.wpsEmployerProfile.deleteMany({
-        where: { name: { contains: runId } },
-      });
-
-      // Approval trails for every bank-change request this run raised.
-      const bankChangeIds = (
-        await prisma.bankChangeRequest.findMany({
-          where: empIn,
-          select: { id: true },
-        })
-      ).map((r: { id: string }) => r.id);
-      if (bankChangeIds.length) {
-        await prisma.requestApproval.deleteMany({
-          where: { requestId: { in: bankChangeIds } },
-        });
-      }
-      await prisma.bankChangeRequest.deleteMany({ where: empIn });
-      await prisma.employeeBankDetail.deleteMany({ where: empIn });
-      await prisma.bank.deleteMany({ where: { name: { contains: runId } } });
-      // CountryBankingField for real countries is SHARED — only the sandbox
-      // country's rows belong to this run.
-      await prisma.countryBankingField.deleteMany({
-        where: { country: SANDBOX_COUNTRY },
-      });
 
       // Payroll: items -> payrolls -> batch members -> batches.
       await prisma.payrollItem.deleteMany({ where: empIn });
@@ -706,18 +557,7 @@ export async function setupPayrollFixtures(
 
       // Loans, children first (all RESTRICT on the employee).
       const loanWhere = { request: { employee: empWhere } };
-      await prisma.advanceLoanNotificationLog.deleteMany({ where: loanWhere });
-      await prisma.loanTransaction.deleteMany({ where: loanWhere });
-      await prisma.loanRateChange.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanDeduction.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanAttachment.deleteMany({ where: loanWhere });
-      await prisma.loanSchedule.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanRequest.deleteMany({
-        where: { employee: empWhere },
-      });
-      await prisma.loanSettlement.deleteMany({ where: { employee: empWhere } });
 
-      await prisma.reimbursement.deleteMany({ where: empIn });
       await prisma.salaryComponent.deleteMany({ where: empIn });
       await prisma.leaveRequest.deleteMany({ where: empIn });
       await prisma.overtimeRequest.deleteMany({ where: empIn });

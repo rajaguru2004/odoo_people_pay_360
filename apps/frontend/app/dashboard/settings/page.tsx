@@ -5,7 +5,7 @@ import {
   Settings, Bell, Shield, Palette, Globe, Key, Save, Clock, Calendar,
   Sliders, Mail, Server, Hash, User, Lock, Tag, Plus, Trash2,
   Percent, TrendingUp, BarChart2, Building2, CheckCircle2, Info, Edit3, RotateCcw,
-  ListTodo, BookOpen, MoreVertical, Receipt, X, MapPin, Landmark, AlertTriangle, Banknote,
+  ListTodo, BookOpen, MoreVertical, X, MapPin, AlertTriangle,
   Loader2, Database, Sparkles, GitBranch, Plug, MessageCircle,
   FileText,
 } from 'lucide-react';
@@ -36,7 +36,6 @@ import SupervisorHierarchySection from '@/components/settings/SupervisorHierarch
 import OvertimePolicySection from '@/components/settings/OvertimePolicySection';
 import EmployeeTemplateSection from '@/components/settings/EmployeeTemplateSection';
 import AttendanceIntegrationsSection from '@/components/settings/AttendanceIntegrationsSection';
-import WpsSection from '@/components/settings/WpsSection';
 import { useDevMode } from '@/hooks/useDevMode';
 import { usePageHeader } from '@/hooks/usePageHeader';
 import PageActionRow from '@/components/common/PageActionRow';
@@ -46,7 +45,6 @@ import {
   PAYROLL_FEATURE_SWITCHES,
   PayrollFeatureSwitches,
 } from '@/components/settings/PayrollFeatureSwitches';
-import LoanPolicySettings from '@/components/advance-loans/LoanPolicySettings';
 
 /**
  * Tabs that only exist while developer mode is unlocked. Kept as one list so the
@@ -73,11 +71,10 @@ const SELF_SAVING_TABS = new Set([
   'holidays',
   'approvals',
   'overtime-policies',
-  'wps',
   'security',
 ]);
 
-const DEVELOPER_TAB_IDS = ['copilot', 'messages', 'integrations', 'wps', 'employee-template'];
+const DEVELOPER_TAB_IDS = ['copilot', 'messages', 'integrations', 'employee-template'];
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -120,8 +117,6 @@ interface PayrollSettings {
   payroll_esi_employer_rate: string;
   payroll_esi_salary_cap: string;
   // Gratuity
-  payroll_gratuity_enabled: boolean;
-  payroll_gratuity_rate: string;
   // Daily wage
   payroll_daily_wage_statutory_deductions: boolean;
   payroll_daily_wage_pay_leave: boolean;
@@ -144,7 +139,6 @@ type LabelKey =
   | 'payroll_label_income_tax'
   | 'payroll_label_cess'
   | 'payroll_label_rebate'
-  | 'payroll_label_gratuity';
 
 type PayrollLabels = Record<LabelKey, string>;
 
@@ -162,13 +156,12 @@ const EMPTY_LABELS: PayrollLabels = {
   payroll_label_income_tax: '',
   payroll_label_cess: '',
   payroll_label_rebate: '',
-  payroll_label_gratuity: '',
 };
 
 interface CountryMetaFull {
   flag: string; name: string; tag: string;
   pfLabel: string; ptLabel: string; esiLabel: string;
-  cessLabel: string; rebateLabel: string; gratuityLabel: string;
+  cessLabel: string; rebateLabel: string;
 }
 
 /** Every editable label with its metadata and country-meta default resolver. */
@@ -186,7 +179,6 @@ const LABEL_ENTRIES: {
     { key: 'payroll_label_income_tax', category: 'Section title', description: 'Income Tax / TDS section heading', getDefault: () => 'Income Tax / TDS' },
     { key: 'payroll_label_cess', category: 'Section title', description: 'Surcharge / Cess block title', getDefault: m => m.cessLabel },
     { key: 'payroll_label_rebate', category: 'Section title', description: 'Tax Rebate / Credit block title', getDefault: m => m.rebateLabel },
-    { key: 'payroll_label_gratuity', category: 'Section title', description: 'Gratuity / End-of-Service section heading', getDefault: m => m.gratuityLabel },
     // ─── PF field labels ──────────────────────────────────────────────────────
     { key: 'payroll_label_pf_employee_rate', category: 'PF field', description: 'Employee contribution rate field inside PF', getDefault: () => 'Employee Contribution Rate' },
     { key: 'payroll_label_pf_employer_rate', category: 'PF field', description: 'Employer contribution rate field inside PF', getDefault: () => 'Employer Contribution Rate' },
@@ -219,7 +211,6 @@ const COUNTRY_PRESETS: Record<CountryPreset, CountryPresetSettings> = {
     payroll_tax_brackets: [{ limit: 300000, rate: 0 }, { limit: 700000, rate: 0.05 }, { limit: 1000000, rate: 0.1 }, { limit: 1200000, rate: 0.15 }, { limit: 1500000, rate: 0.2 }, { limit: 999999999, rate: 0.3 }],
     payroll_tax_rebate_enabled: true, payroll_tax_rebate_limit: '700000', payroll_cess_enabled: true, payroll_cess_rate: '0.04',
     payroll_esi_enabled: true, payroll_esi_employee_rate: '0.0075', payroll_esi_employer_rate: '0.0325', payroll_esi_salary_cap: '21000',
-    payroll_gratuity_enabled: false, payroll_gratuity_rate: '0.0481',
   },
   US: {
     payroll_country: 'US', payroll_currency: 'USD', payroll_currency_symbol: '$',
@@ -230,7 +221,6 @@ const COUNTRY_PRESETS: Record<CountryPreset, CountryPresetSettings> = {
     payroll_tax_brackets: [{ limit: 11600, rate: 0.10 }, { limit: 47150, rate: 0.12 }, { limit: 100525, rate: 0.22 }, { limit: 191950, rate: 0.24 }, { limit: 243725, rate: 0.32 }, { limit: 609350, rate: 0.35 }, { limit: 999999999, rate: 0.37 }],
     payroll_tax_rebate_enabled: false, payroll_tax_rebate_limit: '0', payroll_cess_enabled: false, payroll_cess_rate: '0',
     payroll_esi_enabled: false, payroll_esi_employee_rate: '0', payroll_esi_employer_rate: '0', payroll_esi_salary_cap: '0',
-    payroll_gratuity_enabled: false, payroll_gratuity_rate: '0',
   },
   GB: {
     payroll_country: 'GB', payroll_currency: 'GBP', payroll_currency_symbol: '£',
@@ -241,7 +231,6 @@ const COUNTRY_PRESETS: Record<CountryPreset, CountryPresetSettings> = {
     payroll_tax_brackets: [{ limit: 12570, rate: 0.0 }, { limit: 50270, rate: 0.20 }, { limit: 125140, rate: 0.40 }, { limit: 999999999, rate: 0.45 }],
     payroll_tax_rebate_enabled: false, payroll_tax_rebate_limit: '0', payroll_cess_enabled: false, payroll_cess_rate: '0',
     payroll_esi_enabled: false, payroll_esi_employee_rate: '0', payroll_esi_employer_rate: '0', payroll_esi_salary_cap: '0',
-    payroll_gratuity_enabled: false, payroll_gratuity_rate: '0',
   },
   AE: {
     payroll_country: 'AE', payroll_currency: 'AED', payroll_currency_symbol: 'د.إ',
@@ -252,7 +241,6 @@ const COUNTRY_PRESETS: Record<CountryPreset, CountryPresetSettings> = {
     payroll_tax_brackets: [{ limit: 999999999, rate: 0.0 }],
     payroll_tax_rebate_enabled: false, payroll_tax_rebate_limit: '0', payroll_cess_enabled: false, payroll_cess_rate: '0',
     payroll_esi_enabled: false, payroll_esi_employee_rate: '0', payroll_esi_employer_rate: '0', payroll_esi_salary_cap: '0',
-    payroll_gratuity_enabled: true, payroll_gratuity_rate: '0.0577',
   },
   OM: {
     payroll_country: 'OM', payroll_currency: 'OMR', payroll_currency_symbol: 'ر.ع.',
@@ -263,7 +251,6 @@ const COUNTRY_PRESETS: Record<CountryPreset, CountryPresetSettings> = {
     payroll_tax_brackets: [{ limit: 999999999, rate: 0.0 }],
     payroll_tax_rebate_enabled: false, payroll_tax_rebate_limit: '0', payroll_cess_enabled: false, payroll_cess_rate: '0',
     payroll_esi_enabled: false, payroll_esi_employee_rate: '0', payroll_esi_employer_rate: '0', payroll_esi_salary_cap: '0',
-    payroll_gratuity_enabled: true, payroll_gratuity_rate: '0.0822',
   },
   SG: {
     payroll_country: 'SG', payroll_currency: 'SGD', payroll_currency_symbol: 'S$',
@@ -274,7 +261,6 @@ const COUNTRY_PRESETS: Record<CountryPreset, CountryPresetSettings> = {
     payroll_tax_brackets: [{ limit: 20000, rate: 0.0 }, { limit: 30000, rate: 0.02 }, { limit: 40000, rate: 0.035 }, { limit: 80000, rate: 0.07 }, { limit: 120000, rate: 0.115 }, { limit: 160000, rate: 0.15 }, { limit: 200000, rate: 0.18 }, { limit: 240000, rate: 0.19 }, { limit: 280000, rate: 0.195 }, { limit: 320000, rate: 0.20 }, { limit: 999999999, rate: 0.22 }],
     payroll_tax_rebate_enabled: false, payroll_tax_rebate_limit: '0', payroll_cess_enabled: false, payroll_cess_rate: '0',
     payroll_esi_enabled: false, payroll_esi_employee_rate: '0', payroll_esi_employer_rate: '0', payroll_esi_salary_cap: '0',
-    payroll_gratuity_enabled: false, payroll_gratuity_rate: '0',
   },
   DE: {
     payroll_country: 'DE', payroll_currency: 'EUR', payroll_currency_symbol: '€',
@@ -285,7 +271,6 @@ const COUNTRY_PRESETS: Record<CountryPreset, CountryPresetSettings> = {
     payroll_tax_brackets: [{ limit: 11604, rate: 0.0 }, { limit: 17005, rate: 0.14 }, { limit: 66760, rate: 0.24 }, { limit: 277825, rate: 0.42 }, { limit: 999999999, rate: 0.45 }],
     payroll_tax_rebate_enabled: false, payroll_tax_rebate_limit: '0', payroll_cess_enabled: true, payroll_cess_rate: '0.055',
     payroll_esi_enabled: false, payroll_esi_employee_rate: '0', payroll_esi_employer_rate: '0', payroll_esi_salary_cap: '0',
-    payroll_gratuity_enabled: false, payroll_gratuity_rate: '0',
   },
   CUSTOM: {
     payroll_country: 'CUSTOM', payroll_currency: '', payroll_currency_symbol: '',
@@ -296,7 +281,6 @@ const COUNTRY_PRESETS: Record<CountryPreset, CountryPresetSettings> = {
     payroll_tax_brackets: [{ limit: 999999999, rate: 0.0 }],
     payroll_tax_rebate_enabled: false, payroll_tax_rebate_limit: '0', payroll_cess_enabled: false, payroll_cess_rate: '0',
     payroll_esi_enabled: false, payroll_esi_employee_rate: '0', payroll_esi_employer_rate: '0', payroll_esi_salary_cap: '0',
-    payroll_gratuity_enabled: false, payroll_gratuity_rate: '0',
   },
 };
 
@@ -313,7 +297,6 @@ interface CountryMeta {
   esiLabel: string;
   cessLabel: string;
   rebateLabel: string;
-  gratuityLabel: string;
 }
 
 const COUNTRY_META: Record<string, CountryMeta> = {
@@ -321,49 +304,49 @@ const COUNTRY_META: Record<string, CountryMeta> = {
     flag: '🇮🇳', name: 'India', tag: 'EPF · New Regime TDS · ESI · PT',
     pfLabel: 'Employee Provident Fund (EPF)', ptLabel: 'Professional Tax (PT)',
     esiLabel: 'Employee State Insurance (ESI)', cessLabel: 'Health & Education Cess',
-    rebateLabel: 'Section 87A Tax Rebate', gratuityLabel: 'Gratuity Provision'
+    rebateLabel: 'Section 87A Tax Rebate'
   },
   US: {
     flag: '🇺🇸', name: 'United States', tag: 'Social Security · Medicare · Federal Income Tax',
     pfLabel: 'FICA (Social Security + Medicare)', ptLabel: 'State / Local Tax (optional)',
     esiLabel: 'Healthcare Benefit (optional)', cessLabel: 'Additional Surtax',
-    rebateLabel: 'Tax Credit / Rebate', gratuityLabel: 'Severance / Tip Provision'
+    rebateLabel: 'Tax Credit / Rebate'
   },
   GB: {
     flag: '🇬🇧', name: 'United Kingdom', tag: 'National Insurance · PAYE Income Tax',
     pfLabel: 'National Insurance (NI)', ptLabel: 'Regional Tax',
     esiLabel: 'NHS Contribution (optional)', cessLabel: 'Surcharge / Levy',
-    rebateLabel: 'Personal Allowance Rebate', gratuityLabel: 'Redundancy / Gratuity'
+    rebateLabel: 'Personal Allowance Rebate'
   },
   AE: {
     flag: '🇦🇪', name: 'UAE', tag: 'Zero Tax · GPSSA · Mandatory Gratuity',
     pfLabel: 'GPSSA (UAE nationals)', ptLabel: 'Municipal Tax (optional)',
     esiLabel: 'Health Insurance (optional)', cessLabel: 'Surcharge / Levy',
-    rebateLabel: 'Tax Rebate', gratuityLabel: 'End-of-Service Gratuity'
+    rebateLabel: 'Tax Rebate'
   },
   OM: {
     flag: '🇴🇲', name: 'Oman', tag: 'Zero Tax · PASI / SPF · Gratuity',
     pfLabel: 'PASI / Social Protection Fund (Omanis)', ptLabel: 'Municipal Tax (optional)',
     esiLabel: 'Health Insurance (optional)', cessLabel: 'Surcharge / Levy',
-    rebateLabel: 'Tax Rebate', gratuityLabel: 'End-of-Service Gratuity'
+    rebateLabel: 'Tax Rebate'
   },
   SG: {
     flag: '🇸🇬', name: 'Singapore', tag: 'CPF · Progressive Income Tax',
     pfLabel: 'Central Provident Fund (CPF)', ptLabel: 'Skills Development Levy',
     esiLabel: 'Medisave (optional)', cessLabel: 'Surtax / Surcharge',
-    rebateLabel: 'Personal Relief', gratuityLabel: 'Retirement Gratuity'
+    rebateLabel: 'Personal Relief'
   },
   DE: {
     flag: '🇩🇪', name: 'Germany', tag: 'Sozialversicherung · Einkommensteuer · Soli',
     pfLabel: 'Sozialversicherung (Social Contributions)', ptLabel: 'Kirchensteuer (optional)',
     esiLabel: 'Pflegeversicherung (Care Insurance)', cessLabel: 'Solidaritätszuschlag (Soli)',
-    rebateLabel: 'Grundfreibetrag Rebate', gratuityLabel: 'Abfindung (Severance)'
+    rebateLabel: 'Grundfreibetrag Rebate'
   },
   CUSTOM: {
     flag: '⚙️', name: 'Custom', tag: 'Manually configure all fields below',
     pfLabel: 'Social Insurance / Provident Fund', ptLabel: 'Regional / Municipal Tax',
     esiLabel: 'Health Insurance Scheme', cessLabel: 'Surcharge / Additional Levy',
-    rebateLabel: 'Tax Rebate / Credit', gratuityLabel: 'End-of-Service Gratuity'
+    rebateLabel: 'Tax Rebate / Credit'
   },
 };
 
@@ -1073,18 +1056,6 @@ export default function SettingsPage() {
     overtime_require_reason: true,
   });
 
-  const [reimbursementSettings, setReimbursementSettings] = useState({
-    reimbursement_enabled: true,
-    reimbursement_approver_roles: 'HR_MANAGER,ADMIN',
-    reimbursement_types: 'Travel,Medical,Food,Office Supplies,Other',
-  });
-
-  const [advanceLoanSettings, setAdvanceLoanSettings] = useState({
-    advance_loan_enabled: true,
-    advance_loan_approver_roles: 'HR_MANAGER,ADMIN',
-    advance_loan_max_installments: '12',
-    advance_max_percent_of_salary: '100',
-  });
 
   const [systemSettings, setSystemSettings] = useState({
     allow_multiple_checkin: false,
@@ -1209,8 +1180,6 @@ export default function SettingsPage() {
       payroll_esi_employer_rate: find('payroll_esi_employer_rate') || '0.0325',
       payroll_esi_salary_cap: find('payroll_esi_salary_cap') || '21000',
 
-      payroll_gratuity_enabled: find('payroll_gratuity_enabled') === 'true',
-      payroll_gratuity_rate: find('payroll_gratuity_rate') || '0.0481',
 
       payroll_daily_wage_statutory_deductions:
         find('payroll_daily_wage_statutory_deductions') !== 'false',
@@ -1236,7 +1205,6 @@ export default function SettingsPage() {
       payroll_label_income_tax: find('payroll_label_income_tax'),
       payroll_label_cess: find('payroll_label_cess'),
       payroll_label_rebate: find('payroll_label_rebate'),
-      payroll_label_gratuity: find('payroll_label_gratuity'),
     });
   }, []);
 
@@ -1297,14 +1265,10 @@ export default function SettingsPage() {
           Object.fromEntries(
             flagKeys.map((k) => [
               k,
-              // Strict reconciliation is the one that defaults ON, so an absent
-              // row must not read as "do not check".
-              // Two keys default ON, and both are failure-modes rather than
-              // features: refusing a payroll whose lines do not add up, and
-              // taxing encashment. Reading an absent row as OFF would quietly
-              // change what a payroll pays.
-              k === 'payroll_item_lines_strict_reconciliation' ||
-              k === 'leave_encashment_taxable'
+              // Strict reconciliation is a failure-mode rather than a feature —
+              // refusing a payroll whose lines do not add up — so it defaults ON
+              // and an absent row must not read as "do not check".
+              k === 'payroll_item_lines_strict_reconciliation'
                 ? findVal(k) !== 'false'
                 : findVal(k) === 'true',
             ]),
@@ -1371,17 +1335,6 @@ export default function SettingsPage() {
         });
         parsePayrollSettings(list);
         parseOvertimeSettings(list);
-        setReimbursementSettings({
-          reimbursement_enabled: findVal('reimbursement_enabled') !== 'false',
-          reimbursement_approver_roles: findVal('reimbursement_approver_roles') || 'HR_MANAGER,ADMIN',
-          reimbursement_types: findVal('reimbursement_types') || 'Travel,Medical,Food,Office Supplies,Other',
-        });
-        setAdvanceLoanSettings({
-          advance_loan_enabled: findVal('advance_loan_enabled') !== 'false',
-          advance_loan_approver_roles: findVal('advance_loan_approver_roles') || 'HR_MANAGER,ADMIN',
-          advance_loan_max_installments: findVal('advance_loan_max_installments') || '12',
-          advance_max_percent_of_salary: findVal('advance_max_percent_of_salary') || '100',
-        });
       }
     } catch (error) {
       console.error('Failed to fetch system settings:', error);
@@ -1472,7 +1425,7 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      if (user?.role === 'ADMIN' && (activeTab === 'system' || activeTab === 'branding' || activeTab === 'payroll' || activeTab === 'overtime' || activeTab === 'reimbursement' || activeTab === 'advance-loan')) {
+      if (user?.role === 'ADMIN' && (activeTab === 'system' || activeTab === 'branding' || activeTab === 'payroll' || activeTab === 'overtime')) {
         const settingsPayload: Record<string, string> = {
           // Core system
           allow_multiple_checkin: String(systemSettings.allow_multiple_checkin),
@@ -1577,8 +1530,6 @@ export default function SettingsPage() {
           payroll_esi_employer_rate: payroll.payroll_esi_employer_rate,
           payroll_esi_salary_cap: payroll.payroll_esi_salary_cap,
           // Gratuity
-          payroll_gratuity_enabled: String(payroll.payroll_gratuity_enabled),
-          payroll_gratuity_rate: payroll.payroll_gratuity_rate,
           payroll_daily_wage_statutory_deductions: String(payroll.payroll_daily_wage_statutory_deductions),
           payroll_daily_wage_pay_leave: String(payroll.payroll_daily_wage_pay_leave),
           payroll_daily_wage_pay_holidays: String(payroll.payroll_daily_wage_pay_holidays),
@@ -1615,14 +1566,7 @@ export default function SettingsPage() {
           overtime_allow_employee_submit: String(overtimeSettings.overtime_allow_employee_submit),
           overtime_require_reason: String(overtimeSettings.overtime_require_reason),
           // Reimbursement Settings
-          reimbursement_enabled: String(reimbursementSettings.reimbursement_enabled),
-          reimbursement_approver_roles: reimbursementSettings.reimbursement_approver_roles,
-          reimbursement_types: reimbursementSettings.reimbursement_types,
           // Advance & Loan Settings
-          advance_loan_enabled: String(advanceLoanSettings.advance_loan_enabled),
-          advance_loan_approver_roles: advanceLoanSettings.advance_loan_approver_roles,
-          advance_loan_max_installments: advanceLoanSettings.advance_loan_max_installments,
-          advance_max_percent_of_salary: advanceLoanSettings.advance_max_percent_of_salary,
         };
         await systemSettingsService.update(settingsPayload);
 
@@ -1646,13 +1590,6 @@ export default function SettingsPage() {
           system_timezone: systemSettings.system_timezone,
           task_assignment_list_mode: systemSettings.task_assignment_list_mode,
           overtime_enabled: overtimeSettings.overtime_enabled,
-          reimbursement_enabled: reimbursementSettings.reimbursement_enabled,
-          reimbursement_approver_roles: reimbursementSettings.reimbursement_approver_roles,
-          reimbursement_types: reimbursementSettings.reimbursement_types,
-          advance_loan_enabled: advanceLoanSettings.advance_loan_enabled,
-          advance_loan_approver_roles: advanceLoanSettings.advance_loan_approver_roles,
-          advance_loan_max_installments: advanceLoanSettings.advance_loan_max_installments,
-          advance_max_percent_of_salary: advanceLoanSettings.advance_max_percent_of_salary,
           leave_approval_hierarchy_enabled: systemSettings.leave_approval_hierarchy_enabled,
           theme_preset: systemSettings.theme_preset,
           theme_font: systemSettings.theme_font,
@@ -1670,11 +1607,7 @@ export default function SettingsPage() {
             ? 'Payroll settings saved successfully!'
             : activeTab === 'overtime'
               ? 'Overtime settings saved successfully!'
-              : activeTab === 'reimbursement'
-                ? 'Reimbursement settings saved successfully!'
-                : activeTab === 'advance-loan'
-                  ? 'Advance & loan settings saved successfully!'
-                  : 'System settings saved successfully!'
+              : 'System settings saved successfully!'
         );
       } else if (activeTab === 'general' && user?.employeeId) {
         // Persist the employee's personal display preferences ('' timezone =
@@ -1766,8 +1699,6 @@ export default function SettingsPage() {
       { id: 'branding', label: 'Branding & Theme', icon: Palette },
       { id: 'payroll', label: 'Payroll Settings', icon: CurrencyIcon },
       { id: 'overtime-policies', label: 'Overtime Policies', icon: Clock },
-      { id: 'reimbursement', label: 'Reimbursement', icon: Receipt },
-      { id: 'advance-loan', label: 'Advance & Loan', icon: Landmark },
       { id: 'libraries', label: 'Libraries', icon: BookOpen },
     ] : []),
     // Operator-owned surfaces. Hidden outright — not greyed out — so an admin
@@ -1777,7 +1708,6 @@ export default function SettingsPage() {
       { id: 'copilot', label: 'HR Copilot', icon: Sparkles },
       { id: 'messages', label: 'Messages', icon: MessageCircle },
       { id: 'integrations', label: 'Integrations', icon: Plug },
-      { id: 'wps', label: 'Salary Payment Files', icon: Banknote },
       // Sits next to Libraries on purpose: Libraries supplies the option sets
       // that this template's SELECT fields bind to.
       { id: 'employee-template', label: 'Employee Fields', icon: ListTodo },
@@ -2318,7 +2248,6 @@ export default function SettingsPage() {
                 <AttendanceIntegrationsSection />
               )}
 
-              {activeTab === 'wps' && devElevated && <WpsSection />}
 
               {activeTab === 'system' && user?.role === 'ADMIN' && (
                 <div className="space-y-4 sm:space-y-5">
@@ -3516,32 +3445,6 @@ export default function SettingsPage() {
                     </div>
                   </SectionCard>
 
-                  {/* ─ Gratuity ─ */}
-                  <SectionCard title={getLabel('payroll_label_gratuity')} icon={TrendingUp} badge="Long-service / end-of-contract provision" collapsible>
-                    <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-slate-50 rounded-lg">
-                      <div>
-                        <p className="text-sm font-medium text-slate-800 flex items-center gap-1.5">Show {getLabel('payroll_label_gratuity')} <InfoHint text="Displays the monthly gratuity accrual amount on payslips. Gratuity is a long-service benefit paid out (usually after 5 years)." example="4.81% of ₹30,000 basic = ₹1,443/month shown on payslip. After 5 years: ≈ ₹86,580 total accrued." /></p>
-                        <p className="text-xs text-slate-500">Display monthly gratuity accrual on payslips (informational; can also be deducted if required by law)</p>
-                      </div>
-                      <Toggle checked={payroll.payroll_gratuity_enabled} onChange={v => setPayroll(p => ({ ...p, payroll_gratuity_enabled: v }))} />
-                    </div>
-                    {payroll.payroll_gratuity_enabled && (
-                      <FieldRow label="Monthly Gratuity Rate" icon={Percent} hint={<InfoHint text="Fraction of monthly Basic Salary accrued as gratuity each month (statutory formula: 15 days ÷ 26 working days ÷ 12 months ≈ 4.81%)." example="Rate 4.81% on ₹30,000 basic → ₹1,443/month accrued. After 5 years (60 months) = ₹86,580 gratuity payable." />}>
-                        <div className="relative max-w-xs">
-                          <InputField value={String((Number(payroll.payroll_gratuity_rate) * 100).toFixed(4))} onChange={v => setPayroll(p => ({ ...p, payroll_gratuity_rate: String(Number(v) / 100) }))} type="number" placeholder="4.81" />
-                          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm">% of basic</span>
-                        </div>
-                        <p className="text-xs text-slate-400">
-                          {payroll.payroll_country === 'IN'
-                            ? 'India: 4.81% = 15 days ÷ 26 working days ÷ 12 months'
-                            : payroll.payroll_country === 'AE'
-                              ? 'UAE: ~5.77% = 21 days ÷ 365 days per year of basic salary'
-                              : 'Enter the monthly accrual rate as a % of basic salary'}
-                        </p>
-                      </FieldRow>
-                    )}
-                  </SectionCard>
-
                   {/* ─ Daily wage ─ */}
                   <SectionCard title="Daily Wage" icon={Percent} badge="Employees paid per day worked" collapsible>
                     <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-slate-50 rounded-lg">
@@ -3895,248 +3798,6 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              {/* ── Reimbursement Settings ── */}
-              {activeTab === 'reimbursement' && user?.role === 'ADMIN' && (
-                <div className="space-y-4 sm:space-y-5">
-                  {/* Header card */}
-                  <div className="surface-panel p-4 sm:p-5">
-                    <h2 className="text-sm sm:text-base font-semibold text-text-heading mb-0.5">Reimbursement Settings</h2>
-                    <p className="text-xs text-slate-500">Configure who can approve reimbursement requests and which expense types employees can claim</p>
-                  </div>
-
-                  {/* ─ Global Toggle ─ */}
-                  <SectionCard title="Reimbursement Feature Toggle" icon={Receipt} badge="Enable or disable the reimbursement module">
-                    <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-slate-50 rounded-lg">
-                      <div>
-                        <p className="text-sm font-medium text-slate-800 flex items-center gap-1.5">Enable Reimbursements <InfoHint text="Master switch for the reimbursement module. When off, employees cannot submit expense claims." example="Disable during a fiscal-year close to freeze new expense claims." /></p>
-                        <p className="text-xs text-slate-500 mt-0.5 max-w-lg">
-                          Turn on/off employee expense reimbursement requests. Existing requests are preserved in history.
-                        </p>
-                      </div>
-                      <Toggle checked={reimbursementSettings.reimbursement_enabled} onChange={v => setReimbursementSettings(r => ({ ...r, reimbursement_enabled: v }))} />
-                    </div>
-                  </SectionCard>
-
-                  {reimbursementSettings.reimbursement_enabled && (
-                    <>
-                      {/* ─ Approver Roles ─ */}
-                      <SectionCard title="Approval Authority" icon={Shield} badge="Roles allowed to approve reimbursement requests">
-                        <div>
-                          <p className="text-sm font-medium text-slate-800 mb-2 flex items-center gap-1.5">Approver Roles <InfoHint text="Any one user of an enabled role can approve or reject a request ('Any One Can Approve' mode). Department Managers only see requests from their own department." example="Enabling Department Manager + HR Manager means either can approve; the first decision wins and clears the request from everyone else's queue." /></p>
-                          <p className="text-xs text-slate-500 mb-3 max-w-lg">
-                            Select which roles can approve reimbursement requests. Pending requests appear in every eligible approver&apos;s queue and any one of them can decide.
-                          </p>
-                          <div className="flex flex-wrap gap-2.5">
-                            {[
-                              { value: 'MANAGER', label: 'Department Manager' },
-                              { value: 'HR_MANAGER', label: 'HR Manager' },
-                              { value: 'ADMIN', label: 'Admin' },
-                            ].map((role) => {
-                              const selected = (reimbursementSettings.reimbursement_approver_roles || '').split(',').map(r => r.trim()).filter(Boolean);
-                              const isChecked = selected.includes(role.value);
-
-                              const handleToggle = () => {
-                                const next = isChecked
-                                  ? selected.filter(r => r !== role.value)
-                                  : [...selected, role.value];
-                                setReimbursementSettings(r => ({ ...r, reimbursement_approver_roles: next.sort().join(',') }));
-                              };
-
-                              return (
-                                <button
-                                  key={role.value}
-                                  type="button"
-                                  onClick={handleToggle}
-                                  className={`px-3 py-1.5 text-xs rounded-lg border transition-all font-medium ${isChecked
-                                      ? 'border-brand-primary bg-brand-primary-light/10 text-brand-primary shadow-xs'
-                                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                                    }`}
-                                >
-                                  {role.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                          {(reimbursementSettings.reimbursement_approver_roles || '').split(',').filter(Boolean).length === 0 && (
-                            <p className="mt-2 text-xs text-amber-600">No approver role selected — new requests cannot be approved until at least one role is enabled.</p>
-                          )}
-                        </div>
-                      </SectionCard>
-
-                      {/* ─ Reimbursement Types ─ */}
-                      <SectionCard title="Reimbursement Types" icon={Tag} badge="Expense categories employees can claim">
-                        <div>
-                          <p className="text-xs text-slate-500 mb-3 max-w-lg">
-                            Define the expense types employees can select when creating a reimbursement request.
-                          </p>
-                          <div className="flex flex-wrap gap-2 mb-3">
-                            {(reimbursementSettings.reimbursement_types || '').split(',').map(t => t.trim()).filter(Boolean).map((type) => (
-                              <span key={type} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-brand-primary bg-brand-primary-light/10 text-brand-primary font-medium">
-                                {type}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const next = (reimbursementSettings.reimbursement_types || '').split(',').map(x => x.trim()).filter(Boolean).filter(x => x !== type);
-                                    setReimbursementSettings(r => ({ ...r, reimbursement_types: next.join(',') }));
-                                  }}
-                                  className="hover:bg-brand-primary/10 rounded p-0.5 transition-colors"
-                                >
-                                  <X size={12} />
-                                </button>
-                              </span>
-                            ))}
-                          </div>
-                          <form
-                            className="flex gap-2 max-w-md"
-                            onSubmit={(e) => {
-                              e.preventDefault();
-                              const input = (e.currentTarget.elements.namedItem('newType') as HTMLInputElement);
-                              const value = input.value.trim();
-                              if (!value || value.includes(',')) return;
-                              const existing = (reimbursementSettings.reimbursement_types || '').split(',').map(x => x.trim()).filter(Boolean);
-                              if (existing.some(x => x.toLowerCase() === value.toLowerCase())) { input.value = ''; return; }
-                              setReimbursementSettings(r => ({ ...r, reimbursement_types: [...existing, value].join(',') }));
-                              input.value = '';
-                            }}
-                          >
-                            <input
-                              name="newType"
-                              type="text"
-                              placeholder="Add a type (e.g. Internet)"
-                              className="flex-1 h-10 px-3 border border-slate-200 rounded-lg focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/30 transition-all text-sm bg-white"
-                            />
-                            <button
-                              type="submit"
-                              className="inline-flex items-center justify-center gap-1.5 h-10 px-3 bg-brand-primary hover:bg-brand-primary-dark text-white text-sm font-medium rounded-lg transition-colors"
-                            >
-                              <Plus size={14} /> Add
-                            </button>
-                          </form>
-                          {(reimbursementSettings.reimbursement_types || '').split(',').filter(Boolean).length === 0 && (
-                            <p className="mt-2 text-xs text-amber-600">No types defined — employees cannot create requests until at least one type exists.</p>
-                          )}
-                        </div>
-                      </SectionCard>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* ── Salary Advance & Loan Settings ── */}
-              {activeTab === 'advance-loan' && user?.role === 'ADMIN' && (
-                <div className="space-y-4 sm:space-y-5">
-                  {/* Header card */}
-                  <div className="surface-panel p-4 sm:p-5">
-                    <h2 className="text-sm sm:text-base font-semibold text-text-heading mb-0.5">Salary Advance &amp; Loan Settings</h2>
-                    <p className="text-xs text-slate-500">Configure who can approve advance/loan requests, the maximum loan repayment period, and the salary-advance ceiling</p>
-                  </div>
-
-                  {/* ─ Global Toggle ─ */}
-                  <SectionCard title="Advance &amp; Loan Feature Toggle" icon={Landmark} badge="Enable or disable the advance & loan module">
-                    <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-slate-50 rounded-lg">
-                      <div>
-                        <p className="text-sm font-medium text-slate-800 flex items-center gap-1.5">Enable Advances &amp; Loans <InfoHint text="Master switch for the salary advance & loan module. When off, employees cannot submit new requests." example="Disable during a payroll freeze to stop new advances and loans." /></p>
-                        <p className="text-xs text-slate-500 mt-0.5 max-w-lg">
-                          Turn on/off employee salary advance and loan requests. Existing requests and repayments are preserved.
-                        </p>
-                      </div>
-                      <Toggle checked={advanceLoanSettings.advance_loan_enabled} onChange={v => setAdvanceLoanSettings(r => ({ ...r, advance_loan_enabled: v }))} />
-                    </div>
-                  </SectionCard>
-
-                  {advanceLoanSettings.advance_loan_enabled && (
-                    <>
-                      {/* ─ Approver Roles ─ */}
-                      <SectionCard title="Approval Authority" icon={Shield} badge="Roles allowed to approve advance/loan requests">
-                        <div>
-                          <p className="text-sm font-medium text-slate-800 mb-2 flex items-center gap-1.5">Approver Roles <InfoHint text="Any one user of an enabled role can approve or reject a request. Department Managers only see requests from their own department." example="Enabling Department Manager + HR Manager means either can approve; the first decision wins." /></p>
-                          <p className="text-xs text-slate-500 mb-3 max-w-lg">
-                            Select which roles can approve advance/loan requests. Pending requests appear in every eligible approver&apos;s queue and any one of them can decide.
-                          </p>
-                          <div className="flex flex-wrap gap-2.5">
-                            {[
-                              { value: 'MANAGER', label: 'Department Manager' },
-                              { value: 'HR_MANAGER', label: 'HR Manager' },
-                              { value: 'ADMIN', label: 'Admin' },
-                            ].map((role) => {
-                              const selected = (advanceLoanSettings.advance_loan_approver_roles || '').split(',').map(r => r.trim()).filter(Boolean);
-                              const isChecked = selected.includes(role.value);
-
-                              const handleToggle = () => {
-                                const next = isChecked
-                                  ? selected.filter(r => r !== role.value)
-                                  : [...selected, role.value];
-                                setAdvanceLoanSettings(r => ({ ...r, advance_loan_approver_roles: next.sort().join(',') }));
-                              };
-
-                              return (
-                                <button
-                                  key={role.value}
-                                  type="button"
-                                  onClick={handleToggle}
-                                  className={`px-3 py-1.5 text-xs rounded-lg border transition-all font-medium ${isChecked
-                                      ? 'border-brand-primary bg-brand-primary-light/10 text-brand-primary shadow-xs'
-                                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                                    }`}
-                                >
-                                  {role.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                          {(advanceLoanSettings.advance_loan_approver_roles || '').split(',').filter(Boolean).length === 0 && (
-                            <p className="mt-2 text-xs text-amber-600">No approver role selected — new requests cannot be approved until at least one role is enabled.</p>
-                          )}
-                        </div>
-                      </SectionCard>
-
-                      {/* ─ Limits ─ */}
-                      <SectionCard title="Repayment &amp; Advance Limits" icon={Percent} badge="Loan installment cap and salary-advance ceiling">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <p className="text-sm font-medium text-slate-800 mb-1 flex items-center gap-1.5">Max loan installments <InfoHint text="The largest repayment period (number of payroll cycles) an approver may set for a loan." example="12 means a loan can be spread over at most 12 months of payroll." /></p>
-                            <input
-                              type="number"
-                              min="1"
-                              step="1"
-                              value={advanceLoanSettings.advance_loan_max_installments}
-                              onChange={(e) => setAdvanceLoanSettings(r => ({ ...r, advance_loan_max_installments: e.target.value }))}
-                              className="h-10 px-3 w-full border border-slate-200 rounded-lg focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/30 transition-all text-sm bg-white"
-                            />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-slate-800 mb-1 flex items-center gap-1.5">Max advance (% of monthly pay) <InfoHint text="A salary advance larger than this share of the employee's monthly pay is blocked at approval and must be raised as a loan instead." example="100 means an advance may not exceed one month's pay." /></p>
-                            <input
-                              type="number"
-                              min="1"
-                              step="1"
-                              value={advanceLoanSettings.advance_max_percent_of_salary}
-                              onChange={(e) => setAdvanceLoanSettings(r => ({ ...r, advance_max_percent_of_salary: e.target.value }))}
-                              className="h-10 px-3 w-full border border-slate-200 rounded-lg focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/30 transition-all text-sm bg-white"
-                            />
-                          </div>
-                        </div>
-                      </SectionCard>
-
-                      {/* The other thirty-four keys the loan engine reads.
-                          Server-driven rather than hand-written, because a
-                          hard-coded form is exactly how this screen and the
-                          engine drifted apart — four keys here against
-                          thirty-eight there. It has its own save, since it
-                          writes whichever keys were touched rather than the
-                          fixed payload above. */}
-                      <SectionCard
-                        title="Loan policy"
-                        icon={Shield}
-                        badge="Everything else the recovery engine reads"
-                      >
-                        <LoanPolicySettings />
-                      </SectionCard>
-                    </>
-                  )}
-                </div>
-              )}
-
               {/*
                 ── Save Button ──
 
@@ -4150,10 +3811,10 @@ export default function SettingsPage() {
                 Save, was told it had worked, and nothing was written. A save
                 control must either save or not be offered.
 
-                Those five all carry their own controls: `HolidaysManager`, the
-                approval-hierarchy panel, the overtime-policies panel,
-                `WpsSection`, and Security's own `Update password` submit. They
-                join the list already excluded for exactly that reason.
+                Those all carry their own controls: `HolidaysManager`, the
+                approval-hierarchy panel, the overtime-policies panel, and
+                Security's own `Update password` submit. They join the list
+                already excluded for exactly that reason.
               */}
               {!SELF_SAVING_TABS.has(activeTab) && (
                 <div className={`surface-panel p-3 sm:p-4 ${(activeTab !== 'system' && activeTab !== 'branding' && activeTab !== 'payroll' && activeTab !== 'overtime') || user?.role !== 'ADMIN' ? 'mt-0' : ''}`}>
@@ -4163,15 +3824,11 @@ export default function SettingsPage() {
                         ? 'Save all payroll configuration changes'
                         : activeTab === 'overtime'
                           ? 'Save all overtime configuration changes'
-                          : activeTab === 'reimbursement'
-                            ? 'Save all reimbursement configuration changes'
-                            : activeTab === 'advance-loan'
-                              ? 'Save all advance & loan configuration changes'
-                              : activeTab === 'system'
-                                ? 'Save all system configuration changes'
-                                : activeTab === 'branding'
-                                  ? 'Save branding & theme changes'
-                                  : 'Save your personal preferences'}
+                          : activeTab === 'system'
+                            ? 'Save all system configuration changes'
+                            : activeTab === 'branding'
+                              ? 'Save branding & theme changes'
+                              : 'Save your personal preferences'}
                     </p>
                     <button
                       id="save-settings-btn"

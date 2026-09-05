@@ -75,8 +75,6 @@ describe('WhatsApp coverage', () => {
     const DECISIONS: Array<[string, string]> = [
       ['ATTENDANCE_CORRECTION_APPROVED', 'attendance_correction_decision'],
       ['ATTENDANCE_CORRECTION_REJECTED', 'attendance_correction_decision'],
-      ['REIMBURSEMENT_APPROVED', 'reimbursement_decision'],
-      ['REIMBURSEMENT_REJECTED', 'reimbursement_decision'],
       ['LEAVE_APPLIED', 'leave_applied'],
       ['LEAVE_APPROVED', 'leave_approved'],
       ['LEAVE_REJECTED', 'leave_rejected'],

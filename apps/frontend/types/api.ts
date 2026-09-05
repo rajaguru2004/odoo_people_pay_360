@@ -26,9 +26,9 @@ export interface ApiError {
    * The untouched response body.
    *
    * The interceptor flattens an error into the fields above, which silently drops
-   * anything else the endpoint attached — e.g. the WPS generate route returns the
-   * full pre-flight report alongside its message so the screen can refresh without
-   * a second round trip. Keep the original here so nothing is lost.
+   * anything else the endpoint attached — a route that answers with a per-row
+   * report alongside its message lets the screen re-render it without a second
+   * round trip. Keep the original here so nothing is lost.
    */
   details?: any;
 }

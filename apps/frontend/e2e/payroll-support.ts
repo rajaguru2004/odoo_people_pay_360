@@ -4,25 +4,7 @@ import { ApiClient } from './fixtures';
  * Shared setup for the PAYROLL specs, and for anything else that needs a real
  * employee, a real branch, a real system setting or a real payroll run.
  *
- * ## Why this file exists, and why it was carved out of `loan-support.ts`
- *
- * These helpers were written for the loan suite, inside `loan-support.ts`, for
- * the good reason that loan recovery only happens *during* a payroll run — so
- * the loan specs needed to drive payroll before anything else did. They are not
- * loan-specific: `makeEmployee`, `withSettings`, `ensureBranch`, `runPayroll`,
- * `lockPayroll` and `clearPayrolls` describe the payroll world, and the payroll
- * edge-case suite (`payroll-edge-*.spec.ts`) needs every one of them.
- *
- * Leaving them where they were would have meant a payroll spec importing from a
- * file named for loans, and the next person deleting a "loan" helper that four
- * payroll specs depended on. So they live here, and **`loan-support.ts`
- * re-exports every one of them** — no loan spec's import list changed.
- *
- * The dependency runs one way only. This module knows nothing about loans, and
- * must not: `loan-support.ts` imports from here, so an import in the other
- * direction would be a cycle.
- *
- * ## The same two rules `loan-support.ts` states about itself
+ * ## The two rules this module holds itself to
  *
  * Everything here is **API-only**. These helpers run from `beforeAll`, where
  * there is no `page` and no `expect`; a helper that imported Playwright's `test`
@@ -57,9 +39,9 @@ import { ApiClient } from './fixtures';
 // Response envelopes
 // ───────────────────────────────────────────────────────────────────────────
 //
-// Exported rather than private because `loan-support.ts` needs the identical
-// semantics, and two copies of "does this response have a `data` wrapper" is
-// exactly the drift this file was carved out to stop.
+// Exported rather than private because a spec occasionally reads an endpoint
+// this module has no helper for, and two copies of "does this response have a
+// `data` wrapper" is exactly the drift this file exists to stop.
 
 /** Unwraps `{ data }` one more level than `ApiClient` already does. */
 export function inner<T>(raw: unknown): T {
@@ -84,10 +66,9 @@ export function asList<T>(raw: unknown): T[] {
  *
  * The prefix is the STABLE half — what identifies a record as one file's, across
  * runs — and the base-36 timestamp is what lets a leftover be dated as well as
- * owned. Every sweeper built on this convention (`retireAllMarked` and
- * `ensureAllowance` in `loan-support.ts`, `clearPayrollLane` here) matches on the
- * PREFIX, so pass them the same literal you passed here, not the marker this
- * returns.
+ * owned. Every sweeper built on this convention (`clearPayrollLane` here)
+ * matches on the PREFIX, so pass it the same literal you passed here, not the
+ * marker this returns.
  */
 export function marker(prefix: string): string {
   return `${prefix}${Date.now().toString(36)}`;
@@ -121,8 +102,8 @@ const NO_LOGIN =
   '    (isActive=false), so the link can never be freed.\n' +
   '\n' +
   'Do one of these instead:\n' +
-  '  • Drive the loan as ADMIN/HR on the employee\'s behalf (the approve, hold,\n' +
-  '    prepay, waive and write-off routes all take the loan id, not a session).\n' +
+  '  • Drive the record as ADMIN/HR on the employee\'s behalf — every write\n' +
+  '    route takes the record id, not a session.\n' +
   '  • Use one of the four seeded accounts in global-setup.ts ROLE_ACCOUNTS, or\n' +
   '    employee2@company.com / Password123! from the baseline seed, via\n' +
   '    ApiClient.asAccount().\n' +
@@ -146,14 +127,13 @@ export interface TestEmployee {
 
 /**
  * Creates a real employee, with a real employee code, a real branch and a real
- * base salary — everything a payroll run or a loan needs.
+ * base salary — everything a payroll run needs.
  *
  * `baseSalary` matters more than it looks: the baseline seed gives its employees
- * `baseSalary: 0`, and loan recovery against a zero-pay cycle takes NOTHING
- * (`loan_zero_salary_policy` defaults to `DEFER`). A spec that asserts an
- * instalment was recovered must run against an employee who is actually paid, so
- * this defaults to a figure comfortably above every take-home floor rather than
- * to 0.
+ * `baseSalary: 0`, and a deduction against a zero-pay cycle takes NOTHING. A
+ * spec that asserts an amount was taken must run against an employee who is
+ * actually paid, so this defaults to a figure comfortably above every take-home
+ * floor rather than to 0.
  *
  * `idCard` is auto-generated (`autoGenerateIdCard`) so parallel workers cannot
  * collide on it — the server regenerates and retries on a uniqueness clash
@@ -161,8 +141,7 @@ export interface TestEmployee {
  *
  * `role` goes through `PATCH /users/:id/role` after the fact, because the
  * auto-created login is always `EMPLOYEE`. It changes what that (unusable) login
- * WOULD be permitted to do and what `advance_loan_approver_roles` matches — it
- * does not make the account loggable.
+ * WOULD be permitted to do — it does not make the account loggable.
  */
 export async function makeEmployee(
   admin: ApiClient,
@@ -195,7 +174,7 @@ export async function makeEmployee(
       dateOfBirth: '1990-01-01',
       // The default has no past limit (`employee_start_date_max_past_days` is
       // unset) and a floor of 1970-01-01, so a settled historical date is safe
-      // and keeps `loan_min_service_months` satisfied whatever it is set to.
+      // and gives every case a full service history to price against.
       startDate: opts.startDate ?? '2020-01-01',
       email,
       departmentId,
@@ -295,11 +274,10 @@ async function firstDepartmentId(): Promise<string> {
  *
  * Two things a caller would otherwise trip over:
  *
- *   • `loan_clearance_blocking_enabled` defaults to TRUE, so an employee who
- *     still owes a balance CANNOT be terminated without an override. The reason
- *     is always supplied here — the alternative is that every offboarding spec
- *     fails on setup for a rule it was not testing. The override is audited,
- *     which is the point of it.
+ *   • Offboarding clearance blocks an employee who still holds an unreturned
+ *     asset, so the override reason is always supplied here — the alternative
+ *     is that every offboarding spec fails on setup for a rule it was not
+ *     testing. The override is audited, which is the point of it.
  *   • The delete stamps `endDate = now()` itself, overwriting anything set
  *     before it. So a caller-supplied `date` is applied AFTER, not before.
  */
@@ -332,9 +310,9 @@ export async function terminateEmployee(
  * Whether this run is allowed to touch environment-wide configuration.
  *
  * The gate exists because a system setting is shared by every worker. Flipping
- * `loan_module_v2_enabled` mid-suite re-routes recovery for every loan spec
- * running in parallel, and the failures land in files that never touched the
- * flag — the worst attribution failure available here. Same convention, and the
+ * `payroll_item_lines_enabled` mid-suite changes the shape of every payslip a
+ * spec running in parallel reads, and the failures land in files that never
+ * touched the flag — the worst attribution failure available here. Same convention, and the
  * same variable, as `approval-chain.spec.ts`: `npm run test:e2e:approval-chain`
  * sets it, the default run does not.
  */
@@ -359,13 +337,7 @@ interface SettingRow {
  * A key ABSENT from that list is a different matter. `POST /system-settings`
  * upserts arbitrary keys — the write path has no allowlist at all — but a key
  * the list does not enumerate cannot be read back, so its original value is
- * unknowable and `withSetting` refuses rather than restoring a guess. All ~29
- * loan keys ARE enumerated (`loan_module_v2_enabled`, `loan_shortfall_policy`,
- * `loan_min_net_pay_amount`, `loan_recover_on_run_types`, …); a handful the
- * engine reads are not (`loan_rounding_unit`, `loan_grace_period_cycles`,
- * `loan_deferral_mode`, `loan_payment_allocation_order`, `loan_priority_tiebreak`,
- * `loan_auto_close_on_full_recovery`, `loan_min_partial_recovery_amount`,
- * `loan_final_settlement_ignores_min_net`, `advance_loan_auditor_user_ids`).
+ * unknowable and `withSetting` refuses rather than restoring a guess.
  */
 async function readSetting(admin: ApiClient, key: string): Promise<string> {
   const raw = await admin.get<unknown>('/system-settings').catch((e: Error) => {
@@ -395,10 +367,10 @@ async function writeSettings(admin: ApiClient, kv: Record<string, string>): Prom
  * Runs `fn` with one setting changed, and puts it back — including when `fn`
  * throws.
  *
- * The `finally` is the whole point. A spec that flips `loan_module_v2_enabled`
- * and then fails an assertion leaves the master switch on for every worker still
- * running, and the next twenty failures are unrelated to the bug that caused the
- * first one. Restoration therefore does not depend on the body succeeding.
+ * The `finally` is the whole point. A spec that flips a switch and then fails an
+ * assertion leaves it on for every worker still running, and the next twenty
+ * failures are unrelated to the bug that caused the first one. Restoration
+ * therefore does not depend on the body succeeding.
  *
  * The original is read BEFORE the write, from the same list endpoint that
  * supplies defaults for unset keys, so restoring is exact rather than a guess at
@@ -441,10 +413,10 @@ export async function withSetting<T>(
  * The same contract for several keys at once.
  *
  * Restores in REVERSE order, each write independent of the others. Order matters
- * when keys interact — `loan_module_v2_enabled` gates whether the rest are even
- * consulted, so a caller who turned the master switch on first has it turned off
- * last — and independence matters because one key failing to restore must not
- * abandon the remaining four.
+ * when keys interact — a master switch gates whether the rest are even
+ * consulted, so a caller who turned it on first has it turned off last — and
+ * independence matters because one key failing to restore must not abandon the
+ * remaining four.
  */
 export async function withSettings<T>(
   admin: ApiClient,
@@ -490,7 +462,7 @@ export async function withSettings<T>(
  *
  * Worth having by code rather than by position because the whole reason
  * `E2E-BR2` exists is that it is NOT the caller's default branch: a payroll run
- * is per-branch, and a spec proving that a loan in one branch is invisible from
+ * is per-branch, and a spec proving that a run in one branch is invisible from
  * the other has to name both.
  */
 export async function branchIdByCode(admin: ApiClient, code: string): Promise<string> {
@@ -511,13 +483,11 @@ export async function branchIdByCode(admin: ApiClient, code: string): Promise<st
 /**
  * Find a branch by code, creating it if it is not there yet.
  *
- * The reason this exists rather than everyone sharing `E2E-BR2`: a loan can
- * never be removed. `DELETE /advance-loans/:id` only CANCELS a request that is
- * still PENDING, and every other retirement path (write-off, waiver, closure)
- * leaves the row exactly where it was, in a terminal state. So a spec that
- * seeds hundreds of loans permanently changes the loan book of whatever branch
- * it seeded them into — and `finance-loan-lifecycle.spec.ts` has a case that
- * picks the first non-HO branch and asserts its book is EMPTY.
+ * The reason this exists rather than everyone sharing `E2E-BR2`: a LOCKED run
+ * can never be removed, and the employees, components and attendance a payroll
+ * case seeds outlive it. So a spec that seeds hundreds of rows permanently
+ * changes whatever branch it seeded them into, and a case elsewhere that asserts
+ * a branch's books are EMPTY then fails for a reason nothing in it names.
  *
  * A spec that is going to leave a mess behind therefore asks for a branch of
  * its own, and the mess stays inside it. Creation is idempotent: a re-run finds
@@ -583,9 +553,8 @@ export interface PayrollRunOpts {
   branchId: string;
   /**
    * `REGULAR` | `OFF_CYCLE` | `BONUS` | `ADJUSTMENT` | `FINAL_SETTLEMENT`.
-   * Only the types listed in `loan_recover_on_run_types` (default
-   * `REGULAR,FINAL_SETTLEMENT`) recover instalments, which is exactly what a
-   * spec proving "a BONUS run does not charge the EMI twice" needs to vary.
+   * The period allows one run of each type, so a spec that needs a second run
+   * over the same month varies this rather than the month.
    */
   runType?: string;
   employeeIds?: string[];
@@ -596,9 +565,9 @@ export interface PayrollRunOpts {
  *
  * Two calls, because `POST /payrolls` answers with the payroll header plus
  * `totalAmount` and `employeeCount` and no items at all; the items only come
- * back from `GET /payrolls/:id`. Every caller wants them — a loan spec's whole
- * question is what landed in `advanceLoanDeduction` on one employee's row — so
- * the second call happens here rather than in thirteen `beforeAll`s.
+ * back from `GET /payrolls/:id`. Every caller wants them — the whole question a
+ * payroll case asks is what landed on one employee's row — so the second call
+ * happens here rather than in thirteen `beforeAll`s.
  *
  * A 409 means a run for this branch/period already exists. It is left to
  * surface: silently reusing somebody else's run would make the spec's
@@ -620,8 +589,8 @@ export async function runPayroll(
 
   const created = await scoped.post<{ id: string }>('/payrolls', body).catch(async (e: Error) => {
     // Payroll refuses a period in which NOBODY has an attendance row:
-    // "Attendance for m/yyyy has not been processed yet." A loan spec picks a
-    // far-future period precisely so no other spec's run collides with it, so
+    // "Attendance for m/yyyy has not been processed yet." An edge-case spec
+    // picks a far-future period precisely so no other run collides with it, so
     // that period is empty by construction and this refusal is guaranteed
     // rather than incidental. One manual day for one employee satisfies the
     // run-level guard; every other employee has no rows and is therefore
@@ -713,11 +682,10 @@ export async function payrollItemFor(
 /**
  * APPROVED → LOCKED.
  *
- * Locking is what flips every PENDING loan deduction on the run to PAID, moves
- * `amountRepaid`, settles schedule rows and auto-closes a fully recovered loan —
- * so a spec asserting recovery has to lock, not merely generate. The run must
- * already be APPROVED (`submit` then `approve`); the deprecated `:id/finalize`
- * alias goes through the same code path and the same requirement.
+ * Locking is what publishes the payslips, so a spec asserting on what an
+ * employee can read has to lock, not merely generate. The run must already be
+ * APPROVED (`submit` then `approve`); the deprecated `:id/finalize` alias goes
+ * through the same code path and the same requirement.
  */
 export async function lockPayroll(admin: ApiClient, payrollId: string): Promise<void> {
   await admin.post(`/payrolls/${payrollId}/lock`, {}).catch((e: Error) => {
@@ -729,13 +697,12 @@ export async function lockPayroll(admin: ApiClient, payrollId: string): Promise<
 }
 
 /**
- * LOCKED → APPROVED, reversing the loan recovery on the way.
+ * LOCKED → APPROVED.
  *
  * The reason is mandatory server-side (5–500 characters) and is recorded on the
- * payroll AND on every REVERSAL ledger entry, so a restated payslip stays
- * explainable. Refused with a 409 when a LATER run has already recovered against
- * the same loans, or when a locked revision descends from this payroll — both of
- * which are the server protecting an audit chain, not a flake.
+ * payroll, so a restated payslip stays explainable. Refused with a 409 when a
+ * locked revision descends from this payroll — the server protecting an audit
+ * chain, not a flake.
  */
 export async function unlockPayroll(
   admin: ApiClient,
@@ -765,10 +732,10 @@ export async function deletePayroll(admin: ApiClient, payrollId: string): Promis
  * is compared here.
  *
  * A LOCKED run is unlocked first, because deleting one is refused. Both steps
- * are best-effort: this is setup, and a run that cannot be removed (a later run
- * already recovered against the same loans, so the unlock is a 409) is
- * information the SPEC should surface through its own failure, not something a
- * tidy-up helper should abort on. Failures are logged rather than swallowed
+ * are best-effort: this is setup, and a run that cannot be removed (a locked
+ * revision descends from it, so the unlock is a 409) is information the SPEC
+ * should surface through its own failure, not something a tidy-up helper should
+ * abort on. Failures are logged rather than swallowed
  * silently so the reason is on the console when the spec then fails with a 409
  * "payroll already exists".
  */
@@ -1185,9 +1152,6 @@ export interface PayrollItemRow {
   overtimeHours: number;
   overtimePay: number;
   foodAllowance: number;
-  reimbursement: number;
-  advanceLoanDeduction: number;
-  garnishment: number;
   insurance: number;
   tax: number;
   netSalary: number;
@@ -1196,8 +1160,7 @@ export interface PayrollItemRow {
 
 const NUMERIC_ITEM_KEYS = [
   'baseSalary', 'workDays', 'actualWorkDays', 'allowances', 'bonus', 'deduction',
-  'overtimeHours', 'overtimePay', 'foodAllowance', 'reimbursement',
-  'advanceLoanDeduction', 'garnishment', 'insurance', 'tax', 'netSalary',
+  'overtimeHours', 'overtimePay', 'foodAllowance', 'insurance', 'tax', 'netSalary',
 ] as const;
 
 function num(value: unknown): number {
@@ -1287,12 +1250,10 @@ export interface AuditRow {
  * asserting "no audit entry" about a record that has several.
  *
  * `resourceType` is matched case-insensitively by the server and is the
- * PascalCase Prisma model name: `Payroll`, `PayrollBatch`, `SalaryComponent`,
- * `WpsFile`.
+ * PascalCase Prisma model name: `Payroll`, `PayrollBatch`, `SalaryComponent`.
  *
  * Expect `action` to be the generic `CREATE`/`UPDATE`/`DELETE` derived from the
- * HTTP verb for anything payroll does — see finding G1. Only WPS writes named
- * verbs.
+ * HTTP verb for anything payroll does — see finding G1.
  */
 export async function auditFor(
   admin: ApiClient,
@@ -1314,32 +1275,21 @@ export async function auditFor(
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * The `E2E-PAY` branch, created on first use and set up to bank in Oman.
+ * The `E2E-PAY` branch, created on first use and given a country.
  *
- * The country matters and is easy to miss: `POST /branches` takes only `code` and
- * `name`, so a branch created by `ensureBranch` alone has `country: null` and
- * `bankingCountries: []`. Every banking and WPS case then fails for a reason that
- * looks like a payroll defect — an employee's bank details are refused because
- * the branch banks in no country at all, and pre-flight reports
- * `NO_ACTIVE_BANK_DETAIL` for everyone. `wps.admin.spec.ts` was bitten by the
- * same class of thing from the other direction (it hardcoded `IN` against an
- * Oman seed) and the fix there was to resolve the country from the branch.
+ * The country matters and is easy to miss: `POST /branches` takes only `code`
+ * and `name`, so a branch created by `ensureBranch` alone has `country: null`
+ * and inherits every statutory default from the global settings — which makes a
+ * case about a branch's own calendar or its country preset measure the global
+ * value instead.
  *
- * Two different routes are needed, which is why this is not one call:
- *   • `PATCH /branches/:id { country }`                  — the branch's own country
- *   • `PUT /banks/branch-countries/:id { countries }`    — the countries it banks in
- *
- * Both are idempotent, so this runs on every `beforeAll` without accumulating.
+ * Idempotent, so this runs on every `beforeAll` without accumulating.
  */
 export async function ensurePayrollEdgeBranch(admin: ApiClient): Promise<string> {
   const id = await ensureBranch(admin, PAYROLL_EDGE_BRANCH_CODE, PAYROLL_EDGE_BRANCH_NAME);
 
-  // Best-effort: a spec that does not touch banking must not fail because these
-  // did, and a re-run against a branch already set up is a no-op either way.
+  // Best-effort: a re-run against a branch already set up is a no-op either way.
   await admin.patch(`/branches/${id}`, { country: PAYROLL_EDGE_BRANCH_COUNTRY }).catch(() => undefined);
-  await admin
-    .put(`/banks/branch-countries/${id}`, { countries: [PAYROLL_EDGE_BRANCH_COUNTRY] })
-    .catch(() => undefined);
 
   return id;
 }
@@ -1351,9 +1301,9 @@ export async function ensurePayrollEdgeBranch(admin: ApiClient): Promise<string>
  * **This is the idiom that makes the money assertions readable.** The twin owes
  * nothing and has nothing done to it, so `twin.netSalary` IS the net the subject
  * would have had. Every assertion can then be written as a DIFFERENCE —
- * `subject.netSalary + subject.advanceLoanDeduction === twin.netSalary` — and no
- * case has to know this environment's PF rate, tax brackets, ESI cap or work-day
- * count. Change the country preset and the arithmetic still holds.
+ * `subject.netSalary + subject.deduction === twin.netSalary` — and no case has
+ * to know this environment's PF rate, tax brackets, ESI cap or work-day count.
+ * Change the country preset and the arithmetic still holds.
  *
  * Without it, a spec either hard-codes a net (and breaks the first time a
  * statutory setting moves) or re-derives the engine's formula in the test (and
@@ -1376,10 +1326,10 @@ export async function twinPair(
 /**
  * Clears every run this family may have left behind, in the order that works.
  *
- * Newest period FIRST. `unlockPayroll` is refused with a 409 when a LATER run has
- * already recovered against a loan, so sweeping oldest-first wedges on the first
- * locked run and leaves the rest of the lane occupied — which the next run then
- * fails on, in a different file.
+ * Newest period FIRST. `unlockPayroll` is refused with a 409 when a LATER run
+ * descends from the one being unlocked, so sweeping oldest-first wedges on the
+ * first locked run and leaves the rest of the lane occupied — which the next run
+ * then fails on, in a different file.
  */
 export async function clearPayrollLane(
   admin: ApiClient,
@@ -1443,7 +1393,7 @@ export async function ensureCarrier(
     branchId,
     // A carrier is never measured, so its salary is irrelevant — but it must be
     // non-zero, because an employee on zero pay exercises different branches of
-    // the engine (`loan_zero_salary_policy`) and a carrier should be the most
+    // the engine and a carrier should be the most
     // boring row in the run.
     baseSalary: 1000,
   });
@@ -1480,115 +1430,6 @@ export async function runEdgePayroll(
     runType: opts.runType,
     employeeIds: [opts.carrier.id, ...opts.employeeIds],
   });
-}
-
-// ───────────────────────────────────────────────────────────────────────────
-// The wage file (WPS) — payroll's exit
-// ───────────────────────────────────────────────────────────────────────────
-
-/** One finding from a pre-flight, run-level or per-employee. */
-export interface WpsFinding {
-  code: string;
-  severity: 'BLOCKING' | 'WARNING';
-  scope?: string;
-  field?: string;
-  message: string;
-  fix?: { label: string; href: string };
-}
-
-/** What `POST /wps/preflight` answers. */
-export interface PreflightResult {
-  payrollId: string;
-  branchCode: string;
-  format: string;
-  currency: string;
-  ready: number;
-  total: number;
-  blockedEmployees: number;
-  warningEmployees: number;
-  canGenerate: boolean;
-  runFindings: WpsFinding[];
-  byEmployee: Array<{
-    employeeId: string;
-    employeeCode: string;
-    fullName: string;
-    status: 'READY' | 'WARNING' | 'BLOCKED';
-    findings: WpsFinding[];
-  }>;
-  requiresAcknowledgement: string[];
-}
-
-/**
- * Makes sure the branch can generate a wage file at all, and returns the format.
- *
- * Without an employer profile AND a per-branch config, `POST /wps/preflight`
- * answers a flat 400 — *"No wage-file configuration exists for branch X"* —
- * before it evaluates anything else. That refusal is correct and useless to a
- * spec about payroll: every case would fail on setup rather than on its subject.
- *
- * Both writes are idempotent by lookup, so this runs from `beforeAll` on every
- * invocation without accumulating profiles.
- */
-export async function ensureWpsConfig(
-  admin: ApiClient,
-  branchId: string,
-  opts: { profileName?: string } = {},
-): Promise<{ format: string; employerProfileId: string }> {
-  const rawFormats = await admin.get<unknown>('/wps/formats').catch((e: Error) => {
-    throw new Error(`GET /wps/formats failed: ${e.message}`);
-  });
-  const formats = asList<{ key: string }>(rawFormats);
-  // Prefer an Oman format: the branch banks in OM and the seeded Bank Master,
-  // IBAN schema and employer fields are all Omani.
-  const format = (formats.find((f) => f.key.startsWith('om-')) ?? formats[0])?.key;
-  if (!format) throw new Error('GET /wps/formats returned no formats');
-
-  const name = opts.profileName ?? 'E2E Payroll Edge Employer';
-  const existing = asList<{ id: string; name: string }>(
-    await admin.get<unknown>('/wps/employer-profiles').catch(() => []),
-  ).find((p) => p.name === name);
-
-  const employerProfileId =
-    existing?.id ??
-    (await admin
-      .post<{ id: string }>('/wps/employer-profiles', {
-        name,
-        legalName: `${name} LLC`,
-        country: PAYROLL_EDGE_BRANCH_COUNTRY,
-        format,
-        data: {},
-      })
-      .then((r) => inner<{ id: string }>(r)?.id ?? (r as { id: string })?.id)
-      .catch((e: Error) => {
-        throw new Error(`POST /wps/employer-profiles failed: ${e.message}`);
-      }));
-
-  // Upsert; a second call for the same branch is a no-op.
-  await admin
-    .post('/wps/config', { branchId, employerProfileId, format, enabled: true })
-    .catch(() => undefined);
-
-  return { format, employerProfileId };
-}
-
-/** Runs pre-flight and returns the structured result. */
-export async function preflight(
-  admin: ApiClient,
-  branchId: string,
-  payrollId: string,
-): Promise<PreflightResult> {
-  const raw = await admin
-    .withBranch(branchId)
-    .post<unknown>('/wps/preflight', { payrollId })
-    .catch((e: Error) => {
-      throw new Error(`POST /wps/preflight for ${payrollId} failed: ${e.message}`);
-    });
-  return inner<PreflightResult>(raw);
-}
-
-/** Every run-level finding code a pre-flight raised, deduplicated. */
-export function runFindingCodes(pf: PreflightResult): string[] {
-  return [...new Set((pf.runFindings ?? []).map((f) => f.code))];
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1653,114 +1494,6 @@ export async function workDaysFor(
   return inner<WorkDayBreakdown>(raw);
 }
 
-// ── Court orders and the carry-forward ledger ──────────────────────────────
-
-export interface GarnishmentRow {
-  id: string;
-  employeeId: string;
-  amount: string | number | null;
-  percentOfNet: string | number | null;
-  reference: string;
-  priority: number;
-  isActive: boolean;
-  totalCap: string | number | null;
-  collected: string | number;
-}
-
-export interface CarryForwardRow {
-  id: string;
-  employeeId: string;
-  kind: string;
-  sourceId: string | null;
-  amount: string | number;
-  amountRecovered: string | number;
-  status: string;
-  originPayrollId: string | null;
-  clearedPayrollId: string | null;
-  reason: string | null;
-}
-
-/**
- * Record a court-ordered attachment of earnings.
- *
- * `reference` defaults to a marker-derived value rather than a constant:
- * the column is not unique, but two cases sharing a reference makes a failure
- * message ambiguous about which order it is talking about.
- */
-export async function addGarnishment(
-  admin: ApiClient,
-  opts: {
-    employeeId: string;
-    branchId: string;
-    amount?: number;
-    percentOfNet?: number;
-    reference?: string;
-    priority?: number;
-    startDate?: string;
-    endDate?: string;
-    totalCap?: number;
-  },
-): Promise<GarnishmentRow> {
-  const body: Record<string, unknown> = {
-    employeeId: opts.employeeId,
-    reference: opts.reference ?? `CR-${opts.employeeId.slice(0, 8)}`,
-    startDate: opts.startDate ?? '2020-01-01',
-  };
-  if (opts.amount !== undefined) body.amount = opts.amount;
-  if (opts.percentOfNet !== undefined) body.percentOfNet = opts.percentOfNet;
-  if (opts.priority !== undefined) body.priority = opts.priority;
-  if (opts.endDate !== undefined) body.endDate = opts.endDate;
-  if (opts.totalCap !== undefined) body.totalCap = opts.totalCap;
-
-  const raw = await admin.withBranch(opts.branchId).post<unknown>('/garnishments', body);
-  return inner(raw) as GarnishmentRow;
-}
-
-/** Revoke an order. A flag flip — runs already generated under it stay intact. */
-export async function revokeGarnishment(
-  admin: ApiClient,
-  branchId: string,
-  id: string,
-): Promise<void> {
-  await admin.withBranch(branchId).patch(`/garnishments/${id}/revoke`, {});
-}
-
-export async function garnishmentsOf(
-  admin: ApiClient,
-  branchId: string,
-  employeeId: string,
-): Promise<GarnishmentRow[]> {
-  const raw = await admin
-    .withBranch(branchId)
-    .get<unknown>(`/garnishments?employeeId=${employeeId}`);
-  return asList(raw) as GarnishmentRow[];
-}
-
-/** Balances a run could not recover, held against the employee. */
-export async function carryForwardsOf(
-  admin: ApiClient,
-  branchId: string,
-  employeeId: string,
-): Promise<CarryForwardRow[]> {
-  const raw = await admin
-    .withBranch(branchId)
-    .get<unknown>(`/garnishments/employee/${employeeId}/carry-forwards`);
-  return asList(raw) as CarryForwardRow[];
-}
-
-/** Write a carried balance off. The reason is mandatory at the API. */
-export async function waiveCarryForward(
-  admin: ApiClient,
-  branchId: string,
-  id: string,
-  reason: string,
-): Promise<CarryForwardRow> {
-  const raw = await admin
-    .withBranch(branchId)
-    .patch<unknown>(`/garnishments/carry-forwards/${id}/waive`, { reason });
-  return inner(raw) as CarryForwardRow;
-}
-
 // ── Payroll extensions ──────────────────────────────────────────────────────
 //
 // Every feature below ships OFF, so each helper is useful in two ways: driving
@@ -1771,17 +1504,7 @@ export async function waiveCarryForward(
 /** The switches, so a spec names them once rather than spelling out keys. */
 export const PAYROLL_FEATURE_FLAGS = {
   itemLines: 'payroll_item_lines_enabled',
-  eosb: 'payroll_eosb_enabled',
-  eosbAccrual: 'payroll_eosb_accrual_enabled',
-  eosbSettlement: 'payroll_eosb_settlement_enabled',
-  encashment: 'leave_encashment_enabled',
   carryForward: 'leave_carry_forward_enabled',
-  calendar: 'payroll_calendar_enabled',
-  preflight: 'payroll_preflight_enabled',
-  recovery: 'payroll_employee_recovery_enabled',
-  transfer: 'employee_transfer_enabled',
-  grade: 'employee_grade_enabled',
-  reports: 'payroll_reports_enabled',
 } as const;
 
 export type PayrollFeatureName = keyof typeof PAYROLL_FEATURE_FLAGS;
@@ -1801,11 +1524,9 @@ export function featureSkipReason(...names: PayrollFeatureName[]): string {
 /**
  * Turn features on for the duration of `fn`, then put them back.
  *
- * `extra` exists for the settings a feature READS but does not own. Gratuity is
- * the worked example: its rules are keyed by country, the seeded rule is Oman's,
- * and the baseline database is India — so a case that turns the feature on and
- * nothing else gets "no rule is configured for IN / EXPAT", which is correct
- * behaviour and a useless test.
+ * `extra` exists for the settings a feature READS but does not own — a switch
+ * whose behaviour depends on a value somebody else's key holds needs both moved
+ * together, or the case measures the default rather than the feature.
  */
 export async function withPayrollFeatures<T>(
   admin: ApiClient,
@@ -1853,7 +1574,7 @@ export async function linesOf(
  *
  * The invariant every itemisation case checks is per BUCKET, not per category:
  * `deduction`, `insurance` and `tax` are three separate deduction columns, and
- * summing across them would let a PF line reconcile against a loan instalment.
+ * summing across them would let a PF line reconcile against an insurance one.
  */
 export function sumBucket(lines: PayrollItemLineRow[], bucket: string): number {
   return (
@@ -1865,171 +1586,11 @@ export function sumBucket(lines: PayrollItemLineRow[], bucket: string): number {
   );
 }
 
-export interface PreflightResultRow {
-  ready: number;
-  total: number;
-  canGenerate: boolean;
-  blockedEmployees: number;
-  warningEmployees: number;
-  runFindings: Array<{ code: string; severity: string; message: string }>;
-  byEmployee: Array<{
-    employeeId: string;
-    employeeCode: string;
-    status: string;
-    findings: Array<{ code: string; severity: string }>;
-  }>;
-  requiresAcknowledgement: string[];
-  window: { periodStart: string; periodEnd: string; cutOffDate: string | null; fromCalendar: boolean };
-}
-
-/** "Is this run safe to generate?" — writes nothing. */
-export async function preflightRun(
-  admin: ApiClient,
-  opts: { branchId: string; period: Period; employeeIds?: string[] },
-): Promise<PreflightResultRow> {
-  const raw = await admin.withBranch(opts.branchId).post<unknown>('/payrolls/preflight', {
-    branchId: opts.branchId,
-    month: opts.period.month,
-    year: opts.period.year,
-    employeeIds: opts.employeeIds,
-  });
-  return inner(raw) as PreflightResultRow;
-}
-
-/** Every finding code a preflight produced, run-level and per-employee. */
-export function preflightCodes(r: PreflightResultRow): string[] {
-  return [
-    ...r.runFindings.map((f) => f.code),
-    ...r.byEmployee.flatMap((e) => e.findings.map((f) => f.code)),
-  ].sort();
-}
-
-export interface GratuityEntitlementRow {
-  serviceYears: number;
-  amount: number;
-  provisioned: number;
-  refusal: string | null;
-  workingLines: string[];
-}
-
-/** What one employee would receive if they left on `asOf`. */
-export async function gratuityEntitlement(
-  admin: ApiClient,
-  branchId: string,
-  employeeId: string,
-  asOf?: string,
-): Promise<GratuityEntitlementRow> {
-  const raw = await admin
-    .withBranch(branchId)
-    .get<unknown>(
-      `/gratuity/employee/${employeeId}/entitlement${asOf ? `?asOf=${asOf}` : ''}`,
-    );
-  return inner(raw) as GratuityEntitlementRow;
-}
-
-/** Set an employee's nationality class, which gratuity refuses to guess at. */
-export async function setNationalityClass(
-  admin: ApiClient,
-  employeeId: string,
-  nationalityClass: 'NATIONAL' | 'GCC' | 'EXPAT',
-): Promise<void> {
-  await admin.patch<unknown>(`/employees/${employeeId}/profile`, { nationalityClass });
-}
-
-export interface SettlementRow {
-  id: string;
-  status: string;
-  variant: string;
-  netPayable: string | number;
-  lines: Array<{
-    id: string;
-    code: string;
-    label: string;
-    category: string;
-    computedAmount: string | number;
-    adjustedAmount: string | number | null;
-    adjustmentReason: string | null;
-  }>;
-}
-
-export async function prepareSettlement(
-  admin: ApiClient,
-  branchId: string,
-  opts: {
-    employeeId: string;
-    variant?: string;
-    lastWorkingDate: string;
-    pendingSalary?: number;
-  },
-): Promise<SettlementRow> {
-  const raw = await admin.withBranch(branchId).post<unknown>('/final-settlements', {
-    variant: 'RESIGNATION',
-    ...opts,
-  });
-  return inner(raw) as SettlementRow;
-}
-
-/** The reason is mandatory at the API AND at a database CHECK. */
-export async function adjustSettlementLine(
-  admin: ApiClient,
-  branchId: string,
-  settlementId: string,
-  lineId: string,
-  amount: number,
-  reason: string,
-): Promise<unknown> {
-  return admin
-    .withBranch(branchId)
-    .patch<unknown>(`/final-settlements/${settlementId}/lines/${lineId}`, {
-      amount,
-      reason,
-    });
-}
-
-export interface RecoveryRow {
-  id: string;
-  kind: string;
-  totalAmount: string | number;
-  amountRecovered: string | number;
-  status: string;
-}
-
-export async function addRecovery(
-  admin: ApiClient,
-  branchId: string,
-  opts: {
-    employeeId: string;
-    kind?: string;
-    totalAmount: number;
-    instalmentAmount?: number;
-    reference?: string;
-    startDate?: string;
-  },
-): Promise<RecoveryRow> {
-  const raw = await admin.withBranch(branchId).post<unknown>('/employee-recoveries', {
-    kind: 'ASSET_DAMAGE',
-    startDate: '2030-01-01',
-    ...opts,
-  });
-  return inner(raw) as RecoveryRow;
-}
-
-export async function recoveriesOf(
-  admin: ApiClient,
-  branchId: string,
-  employeeId: string,
-): Promise<RecoveryRow[]> {
-  const raw = await admin
-    .withBranch(branchId)
-    .get<unknown>(`/employee-recoveries/employee/${employeeId}`);
-  return asList(raw) as RecoveryRow[];
-}
-
 /**
  * Seed a FULL month of weekday attendance.
  *
  * One token day is not "the period is open" — it is three weeks of loss of pay,
- * which leaves almost nothing for a recovery or a deduction to take. Any case
+ * which leaves almost nothing for a deduction to take. Any case
  * asserting on an AMOUNT rather than a difference needs the employee to have
  * actually earned a month first.
  */

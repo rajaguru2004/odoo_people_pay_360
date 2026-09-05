@@ -140,11 +140,6 @@ describe('feature kill switches', () => {
     expect(hrefs()).toContain('/dashboard/my-overtime');
   });
 
-  it('hides reimbursements when that feature is off', async () => {
-    await renderSidebar({ role: 'ADMIN', branding: { reimbursement_enabled: false } });
-    expect(hrefs()).not.toContain('/dashboard/reimbursements');
-  });
-
   it('leaves unrelated links alone when a switch is off', async () => {
     await renderSidebar({ role: 'ADMIN', branding: { overtime_enabled: false } });
     expect(hrefs()).toContain('/dashboard/employees');
@@ -218,10 +213,10 @@ describe('active-route marking', () => {
   });
 
   it('marks a group as active when its own hub is the current route', async () => {
-    navigationState.pathname = '/dashboard/finance';
+    navigationState.pathname = '/dashboard/talent';
     await renderSidebar({ role: 'ADMIN' });
 
-    const row = document.querySelector('a[href="/dashboard/finance"]')!.parentElement!;
+    const row = document.querySelector('a[href="/dashboard/talent"]')!.parentElement!;
     expect(row.className).toContain('bg-sidebar-active-bg');
   });
 });
@@ -233,7 +228,7 @@ describe('group headers navigate', () => {
     await renderSidebar({ role: 'ADMIN' });
     const links = hrefs();
 
-    expect(links).toContain('/dashboard/payroll/overview');
+    expect(links).toContain('/dashboard/payroll/manage');
     expect(links).toContain('/dashboard/people');
     expect(links).toContain('/dashboard/time');
     expect(links).toContain('/dashboard/organization');
@@ -250,14 +245,15 @@ describe('group headers navigate', () => {
     await user.click(toggle);
 
     await waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('true'));
-    // Expanding is not navigating.
+    // Expanding is not navigating. Asserted on a child rather than the group's
+    // own hub, which is already in the list before the chevron is touched.
     expect(navigationState.pathname).toBe('/dashboard');
-    expect(hrefs()).toContain('/dashboard/payroll/manage');
+    expect(hrefs()).toContain('/dashboard/payroll/batches');
   });
 
   it('collapses an expanded group on a second chevron click', async () => {
     const { user } = await renderSidebar({ role: 'ADMIN' });
-    const toggle = screen.getByRole('button', { name: /Finance submenu/i });
+    const toggle = screen.getByRole('button', { name: /Talent submenu/i });
 
     await user.click(toggle);
     await waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('true'));
@@ -266,7 +262,9 @@ describe('group headers navigate', () => {
   });
 
   it('auto-expands the group that owns the current route', async () => {
-    navigationState.pathname = '/dashboard/payroll/manage';
+    // A child, not the group's own hub — landing on the hub deliberately leaves
+    // the accordion shut, which the case below pins.
+    navigationState.pathname = '/dashboard/payroll/batches';
     await renderSidebar({ role: 'ADMIN' });
 
     const toggle = screen.getByRole('button', { name: /Payroll submenu/i });
@@ -277,21 +275,21 @@ describe('group headers navigate', () => {
     // Following the group label is a navigation, not an expansion: the hub page
     // lists the same children as tiles, so springing the accordion open too
     // duplicates what the user is already looking at.
-    navigationState.pathname = '/dashboard/finance';
+    navigationState.pathname = '/dashboard/talent';
     await renderSidebar({ role: 'ADMIN' });
 
-    const toggle = screen.getByRole('button', { name: /Finance submenu/i });
+    const toggle = screen.getByRole('button', { name: /Talent submenu/i });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('shuts an open group when the user then lands on another group hub', async () => {
     const { user, rerender } = await renderSidebar({ role: 'ADMIN' });
-    const toggle = screen.getByRole('button', { name: /Finance submenu/i });
+    const toggle = screen.getByRole('button', { name: /Talent submenu/i });
 
     await user.click(toggle);
     await waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('true'));
 
-    navigationState.pathname = '/dashboard/talent';
+    navigationState.pathname = '/dashboard/workplace';
     rerender(<Sidebar isOpen onToggle={() => {}} />);
 
     await waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('false'));
@@ -309,7 +307,7 @@ describe('the collapsed rail', () => {
     // The hub repeats the same children as tiles, so a user working from the
     // icon rail never has to expand it to get anywhere.
     await renderCollapsed();
-    expect(hrefs()).toContain('/dashboard/payroll/overview');
+    expect(hrefs()).toContain('/dashboard/payroll/manage');
   });
 
   it('offers no chevron to press, since there is nowhere to show a submenu', async () => {
@@ -321,7 +319,7 @@ describe('the collapsed rail', () => {
     const onToggle = vi.fn();
     const { user } = await renderCollapsed(onToggle);
 
-    await user.click(document.querySelector('a[href="/dashboard/payroll/overview"]')!);
+    await user.click(document.querySelector('a[href="/dashboard/payroll/manage"]')!);
     expect(onToggle).not.toHaveBeenCalled();
   });
 
@@ -329,12 +327,12 @@ describe('the collapsed rail', () => {
     // The label the expanded rail prints is the label the tooltip must repeat —
     // read it from the expanded render rather than hardcoding a translation.
     const expanded = await renderSidebar({ role: 'ADMIN' });
-    const label = document.querySelector('a[href="/dashboard/finance"]')!.textContent!.trim();
+    const label = document.querySelector('a[href="/dashboard/talent"]')!.textContent!.trim();
     expanded.unmount();
     expect(label).not.toBe('');
 
     const { user } = await renderCollapsed();
-    await user.hover(document.querySelector('a[href="/dashboard/finance"]')!);
+    await user.hover(document.querySelector('a[href="/dashboard/talent"]')!);
 
     const tip = await screen.findByRole('tooltip');
     expect(tip.textContent).toBe(label);
@@ -342,7 +340,7 @@ describe('the collapsed rail', () => {
 
   it('drops the tooltip again when the pointer leaves', async () => {
     const { user } = await renderCollapsed();
-    const link = document.querySelector('a[href="/dashboard/finance"]')!;
+    const link = document.querySelector('a[href="/dashboard/talent"]')!;
 
     await user.hover(link);
     await screen.findByRole('tooltip');
@@ -362,7 +360,7 @@ describe('the collapsed rail', () => {
     // A hover left open while the rail expands would strand a chip over the
     // label it is duplicating.
     const { user } = await renderSidebar({ role: 'ADMIN' });
-    await user.hover(document.querySelector('a[href="/dashboard/finance"]')!);
+    await user.hover(document.querySelector('a[href="/dashboard/talent"]')!);
 
     expect(screen.queryByRole('tooltip')).toBeNull();
   });

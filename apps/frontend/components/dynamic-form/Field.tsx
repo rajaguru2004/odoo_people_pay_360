@@ -13,12 +13,12 @@ import { FileUploadField } from './FileUploadField';
  * moving a screen onto the template changes what is rendered, never how it
  * looks. That is what makes the switch reviewable.
  *
- * Two things this fixes on the way, both real defects in the existing dynamic
- * renderer at components/profile/PaymentInformationSection.tsx:
+ * Two things this fixes on the way, both real defects in the hand-rolled
+ * dynamic renderer it replaced:
  *
- *   - `SELECT` there falls through to a text input even though the field type
- *     is declared, so a configured option list silently does nothing;
- *   - it holds values in a loose `useState` record, which means `trigger()`,
+ *   - `SELECT` there fell through to a text input even though the field type
+ *     is declared, so a configured option list silently did nothing;
+ *   - it held values in a loose `useState` record, which means `trigger()`,
  *     `setError()` and the wizard's per-step validation cannot see them. This
  *     is react-hook-form native.
  */

@@ -16,20 +16,11 @@ import {
 /**
  * What happens when deductions are larger than the pay they come out of.
  *
- * ## Scope, and what owns the rest
+ * ## Scope
  *
- * The LOAN rungs of the recovery ladder — affordability, PARTIAL/SKIP/DEFER,
- * multi-loan priority, the take-home floor — are owned by
- * `finance-loan-payroll-recovery.spec.ts` (44 cases) and are not rebuilt here.
- * The GARNISHMENT rung is owned by `payroll-edge-garnishment.e2e-spec.ts`
- * (`PE-GARN`) on the backend, where a court order can be recorded, priced and
- * carried. When this file was written that rung could not be driven at all —
- * `PayrollItem.garnishment` had exactly one writer, the literal `garnishment: 0`
- * (G28) — and the note that said so is gone with the gap.
- *
- * What this file owns is the rung anyone can reach through the UI's own API: an
- * ad-hoc `deduction` on the item, and what the engine does when it exceeds the
- * pay.
+ * What this file owns is the deduction anyone can reach through the UI's own
+ * API: an ad-hoc `deduction` on the item, and what the engine does when it
+ * exceeds the pay.
  *
  * ## The answer, measured
  *
@@ -54,12 +45,12 @@ const MARK = marker(MARKER_PREFIX);
 
 /** Everything the item adds, before anything is taken off. */
 function grossOf(i: PayrollItemRow): number {
-  return i.baseSalary + i.allowances + i.bonus + i.overtimePay + i.foodAllowance + i.reimbursement;
+  return i.baseSalary + i.allowances + i.bonus + i.overtimePay + i.foodAllowance;
 }
 
 /** Everything the item takes off. */
 function deductionsOf(i: PayrollItemRow): number {
-  return i.deduction + i.insurance + i.tax + i.advanceLoanDeduction + i.garnishment;
+  return i.deduction + i.insurance + i.tax;
 }
 
 test.describe('recoveries against payroll', () => {
@@ -206,7 +197,7 @@ test.describe('recoveries against payroll', () => {
       });
       const item = (await itemsOf(admin, run.id)).find((i) => i.employeeId === subject.id)!;
 
-      // A negative deduction is a payment dressed as a recovery, and the DTO says
+      // A negative deduction is a payment dressed as a deduction, and the DTO says
       // so rather than quietly increasing someone's pay.
       const refusal = await admin
         .patch(`/payrolls/${run.id}/items/${item.id}`, { deduction: -5 })

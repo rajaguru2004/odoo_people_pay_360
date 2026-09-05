@@ -210,39 +210,11 @@ test('seed one employee’s working life, for the manual to photograph', async (
   // prints across the payslip screen.
   //
   // Both halves are needed and they are unrelated. `apply-preset` rewrites the
-  // GLOBAL payroll settings — currency, overtime multiplier, PASI, gratuity —
-  // while the BRANCH carries the calendar: timezone and the weekly off days
-  // that decide which of the employee's days are working ones.
+  // GLOBAL payroll settings — currency, overtime multiplier, PASI — while the
+  // BRANCH carries the calendar: timezone and the weekly off days that decide
+  // which of the employee's days are working ones.
   await step('Oman payroll preset (OMR, PASI, no Indian statutory lines)', async () => {
     await admin.post('/system-settings/apply-preset', { preset: 'OM' });
-  });
-
-  // ── the optional payroll modules ──────────────────────────────────────────
-  // Nine payroll screens are behind flags that ship OFF, and the sidebar hides
-  // them entirely: pre-flight validation, employee grades, final settlements,
-  // gratuity rules, leave encashment, employee recoveries, the payroll
-  // calendar, transfers and payroll reports.
-  //
-  // They are switched ON here on purpose. End-of-service benefit is a statutory
-  // entitlement in Oman, so a manual for an Oman client that says "gratuity is
-  // not available" documents a configuration accident rather than the product.
-  // The chapters that cover these modules each carry a callout saying the
-  // module is optional and may not appear in every deployment, which is the
-  // honest way to have both: complete documentation, and no promise that the
-  // reader's own portal has it switched on.
-  await step('the optional payroll modules, switched on so they can be documented', async () => {
-    await admin.post('/system-settings', {
-      settings: {
-        payroll_preflight_enabled: 'true',
-        payroll_eosb_enabled: 'true',
-        payroll_reports_enabled: 'true',
-        payroll_calendar_enabled: 'true',
-        employee_transfer_enabled: 'true',
-        employee_grade_enabled: 'true',
-        leave_encashment_enabled: 'true',
-        payroll_employee_recovery_enabled: 'true',
-      },
-    });
   });
 
   let branchId = await admin.firstBranchId();
@@ -501,88 +473,6 @@ test('seed one employee’s working life, for the manual to photograph', async (
       }
     });
   }
-
-  // ── reimbursements ────────────────────────────────────────────────────────
-  const claims: Array<{ type: string; amount: number; expenseDate: string; description: string; settle?: 'approve' | 'reject' }> = [
-    // The type is validated against the REIMBURSEMENT library, and the server
-    // matches the human label rather than a slug: "Invalid reimbursement type.
-    // Allowed: Travel, Per Diem, Training, Medical, Food, Office Supplies, Other".
-    // Amounts are OMR. The rial runs to three decimals (1,000 baisa), so these
-    // are deliberately the sort of figures a Muscat employee actually claims —
-    // a manual whose screenshots show a 60,000 cab fare teaches the reader to
-    // distrust the screenshots.
-    { type: 'Travel', amount: 24.5, expenseDate: day(-25), description: 'Taxi fare — client site visit, Al Khuwair.', settle: 'approve' },
-    { type: 'Food', amount: 8.75, expenseDate: day(-12), description: 'Team dinner during the release weekend.' },
-    { type: 'Office Supplies', amount: 13.9, expenseDate: day(-6), description: 'Replacement keyboard — approved by team lead.' },
-  ];
-
-  for (const [i, claim] of claims.entries()) {
-    await step(`reimbursement — ${claim.type.toLowerCase()} claim`, async () => {
-      const made = await employee.post<{ id: string }>('/reimbursements', {
-        type: claim.type,
-        amount: claim.amount,
-        expenseDate: claim.expenseDate,
-        description: claim.description,
-      });
-      const id = inner<{ id: string }>(made)?.id ?? (made as any)?.id;
-      if (id && claim.settle === 'approve') {
-        await admin
-          .withBranch(branchId)
-          .post(`/reimbursements/${id}/approve`, { comment: 'Approved — receipt verified.' })
-          .catch(() => undefined);
-      }
-      void i;
-    });
-  }
-
-  // ── advances and loans ────────────────────────────────────────────────────
-  await step('loan — an approved, disbursed staff loan', async () => {
-    const made = await employee.post<{ id: string }>('/advance-loans', {
-      type: 'LOAN',
-      amount: 1200,
-      reason: 'Home appliance purchase — repayable over six months.',
-      installments: 6,
-    });
-    const id = inner<{ id: string }>(made)?.id ?? (made as any)?.id;
-    if (!id) return;
-
-    const scoped = admin.withBranch(branchId);
-    // The lifecycle differs by configuration — approve, then disburse if the
-    // route exists. Each step is optional; a loan stuck at APPROVED still makes
-    // a perfectly good figure for the chapter.
-    await scoped.post(`/advance-loans/${id}/approve`, { comment: 'Approved under the staff loan policy.' }).catch(() => undefined);
-    await scoped.post(`/advance-loans/${id}/disburse`, { disbursedAt: day(-20) }).catch(() => undefined);
-  });
-
-  await step('advance — a pending salary advance', async () => {
-    await employee.post('/advance-loans', {
-      type: 'ADVANCE',
-      amount: 300,
-      reason: 'Medical expense — to be recovered from next month’s salary.',
-      installments: 1,
-    });
-  });
-
-  // ── travel ────────────────────────────────────────────────────────────────
-  await step('travel — an upcoming domestic trip', async () => {
-    // The REQUEST carries departureDate/returnDate/estimatedCost; only the
-    // itinerary LEGS speak in startAt/endAt. Sending the leg's vocabulary at
-    // the top level is rejected outright by the whitelist.
-    await employee.post('/travel-requests', {
-      purpose: 'Quarterly customer review with the Salalah operations team.',
-      travelType: 'DOMESTIC',
-      destination: 'Salalah',
-      country: 'OM',
-      departureDate: `${day(14)}T06:30:00.000Z`,
-      returnDate: `${day(16)}T20:00:00.000Z`,
-      estimatedCost: 450,
-      itinerary: [
-        { mode: 'FLIGHT', fromPlace: 'Muscat', toPlace: 'Salalah', startAt: `${day(14)}T06:30:00.000Z` },
-        { mode: 'HOTEL', toPlace: 'Salalah', startAt: `${day(14)}T14:00:00.000Z`, endAt: `${day(16)}T10:00:00.000Z` },
-        { mode: 'FLIGHT', fromPlace: 'Salalah', toPlace: 'Muscat', startAt: `${day(16)}T18:00:00.000Z` },
-      ],
-    });
-  });
 
   // ── grievance ─────────────────────────────────────────────────────────────
   await step('grievance — one open case', async () => {

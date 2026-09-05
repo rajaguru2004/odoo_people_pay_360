@@ -169,10 +169,10 @@ describe('WhatsAppOutboxService — enqueue', () => {
   it('lets an explicit waTemplate override a generic type', async () => {
     const { svc, prisma } = makeHarness();
     await svc.enqueueFromNotifications([
-      notification({ type: 'INFO', waTemplate: 'loan_decision' }),
+      notification({ type: 'INFO', waTemplate: 'payslip_ready' }),
     ]);
     expect(prisma.whatsAppMessage.createMany.mock.calls[0][0].data[0].templateKey).toBe(
-      'loan_decision',
+      'payslip_ready',
     );
   });
 
@@ -203,9 +203,9 @@ describe('WhatsAppOutboxService — enqueue', () => {
     });
 
     it('applies to explicitly named templates too, not just type-resolved ones', async () => {
-      const { svc, prisma } = makeHarness({ cfg: { disabledTemplates: ['loan_decision'] } });
+      const { svc, prisma } = makeHarness({ cfg: { disabledTemplates: ['payslip_ready'] } });
       const n = await svc.enqueueFromNotifications([
-        notification({ type: 'INFO', waTemplate: 'loan_decision' }),
+        notification({ type: 'INFO', waTemplate: 'payslip_ready' }),
       ]);
 
       expect(n).toBe(0);

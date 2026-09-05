@@ -13,7 +13,6 @@ interface PayrollKPICardV2Props {
   sparkData?: number[];
   ytdPaid?: number;
   pendingRuns?: number;
-  pendingReimbursements?: number;
 }
 
 const getStatusBadgeClass = (status?: string) => {
@@ -36,7 +35,6 @@ export default function PayrollKPICardV2({
   sparkData = [],
   ytdPaid = 0,
   pendingRuns = 0,
-  pendingReimbursements = 0,
 }: PayrollKPICardV2Props) {
   const router = useRouter();
   const t = useTranslations('dashboardV2.payroll');
@@ -88,7 +86,7 @@ export default function PayrollKPICardV2({
       </div>
 
       {/* Mini stat row */}
-      <div className="grid grid-cols-3 gap-1.5 mt-2">
+      <div className="grid grid-cols-2 gap-1.5 mt-2">
         <div className="bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-center">
           <p className="text-[7px] font-bold text-slate-400 uppercase tracking-wide leading-tight">{t('ytdPaid')}</p>
           <p className="text-[11px] font-black text-slate-700 mt-0.5 truncate">{formatCurrency(ytdPaid)}</p>
@@ -96,10 +94,6 @@ export default function PayrollKPICardV2({
         <div className="bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-center">
           <p className="text-[7px] font-bold text-slate-400 uppercase tracking-wide leading-tight">{t('pendingRuns')}</p>
           <p className="text-[11px] font-black text-slate-700 mt-0.5">{pendingRuns}</p>
-        </div>
-        <div className="bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-center">
-          <p className="text-[7px] font-bold text-slate-400 uppercase tracking-wide leading-tight">{t('reimburse')}</p>
-          <p className="text-[11px] font-black text-slate-700 mt-0.5 truncate">{formatCurrency(pendingReimbursements)}</p>
         </div>
       </div>
     </div>

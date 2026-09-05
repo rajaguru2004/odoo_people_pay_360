@@ -8,7 +8,6 @@ import { TelegramInboundModule } from '../../src/telegram/telegram-inbound.modul
 import { BranchesModule } from '../../src/branches/branches.module';
 import { DepartmentsModule } from '../../src/departments/departments.module';
 import { OrganizationHubModule } from '../../src/organization-hub/organization-hub.module';
-import { FinanceModule } from '../../src/finance/finance.module';
 import { TalentModule } from '../../src/talent/talent.module';
 import { WorkplaceModule } from '../../src/workplace/workplace.module';
 import { EmployeesModule } from '../../src/employees/employees.module';
@@ -17,16 +16,11 @@ import { AttendanceIntegrationsModule } from '../../src/attendance-integrations/
 import { ContractsModule } from '../../src/contracts/contracts.module';
 import { RemindersModule } from '../../src/reminders/reminders.module';
 import { AssetsModule } from '../../src/assets/assets.module';
-import { TravelModule } from '../../src/travel/travel.module';
 import { TrainingModule } from '../../src/training/training.module';
-import { BudgetsModule } from '../../src/budgets/budgets.module';
 import { LettersModule } from '../../src/letters/letters.module';
 import { GrievancesModule } from '../../src/grievances/grievances.module';
 import { DocumentVaultModule } from '../../src/document-vault/document-vault.module';
 import { DocumentsModule } from '../../src/documents/documents.module';
-import { AdvanceLoansModule } from '../../src/advance-loans/advance-loans.module';
-import { GarnishmentsModule } from '../../src/garnishments/garnishments.module';
-import { AccountingModule } from '../../src/accounting/accounting.module';
 import { SystemSettingsModule } from '../../src/system-settings/system-settings.module';
 import { AuditModule } from '../../src/audit/audit.module';
 import { AuditInterceptor } from '../../src/audit/audit.interceptor';
@@ -38,7 +32,6 @@ import { OvertimeModule } from '../../src/overtime/overtime.module';
 import { ApprovalsModule } from '../../src/approvals/approvals.module';
 import { SupervisorsModule } from '../../src/supervisors/supervisors.module';
 import { TeamsModule } from '../../src/teams/teams.module';
-import { BankDetailsModule } from '../../src/bank-details/bank-details.module';
 import { ExportModule } from '../../src/export/export.module';
 import { ProfileTemplatesModule } from '../../src/profile-templates/profile-templates.module';
 import { LegalDocumentsModule } from '../../src/legal-documents/legal-documents.module';
@@ -64,12 +57,6 @@ import { TaskAttachmentsModule } from '../../src/task-attachments/task-attachmen
 import { TaskDashboardModule } from '../../src/task-dashboard/task-dashboard.module';
 import { BranchContextMiddleware } from '../../src/common/branch/branch-context.middleware';
 import { BranchContextInterceptor } from '../../src/common/branch/branch-context.interceptor';
-import { FinalSettlementsModule } from '../../src/final-settlements/final-settlements.module';
-import { PayrollCalendarModule } from '../../src/payroll-calendar/payroll-calendar.module';
-import { EmployeeRecoveriesModule } from '../../src/employee-recoveries/employee-recoveries.module';
-import { EmployeeTransfersModule } from '../../src/employee-transfers/employee-transfers.module';
-import { GradesModule } from '../../src/grades/grades.module';
-import { PayrollReportsModule } from '../../src/payroll-reports/payroll-reports.module';
 
 /**
  * Faithful multi-branch slice of the production AppModule for e2e tests.
@@ -97,7 +84,6 @@ import { PayrollReportsModule } from '../../src/payroll-reports/payroll-reports.
     OrganizationHubModule,
     // Module hub aggregates, mirroring app.module.ts. Without these the e2e
     // app answers 404 on a route the real app serves.
-    FinanceModule,
     TalentModule,
     WorkplaceModule,
     EmployeesModule,
@@ -114,16 +100,11 @@ import { PayrollReportsModule } from '../../src/payroll-reports/payroll-reports.
     ContractsModule,
     RemindersModule,
     AssetsModule,
-    TravelModule,
     TrainingModule,
-    BudgetsModule,
     LettersModule,
     GrievancesModule,
     DocumentVaultModule,
     DocumentsModule,
-    AdvanceLoansModule,
-    GarnishmentsModule,
-    AccountingModule,
     SystemSettingsModule,
     AuditModule,
     CopilotSettingsModule,
@@ -141,7 +122,6 @@ import { PayrollReportsModule } from '../../src/payroll-reports/payroll-reports.
     ApprovalsModule,
     SupervisorsModule,
     TeamsModule,
-    BankDetailsModule,
     // A real read surface that template fields now feed into.
     ExportModule,
     ProfileTemplatesModule,
@@ -156,7 +136,6 @@ import { PayrollReportsModule } from '../../src/payroll-reports/payroll-reports.
     SalaryComponentsModule,
     // Before PayrollsModule: `payrolls/reports/...` must be matched before
     // `payrolls/:id`, or every report name is read as a payroll id.
-    PayrollReportsModule,
     PayrollsModule,
     PayrollBatchesModule,
     // EMPLOYMENT_TYPE items carry the payBasis flag that DERIVES an employee's
@@ -187,11 +166,6 @@ import { PayrollReportsModule } from '../../src/payroll-reports/payroll-reports.
     // anyway, because PayrollsModule imports them for the lock seam — but
     // final settlements are imported by nothing else, so without this line the
     // routes 404 and every case asserting a refusal passes for the wrong reason.
-    FinalSettlementsModule,
-    PayrollCalendarModule,
-    EmployeeRecoveriesModule,
-    EmployeeTransfersModule,
-    GradesModule,
     // Telegram channel. The outbound half arrives transitively through
     // NotificationsModule, but its ADMIN and self-service controllers do not —
     // and the webhook lives in the inbound leaf, so without these two lines

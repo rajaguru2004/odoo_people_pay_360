@@ -13,10 +13,6 @@ import { SidebarNav } from '../../pages';
  *
  *   - `<ProtectedRoute>` with no props checked authentication only, so any
  *     employee reached the all-employees leave list.
- *   - `ProtectedRoute` called `redirect()` during a Client Component render,
- *     which crashed the page (React #310) instead of showing /403 — visible
- *     only on the two ADMIN-only banking screens, the only ones that deny an
- *     *authenticated* non-admin.
  *
  * Read-only: nothing here writes, so it can run beside the matrix.
  *
@@ -37,58 +33,6 @@ async function landOn(page: import('@playwright/test').Page, path: string): Prom
   await page.waitForLoadState('networkidle').catch(() => {});
   return new URL(page.url()).pathname;
 }
-
-test.describe('denial reaches /403 rather than a crash', () => {
-  // Grouped so the role gate can live in a hook: a skip decided here runs
-  // before the page fixture is built, so no browser window is opened only
-  // to be thrown away.
-  test.describe('as hr', () => {
-    test.beforeEach(() => {
-      test.skip(!isProject('hr'), 'the denial only happens for a non-admin');
-    });
-
-    test('HR is refused the ADMIN-only bank master', async ({ page, problems }) => {
-      // Before the fix this rendered a crashed page: `redirect()` thrown from a
-      // Client Component's render abandoned it mid-flight, and React's retry of
-      // the half-rendered tree threw #310. The redirect never completed.
-      const landed = await landOn(page, '/dashboard/banks');
-
-      expect(landed, 'HR should be redirected to /403').toBe('/403');
-      expect(problems.pageErrors, 'the denial threw during render').toEqual([]);
-
-      crashesOnly(problems);
-      settle(problems, 'denying HR the bank master');
-    });
-
-    test('HR is refused the ADMIN-only banking config', async ({ page, problems }) => {
-      const landed = await landOn(page, '/dashboard/banks/config');
-
-      expect(landed).toBe('/403');
-      expect(problems.pageErrors).toEqual([]);
-
-      crashesOnly(problems);
-      settle(problems, 'denying HR the banking config');
-    });
-  });
-
-  // Grouped so the role gate can live in a hook: a skip decided here runs
-  // before the page fixture is built, so no browser window is opened only
-  // to be thrown away.
-  test.describe('as admin', () => {
-    test.beforeEach(() => {
-      test.skip(!isProject('admin'), 'the allowed side of the same guard');
-    });
-
-    test('an ADMIN still reaches the bank master', async ({ page, problems }) => {
-      // The other half of the fix: tightening denial must not lock out the role
-      // the screen is for.
-      const landed = await landOn(page, '/dashboard/banks');
-
-      expect(landed).toBe('/dashboard/banks');
-      settle(problems, 'admin opening the bank master');
-    });
-  });
-});
 
 test.describe('the leave list is gated by permission, not merely by login', () => {
   // Grouped so the role gate can live in a hook: a skip decided here runs
@@ -186,11 +130,9 @@ test.describe('navigation offers only what the role may use', () => {
         '/dashboard/payroll/manage',
         '/dashboard/branches',
         '/dashboard/audit-logs',
-        '/dashboard/banks',
         // The module hubs. A group header is a link now, so the admin menu's
         // group rows appear in this list at all — an employee's must not.
         '/dashboard/people',
-        '/dashboard/payroll/overview',
         '/dashboard/organization',
         '/dashboard/system',
       ]) {

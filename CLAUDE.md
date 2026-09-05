@@ -156,6 +156,49 @@ cannot see that.
   sits in the structure, the other is who signs their leave. Each has its own
   cycle guard.
 
+## Payroll is deliberately narrow
+
+Payroll owns FOUR screens and nothing else: run payroll
+(`/dashboard/payroll/manage`), payroll batches, payroll approvals and salary
+structures — plus the payslip screens every role reaches from the user menu
+(`/dashboard/payroll` and `/dashboard/payroll/:id`).
+
+There is no payroll hub. The nav group's header points at Run payroll and keeps
+`basePath: '/dashboard/payroll'`, so the record screens beside it still resolve
+to the module and keep their breadcrumb trail.
+
+The Finance module and the payroll extensions were removed outright — code,
+routes, settings keys and tables. Do not reintroduce a reference to any of them
+without also bringing the module back:
+
+> reimbursements · travel · advances & loans · budgets · accounting/journals ·
+> garnishments · bank master, bank change requests, banking-config and employee
+> bank details · WPS wage files · pre-flight validation · payroll calendar ·
+> leave encashment · employee grades · gratuity rules and EOSB · final
+> settlements · employee recoveries · branch transfers · payroll reports
+
+Consequences worth knowing before you touch payroll:
+
+- **A payslip has no `reimbursement`, `advanceLoanDeduction`, `garnishment`,
+  `leaveEncashment`, `otherRecovery` or `gratuityPayout` column.** They were
+  dropped, not zeroed: a column reading 0 forever still looks like a figure
+  somebody might owe.
+- **`gross - insurance - tax == net` holds exactly on the stored row.** Nothing
+  is added or subtracted after the statutory pipeline any more.
+- **`PayrollCarryForward` survives, and only for `kind: 'DEDUCTION'`.**
+  `updateItem` clamps the INPUT rather than the answer — it stores the largest
+  deduction the pay can bear and opens a carry-forward row for the rest — and
+  `DeductionCarryForwardService` is where the rest is collected. On exit an
+  unrecovered row becomes `RECEIVABLE`, never written off silently. It lives in
+  its own tiny module so contracts, employees and payroll can all reach it
+  without dragging the run engine into two modules that have no business with it.
+- **Three payroll feature switches survive**: `payroll_item_lines_enabled`,
+  `payroll_item_lines_strict_reconciliation` (defaults ON — the safe state for
+  "the lines do not add up" is to refuse) and `leave_carry_forward_enabled`.
+- **Approval kinds are `LEAVE | OVERTIME | TRAINING`.** The Prisma enum, the
+  backend registry and `lib/approvalKinds.tsx` must agree; a value in one and
+  not the others strands every request of that type in an approver's queue.
+
 ## Adding a backend feature module
 
 `src/<feature>/` with `<feature>.module.ts`, `.controller.ts`, `.service.ts` and

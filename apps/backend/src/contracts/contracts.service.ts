@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { GarnishmentsService } from '../garnishments/garnishments.service';
+import { DeductionCarryForwardService } from '../payrolls/deduction-carry-forward.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertInBranch } from '../common/branch/branch-scope.util';
 import { ContractValidationService } from './contract-validation.service';
@@ -45,7 +45,7 @@ export class ContractsService {
     private settingsService: SystemSettingsService,
     private clearance: ClearanceService,
     private tzSvc: TimezoneService,
-    private readonly garnishments: GarnishmentsService,
+    private readonly carryForward: DeductionCarryForwardService,
   ) {
     this.expireGate = new CompanyCronGate(this.tzSvc, '00:00');
   }
@@ -504,9 +504,9 @@ export class ContractsService {
       });
       // G29: leaving does NOT clear what is owed. An unrecovered carry-forward
       // balance becomes a RECEIVABLE — a debt on record — rather than being
-      // written off silently. `GarnishmentsService.waive` stays the only path
+      // written off silently. `GarnishmentsService.waive`waiving one stays a deliberate act
       // that erases one, and it demands a reason.
-      await this.garnishments.markOutstandingAsReceivable(contract.employeeId, tx);
+      await this.carryForward.markOutstandingAsReceivable(contract.employeeId, tx);
 
       return row;
     });

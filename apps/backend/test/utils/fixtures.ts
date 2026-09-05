@@ -217,18 +217,6 @@ export async function setupFixtures(ctx: E2EContext): Promise<Fixtures> {
         ],
       };
       const loanWhere = { request: { employee: employeeWhere } };
-      await prisma.advanceLoanNotificationLog.deleteMany({ where: loanWhere });
-      await prisma.loanTransaction.deleteMany({ where: loanWhere });
-      await prisma.loanRateChange.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanDeduction.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanAttachment.deleteMany({ where: loanWhere });
-      await prisma.loanSchedule.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanRequest.deleteMany({
-        where: { employee: employeeWhere },
-      });
-      await prisma.loanSettlement.deleteMany({
-        where: { employee: employeeWhere },
-      });
 
       // Onboarded employees have auto-generated codes but a runId-tagged email.
       await prisma.employee.deleteMany({ where: employeeWhere });

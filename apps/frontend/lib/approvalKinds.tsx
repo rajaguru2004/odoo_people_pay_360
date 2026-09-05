@@ -1,18 +1,7 @@
 import { ReactNode } from 'react';
-import {
-  BookOpen,
-  CalendarDays,
-  Clock,
-  Landmark,
-  Plane,
-  Wallet,
-  LucideIcon,
-} from 'lucide-react';
+import { BookOpen, CalendarDays, Clock, LucideIcon } from 'lucide-react';
 import leaveService from '@/services/leaveService';
 import overtimeService from '@/services/overtimeService';
-import bankChangeService from '@/services/bankChangeService';
-import travelService from '@/services/travelService';
-import advanceLoanService from '@/services/advanceLoanService';
 import trainingService from '@/services/trainingService';
 import type { ApprovalRequestType } from '@/services/approvalWorkflowService';
 import type { ApproveOvertimeData } from '@/types/overtime';
@@ -114,41 +103,6 @@ export const APPROVAL_KIND_UI: Record<ApprovalRequestType, ApprovalKindUi> = {
     ),
   },
 
-  TRAVEL: {
-    label: 'Travel',
-    icon: Plane,
-    badgeClass: 'bg-sky-50 text-sky-700',
-    approve: (id) => travelService.approve(id),
-    reject: (id, reason) => travelService.reject(id, reason),
-    summary: (req) => (
-      <>
-        <span className="font-medium">{req.destination}</span>
-        {req.travelType === 'INTERNATIONAL' && req.country ? ` (${req.country})` : ''} ·{' '}
-        {fmtDate(req.departureDate)} → {fmtDate(req.returnDate)}
-        {req.estimatedCost ? ` · est. ${Number(req.estimatedCost).toLocaleString()}` : ''}
-      </>
-    ),
-  },
-
-  ADVANCE_LOAN: {
-    label: 'Advance & Loan',
-    icon: Wallet,
-    badgeClass: 'bg-emerald-50 text-emerald-700',
-    approve: (id) => advanceLoanService.approve(id),
-    reject: (id, reason) => advanceLoanService.reject(id, reason),
-    summary: (req) => (
-      <>
-        <span className="font-medium">
-          {req.type === 'ADVANCE' ? 'Salary advance' : 'Loan'}
-        </span>{' '}
-        · {req.currency ?? ''}
-        {Number(req.amount ?? 0).toLocaleString()}
-        {req.installments ? ` · ${req.installments} instalment${req.installments === 1 ? '' : 's'}` : ''}
-        {req.referenceNo ? ` · ${req.referenceNo}` : ''}
-      </>
-    ),
-  },
-
   TRAINING: {
     label: 'Training',
     icon: BookOpen,
@@ -162,25 +116,6 @@ export const APPROVAL_KIND_UI: Record<ApprovalRequestType, ApprovalKindUi> = {
         </span>
         {req.session?.startDate ? ` · ${fmtDate(req.session.startDate)}` : ''}
         {req.cost ? ` · ${Number(req.cost).toLocaleString()}` : ''}
-      </>
-    ),
-  },
-
-  BANK_CHANGE: {
-    label: 'Bank details',
-    icon: Landmark,
-    badgeClass: 'bg-violet-50 text-violet-700',
-    approve: (id) => bankChangeService.approve(id),
-    reject: (id, reason) => bankChangeService.reject(id, reason),
-    summary: (req) => (
-      <>
-        Requests to update bank details
-        {req.bank?.name ? (
-          <>
-            {' '}
-            · new bank: <span className="font-medium">{req.bank.name}</span>
-          </>
-        ) : null}
       </>
     ),
   },

@@ -77,7 +77,6 @@ export function friendlyAppraisalTool(tool: string): string {
     project_contribution_get: 'Fetching project contributions',
     worklog_employee_summary: 'Calculating logged hours',
     timesheet_employee_summary: 'Checking timesheet discipline',
-    reimbursement_employee_summary: 'Scanning reimbursement claims',
     conduct_records_get: 'Reviewing rewards & disciplinary records',
     team_membership_get: 'Mapping team involvement',
     employee_get: 'Reading the employee profile',

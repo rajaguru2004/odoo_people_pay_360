@@ -10,66 +10,25 @@ describe('payrollFeaturesFrom', () => {
   it('reads every feature off when the payload is empty', () => {
     expect(payrollFeaturesFrom({})).toEqual({
       itemLines: false,
-      eosb: false,
-      eosbSettlement: false,
-      eosbAccrual: false,
-      calendar: false,
-      preflight: false,
-      recovery: false,
-      encashment: false,
-      reports: false,
-      transfer: false,
-      grade: false,
       loaded: false,
     });
   });
 
   it('separates "off" from "not read yet"', () => {
     // Every flag defaults false, so without this a screen cannot tell a feature
-    // that IS off from one whose settings have not arrived — and all nine
-    // payroll extension screens printed "switched off" as a fact in that
-    // window. An admin who had just turned a switch on was told it was off.
+    // that IS off from one whose settings have not arrived — and the payroll
+    // extension screens printed "switched off" as a fact in that window. An
+    // admin who had just turned a switch on was told it was off.
     expect(payrollFeaturesFrom({}).loaded).toBe(false);
     expect(payrollFeaturesFrom({}, true).loaded).toBe(true);
     expect(payrollFeaturesFrom(undefined, true).loaded).toBe(true);
-  });
-
-  it('needs BOTH switches before a settlement screen may render', () => {
-    // The server's own rule: `FinalSettlementsService.assertEnabled()` refuses
-    // every route unless eosb AND settlement are on together. A screen gated on
-    // the master alone rendered its list, its prepare form and its approve
-    // buttons over an API answering 404 to all of them.
-    expect(
-      payrollFeaturesFrom({ payroll_eosb_enabled: true } as never).eosbSettlement,
-    ).toBe(false);
-    expect(
-      payrollFeaturesFrom({ payroll_eosb_settlement_enabled: true } as never).eosbSettlement,
-    ).toBe(false);
-    expect(
-      payrollFeaturesFrom({
-        payroll_eosb_enabled: true,
-        payroll_eosb_settlement_enabled: true,
-      } as never).eosbSettlement,
-    ).toBe(true);
-  });
-
-  it('applies the same pairing to the accrual ledger', () => {
-    expect(
-      payrollFeaturesFrom({ payroll_eosb_accrual_enabled: true } as never).eosbAccrual,
-    ).toBe(false);
-    expect(
-      payrollFeaturesFrom({
-        payroll_eosb_enabled: true,
-        payroll_eosb_accrual_enabled: true,
-      } as never).eosbAccrual,
-    ).toBe(true);
   });
 
   it('reads every feature off when there is no branding at all', () => {
     // The window between app mount and the first /system-settings/public
     // response. A feature must not be briefly on during it.
     expect(payrollFeaturesFrom(undefined).itemLines).toBe(false);
-    expect(payrollFeaturesFrom(null).eosb).toBe(false);
+    expect(payrollFeaturesFrom(null).itemLines).toBe(false);
   });
 
   it('does not treat a missing key as enabled', () => {
@@ -95,7 +54,5 @@ describe('payrollFeaturesFrom', () => {
       payroll_item_lines_enabled: true,
     } as never);
     expect(f.itemLines).toBe(true);
-    expect(f.eosb).toBe(false);
-    expect(f.reports).toBe(false);
   });
 });

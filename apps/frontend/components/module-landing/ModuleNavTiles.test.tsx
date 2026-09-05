@@ -35,12 +35,12 @@ describe('ModuleNavTiles', () => {
   });
 
   it('mirrors a child role narrowing', () => {
-    // Bank Master is ADMIN-only server-side; HR must not be offered the tile.
-    renderWithProviders(<ModuleNavTiles moduleKey="payroll" />, { role: 'HR_MANAGER' });
-    expect(hrefs()).not.toContain('/dashboard/banks');
+    // Audit logs are ADMIN-only server-side; HR must not be offered the tile.
+    renderWithProviders(<ModuleNavTiles moduleKey="system" />, { role: 'HR_MANAGER' });
+    expect(hrefs()).not.toContain('/dashboard/audit-logs');
 
-    renderWithProviders(<ModuleNavTiles moduleKey="payroll" />, { role: 'ADMIN' });
-    expect(hrefs()).toContain('/dashboard/banks');
+    renderWithProviders(<ModuleNavTiles moduleKey="system" />, { role: 'ADMIN' });
+    expect(hrefs()).toContain('/dashboard/audit-logs');
   });
 
   it('renders nothing for a module the current role has no group for', () => {

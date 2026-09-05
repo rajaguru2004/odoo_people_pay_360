@@ -270,10 +270,10 @@ export default function EmployeeDashboardMobile({
       ...(overtimeEnabled
         ? [{ label: t('navOvertime'), icon: FileText, href: '/dashboard/my-overtime', tone: 'text-brand-accent', bg: 'bg-brand-accent/10' }]
         : []),
-      // `/dashboard/payroll`, NOT `/dashboard/my-payroll`: that segment holds
-      // only `[id]/` and `gratuity/` and has no page of its own, so this tile
-      // 404'd. Same defect as D-01 in the tab bar, in a second place — which is
-      // why the route guard now covers every href in this file too.
+      // `/dashboard/payroll` is the employee payslip list. This tile used to
+      // push `/dashboard/my-payroll`, a segment with no page of its own, and
+      // 404'd — the same defect as D-01 in the tab bar, in a second place,
+      // which is why the route guard now covers every href in this file too.
       { label: t('navSalary'), icon: Wallet, href: '/dashboard/payroll', tone: 'text-status-warning', bg: 'bg-status-warning-bg' },
       { label: t('navMyCalendar'), icon: CalendarDays, href: '/dashboard/my-calendar', tone: 'text-status-info', bg: 'bg-status-info-bg' },
       { label: t('navDocuments'), icon: FolderOpen, href: '/dashboard/my-documents', tone: 'text-brand-primary', bg: 'bg-brand-primary/10' },

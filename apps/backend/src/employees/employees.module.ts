@@ -1,4 +1,4 @@
-import { GarnishmentsModule } from '../garnishments/garnishments.module';
+import { DeductionCarryForwardModule } from '../payrolls/deduction-carry-forward.module';
 import { Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { EmployeesController } from './employees.controller';
@@ -27,7 +27,7 @@ uploadDirs.forEach((dir) => {
 });
 
 @Module({
-  imports: [GarnishmentsModule, 
+  imports: [DeductionCarryForwardModule, 
     PrismaModule,
     StorageModule,
     MailModule,

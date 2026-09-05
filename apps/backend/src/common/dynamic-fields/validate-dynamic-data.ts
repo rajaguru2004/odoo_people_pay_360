@@ -21,7 +21,7 @@
  *     silently vanishes after "Saved!" is worse than a 400.
  */
 import { isSupportedCountry } from 'libphonenumber-js';
-import { validateIban, normalizeIban } from '../../bank-details/iban.util';
+import { validateIban, normalizeIban } from '../utils/iban.util';
 import { FieldDef } from './field-def';
 
 /**

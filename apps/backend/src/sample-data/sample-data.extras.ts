@@ -23,7 +23,6 @@ import { AssetStatus, PrismaClient } from '@prisma/client';
 import { SMP, pad3, randInt } from './sample-data.constants';
 import { seedLibraryDefaults } from '../library-items/library-defaults';
 import { LETTER_TEMPLATE_DEFAULTS } from '../letters/letter-defaults';
-import { DEFAULT_COUNTRY_FIELDS } from '../bank-details/banking-config.service';
 
 // ---------------------------------------------------------------------------
 // Types the core service hands over
@@ -96,24 +95,6 @@ function ibanWithCheckDigits(country: string, bban: string): string {
 
 const MUSCAT = 3; // branchIndex of the Oman branch
 
-/** Licensed Omani banks — the demo's primary payment rails. */
-const BANKS: { country: string; name: string; swift: string; bankCode: string | null }[] = [
-  { country: 'OM', name: 'Bank Muscat', swift: 'BMUSOMRX', bankCode: '018' },
-  { country: 'OM', name: 'National Bank of Oman', swift: 'NBOMOMRX', bankCode: '022' },
-  { country: 'OM', name: 'Bank Dhofar', swift: 'BDOFOMRU', bankCode: '029' },
-  { country: 'OM', name: 'Sohar International Bank', swift: 'BSHROMRU', bankCode: '046' },
-  { country: 'OM', name: 'Oman Arab Bank', swift: 'OMABOMRU', bankCode: '031' },
-  { country: 'OM', name: 'Ahli Bank', swift: 'AUBOMRUX', bankCode: '051' },
-  { country: 'OM', name: 'Bank Nizwa', swift: 'BNIZOMRU', bankCode: '056' },
-  { country: 'OM', name: 'Alizz Islamic Bank', swift: 'AIBAOMRU', bankCode: '057' },
-  { country: 'IN', name: 'HDFC Bank', swift: 'HDFCINBB', bankCode: null },
-  { country: 'IN', name: 'ICICI Bank', swift: 'ICICINBB', bankCode: null },
-  { country: 'IN', name: 'State Bank of India', swift: 'SBININBB', bankCode: null },
-  { country: 'US', name: 'JPMorgan Chase', swift: 'CHASUS33', bankCode: null },
-  { country: 'US', name: 'Bank of America', swift: 'BOFAUS3N', bankCode: null },
-  { country: 'AE', name: 'Emirates NBD', swift: 'EBILAEAD', bankCode: null },
-];
-
 /** Omani public holidays, branch-scoped to Muscat so other branches keep the day. */
 const OMAN_HOLIDAYS: { name: string; month: number; day: number; description: string }[] = [
   { name: 'Renaissance Day', month: 7, day: 23, description: 'Oman national holiday.' },
@@ -132,23 +113,19 @@ const OMANI_CITIES = ['Muscat', 'Salalah', 'Sohar', 'Nizwa', 'Sur', 'Ibri'];
 export async function seedSampleExtras(ctx: ExtrasContext): Promise<void> {
   await seedMasters(ctx);
   await seedProfilesAndHierarchy(ctx);
-  await seedBanking(ctx);
   await seedLeaveBalancesAndAccruals(ctx);
   await seedAttendanceExtras(ctx);
   await seedRewardsAndDisciplines(ctx);
   await seedDocumentsAndVisas(ctx);
   await seedLettersAndGrievances(ctx);
   await seedAssets(ctx);
-  await seedTravel(ctx);
   await seedTraining(ctx);
-  await seedBudgets(ctx);
   await seedApprovals(ctx);
   await seedContractLifecycle(ctx);
   await seedTimesheetsAndWorkLogs(ctx);
   await seedAppraisal(ctx);
   await seedProjectDetail(ctx);
   await seedNotificationsAndAudit(ctx);
-  await seedGarnishments(ctx);
 }
 
 // ---------------------------------------------------------------------------
@@ -157,27 +134,9 @@ export async function seedSampleExtras(ctx: ExtrasContext): Promise<void> {
 
 async function seedMasters(ctx: ExtrasContext): Promise<void> {
   const { prisma, branchIds, say } = ctx;
-  say('Loading masters (libraries, banks, letter templates, holidays)…');
+  say('Loading masters (libraries, letter templates, holidays)…');
 
   await seedLibraryDefaults(prisma);
-
-  for (const b of BANKS) {
-    await prisma.bank.upsert({
-      where: { country_name: { country: b.country, name: b.name } },
-      update: { swift: b.swift, bankCode: b.bankCode, isActive: true },
-      create: { country: b.country, name: b.name, swift: b.swift, bankCode: b.bankCode, isActive: true },
-    });
-  }
-
-  for (const [country, fields] of Object.entries(DEFAULT_COUNTRY_FIELDS)) {
-    for (const f of fields) {
-      await prisma.countryBankingField.upsert({
-        where: { country_fieldKey: { country, fieldKey: f.fieldKey } },
-        update: {},
-        create: { country, ...f } as any,
-      });
-    }
-  }
 
   for (const t of LETTER_TEMPLATE_DEFAULTS) {
     await prisma.letterTemplate.upsert({
@@ -568,152 +527,6 @@ async function seedProfilesAndHierarchy(ctx: ExtrasContext): Promise<void> {
           createdAt: day(-2),
         },
       ],
-    });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 3. Bank master, employee bank details, change requests
-// ---------------------------------------------------------------------------
-
-async function seedBanking(ctx: ExtrasContext): Promise<void> {
-  const { prisma, employees, branchIds, hrUserId, say } = ctx;
-  say('Wiring payment details (Bank Master, IBANs, change requests)…');
-
-  const banksByCountry: Record<string, { id: string; name: string; bankCode: string | null }[]> = {};
-  for (const country of ['OM', 'IN', 'US']) {
-    banksByCountry[country] = await prisma.bank.findMany({
-      where: { country, isActive: true },
-      select: { id: true, name: true, bankCode: true },
-      orderBy: { name: 'asc' },
-    });
-  }
-  const countryOfBranch = ['IN', 'IN', 'US', 'OM'];
-
-  // Which field schemas each branch's employees may use. Muscat also allows AE,
-  // because staff on the UAE rotation are paid into Emirates accounts.
-  for (let b = 0; b < branchIds.length; b++) {
-    await prisma.branch.update({
-      where: { id: branchIds[b] },
-      data: { bankingCountries: b === MUSCAT ? ['OM', 'AE'] : [countryOfBranch[b]] },
-    });
-  }
-
-  // Three employees keep only LEGACY free-text bank data and get no active
-  // EmployeeBankDetail — they are the migration queue on the Bank Master
-  // migrate screen. Everyone else is already on the versioned model.
-  //
-  // All three are deliberately OUTSIDE Muscat (indices 18-23). An employee with
-  // no active bank detail is a BLOCKING `NO_ACTIVE_BANK_DETAIL` finding on the
-  // wage file, and Muscat is the branch whose file the demo has to generate —
-  // so the migration queue is shown on a branch that produces no wage file.
-  const legacyOnly = new Set([15, 16, 17]);
-
-  for (const emp of employees) {
-    const country = countryOfBranch[emp.branchIndex];
-    const pool = banksByCountry[country];
-    if (!pool?.length) continue;
-    const bank = pool[emp.index % pool.length];
-
-    let data: Record<string, string>;
-    let iban: string | null = null;
-    let accountNumber: string | null = null;
-    if (country === 'OM') {
-      // OM IBAN: OM + 2 check + 3-digit bank code + 16-digit account = 23 chars.
-      const bban = `${bank.bankCode ?? '018'}${String(1000000000000000 + emp.index * 7919).slice(0, 16)}`;
-      iban = ibanWithCheckDigits('OM', bban);
-      data = { accountHolderName: emp.fullName, iban };
-    } else if (country === 'IN') {
-      accountNumber = `5011${pad3(emp.index + 1)}0099${emp.index}`;
-      data = {
-        accountHolderName: emp.fullName,
-        accountNumber,
-        ifsc: `${bank.name.slice(0, 4).toUpperCase()}0${pad3(emp.index + 1)}123`.slice(0, 11),
-      };
-    } else {
-      accountNumber = `0001${pad3(emp.index + 1)}4455`;
-      data = { accountHolderName: emp.fullName, accountNumber, routingNumber: '021000021' };
-    }
-
-    // Legacy free-text copy always exists on the profile — that is what the
-    // pre-Bank-Master system stored, and what the migrate screen reads.
-    await prisma.employeeProfile.update({
-      where: { employeeId: emp.id },
-      data: {
-        bankName: bank.name,
-        bankAccountNumber: accountNumber ?? iban,
-        bankAccountHolderName: emp.fullName,
-        bankBranch: country === 'OM' ? 'Al Khuwair Branch' : 'Main Branch',
-      },
-    });
-
-    if (legacyOnly.has(emp.index)) continue;
-
-    await prisma.employeeBankDetail.create({
-      data: {
-        employeeId: emp.id,
-        bankId: bank.id,
-        data,
-        iban,
-        accountNumber,
-        accountHolderName: emp.fullName,
-        isActive: true,
-        effectiveFrom: emp.startDate,
-        source: 'APPROVAL',
-        branchId: branchIds[emp.branchIndex],
-      },
-    });
-  }
-
-  // Change requests across every state. Only ONE may be PENDING per employee
-  // (partial unique index), so each state goes to a different person.
-  //
-  // The two PENDING requests sit on INDIA employees on purpose. A pending bank
-  // change is a BLOCKING wage-file finding — "decide it before generating, or
-  // the file may pay the wrong account" — and it blocked ten of Muscat's
-  // thirteen employees before this. The approval queue is the same screen
-  // wherever the requester works, and India produces no wage file, so the
-  // reviewer demo and the Oman file demo stop fighting each other.
-  const omBanks = banksByCountry['OM'];
-  const inBanks = banksByCountry['IN'];
-  const reqSpecs = [
-    { empIdx: 2, bank: inBanks?.[1], country: 'IN', status: 'PENDING', decidedAt: null as Date | null },
-    { empIdx: 5, bank: inBanks?.[2], country: 'IN', status: 'PENDING', decidedAt: null as Date | null },
-    { empIdx: 22, bank: omBanks[3], country: 'OM', status: 'APPROVED', decidedAt: day(-6) },
-    { empIdx: 23, bank: omBanks[4], country: 'OM', status: 'REJECTED', decidedAt: day(-4) },
-    { empIdx: 19, bank: omBanks[5], country: 'OM', status: 'CANCELLED', decidedAt: day(-2) },
-  ];
-  for (const r of reqSpecs) {
-    if (!r.bank) continue;
-    const emp = employees[r.empIdx];
-    let data: Record<string, string>;
-    let iban: string | null = null;
-    let accountNumber: string | null = null;
-    if (r.country === 'OM') {
-      const bban = `${r.bank.bankCode ?? '018'}${String(2000000000000000 + r.empIdx * 6337).slice(0, 16)}`;
-      iban = ibanWithCheckDigits('OM', bban);
-      data = { accountHolderName: emp.fullName, iban };
-    } else {
-      accountNumber = `6022${pad3(r.empIdx + 1)}0088${r.empIdx}`;
-      data = {
-        accountHolderName: emp.fullName,
-        accountNumber,
-        ifsc: `${r.bank.name.slice(0, 4).toUpperCase()}0${pad3(r.empIdx + 1)}456`.slice(0, 11),
-      };
-    }
-    await prisma.bankChangeRequest.create({
-      data: {
-        employeeId: emp.id,
-        bankId: r.bank.id,
-        data,
-        iban,
-        accountNumber,
-        accountHolderName: emp.fullName,
-        status: r.status,
-        requestedById: hrUserId,
-        branchId: branchIds[emp.branchIndex],
-        decidedAt: r.decidedAt,
-      },
     });
   }
 }
@@ -1198,126 +1011,6 @@ async function seedAssets(ctx: ExtrasContext): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// 10. Travel requests
-// ---------------------------------------------------------------------------
-
-async function seedTravel(ctx: ExtrasContext): Promise<void> {
-  const { prisma, employees, hrUserId, say } = ctx;
-  say('Booking business travel (trips, itineraries & per-diem claims)…');
-
-  const destinations = await prisma.libraryItem.findMany({
-    where: { libraryType: 'PER_DIEM_DESTINATION', isActive: true },
-  });
-  const rateOf = (label: string) =>
-    Number(destinations.find((d) => d.label === label)?.perDiemRate ?? 60);
-
-  const trips = [
-    {
-      empIdx: 18, purpose: 'Client onboarding workshop', type: 'INTERNATIONAL', destination: 'GCC',
-      country: 'United Arab Emirates', from: 12, to: 16, status: 'PENDING', advance: 300,
-      legs: [
-        { mode: 'FLIGHT', fromPlace: 'Muscat', toPlace: 'Dubai', ref: 'WY-611' },
-        { mode: 'HOTEL', toPlace: 'Dubai', ref: 'HTL-88213' },
-        { mode: 'FLIGHT', fromPlace: 'Dubai', toPlace: 'Muscat', ref: 'WY-616' },
-      ],
-    },
-    {
-      empIdx: 19, purpose: 'Regional HR conference', type: 'INTERNATIONAL', destination: 'GCC',
-      country: 'Qatar', from: -20, to: -16, status: 'COMPLETED', advance: 250,
-      legs: [
-        { mode: 'FLIGHT', fromPlace: 'Muscat', toPlace: 'Doha', ref: 'QR-1137' },
-        { mode: 'HOTEL', toPlace: 'Doha', ref: 'HTL-55401' },
-      ],
-    },
-    {
-      empIdx: 20, purpose: 'Salalah site inspection', type: 'DOMESTIC', destination: 'Domestic - Other City',
-      country: 'Oman', from: 5, to: 7, status: 'APPROVED', advance: 80,
-      legs: [
-        { mode: 'FLIGHT', fromPlace: 'Muscat', toPlace: 'Salalah', ref: 'WY-901' },
-        { mode: 'ROAD', fromPlace: 'Salalah Airport', toPlace: 'Raysut site', ref: null },
-      ],
-    },
-    {
-      empIdx: 22, purpose: 'Vendor negotiation', type: 'INTERNATIONAL', destination: 'Asia',
-      country: 'India', from: 25, to: 30, status: 'REJECTED', advance: null,
-      legs: [{ mode: 'FLIGHT', fromPlace: 'Muscat', toPlace: 'Mumbai', ref: 'AI-984' }],
-    },
-    {
-      empIdx: 0, purpose: 'Annual engineering summit', type: 'INTERNATIONAL', destination: 'Europe',
-      country: 'Germany', from: 40, to: 46, status: 'PENDING', advance: 600,
-      legs: [
-        { mode: 'FLIGHT', fromPlace: 'Bengaluru', toPlace: 'Frankfurt', ref: 'LH-755' },
-        { mode: 'TRAIN', fromPlace: 'Frankfurt', toPlace: 'Berlin', ref: 'ICE-1042' },
-      ],
-    },
-    {
-      empIdx: 12, purpose: 'Key account QBR', type: 'DOMESTIC', destination: 'Domestic - Other City',
-      country: 'United States', from: -8, to: -6, status: 'CANCELLED', advance: null,
-      legs: [{ mode: 'FLIGHT', fromPlace: 'New York', toPlace: 'Chicago', ref: 'UA-402' }],
-    },
-  ];
-
-  for (const t of trips) {
-    const days = Math.max(1, t.to - t.from + 1);
-    const rate = rateOf(t.destination);
-    const decided = t.status === 'APPROVED' || t.status === 'REJECTED' || t.status === 'COMPLETED';
-    const trip = await prisma.travelRequest.create({
-      data: {
-        employeeId: employees[t.empIdx].id,
-        purpose: t.purpose,
-        travelType: t.type,
-        destination: t.destination,
-        country: t.country,
-        departureDate: day(t.from),
-        returnDate: day(t.to),
-        perDiemRate: rate,
-        perDiemDays: days,
-        estimatedCost: Math.round(rate * days + 350),
-        advanceAmount: t.advance,
-        status: t.status,
-        approverId: decided ? hrUserId : null,
-        approvedAt: t.status === 'APPROVED' || t.status === 'COMPLETED' ? day(t.from - 5) : null,
-        approverRemarks: t.status === 'APPROVED' ? 'Approved; book through the corporate travel desk.' : null,
-        rejectedReason: t.status === 'REJECTED' ? 'Budget for the quarter is already committed.' : null,
-        itinerary: {
-          create: t.legs.map((l, i) => ({
-            legOrder: i + 1,
-            mode: l.mode,
-            fromPlace: (l as any).fromPlace ?? null,
-            toPlace: l.toPlace ?? null,
-            startAt: atTime(day(t.from + i), 8 + i * 3),
-            endAt: l.mode === 'HOTEL' ? atTime(day(t.to), 12) : null,
-            reference: l.ref,
-          })),
-        },
-      },
-    });
-
-    // An approved/completed trip spawns its per-diem claim on the reimbursement
-    // ledger — the same path payroll already pays out.
-    if (t.status === 'APPROVED' || t.status === 'COMPLETED') {
-      await prisma.reimbursement.create({
-        data: {
-          employeeId: employees[t.empIdx].id,
-          type: 'Travel',
-          amount: rate * days,
-          expenseDate: day(t.to),
-          description: `Per diem — ${t.purpose} (${days} days @ ${rate}/day)`,
-          status: t.status === 'COMPLETED' ? 'PAID' : 'APPROVED',
-          approverId: hrUserId,
-          approvedAt: day(t.to),
-          approverRemarks: 'Per-diem entitlement for an approved trip.',
-          paidAt: t.status === 'COMPLETED' ? day(t.to + 3) : null,
-          sourceType: 'TRAVEL',
-          sourceId: trip.id,
-          budgetCategory: 'Travel',
-        },
-      });
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
 // 11. Training — courses, sessions, nominations, certificates
 // ---------------------------------------------------------------------------
 
@@ -1422,157 +1115,6 @@ async function seedTraining(ctx: ExtrasContext): Promise<void> {
         },
       });
 
-      // Attended training bills back through the reimbursement ledger.
-      if (attended) {
-        await prisma.reimbursement.create({
-          data: {
-            employeeId: employees[empIdx].id,
-            type: 'Training',
-            amount: session.cost,
-            expenseDate: session.endsAt,
-            description: `Training fee — ${courseSpecs.find((c) => c.code === session.code)?.title}`,
-            status: 'PAID',
-            approverId: hrUserId,
-            approvedAt: session.endsAt,
-            paidAt: day(-2),
-            sourceType: 'TRAINING',
-            sourceId: nomination.id,
-            budgetCategory: 'Training',
-          },
-        });
-      }
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 12. Budgets, lines and commitments
-// ---------------------------------------------------------------------------
-
-async function seedBudgets(ctx: ExtrasContext): Promise<void> {
-  const { prisma, deptIds, branchIds, hrUserId, say } = ctx;
-  say('Setting fiscal-year budgets & commitments…');
-
-  const fiscalYear = new Date().getUTCFullYear();
-  const currencyOf = ['INR', 'INR', 'USD', 'OMR'];
-  // Muscat is the showcase branch: an OMR budget with realistic Omani figures.
-  const plannedByBranch = [
-    { Payroll: 9_600_000, Overtime: 480_000, Travel: 350_000, Training: 300_000, Recruitment: 200_000 },
-    { Payroll: 8_400_000, Overtime: 420_000, Travel: 300_000, Training: 260_000, Recruitment: 180_000 },
-    { Payroll: 1_200_000, Overtime: 60_000, Travel: 90_000, Training: 70_000, Recruitment: 50_000 },
-    { Payroll: 96_000, Overtime: 7_200, Travel: 12_000, Training: 9_000, Recruitment: 5_000 },
-  ];
-
-  for (let b = 0; b < branchIds.length; b++) {
-    const budget = await prisma.budget.upsert({
-      where: {
-        branchId_fiscalYear_name: {
-          branchId: branchIds[b],
-          fiscalYear,
-          name: `${SMP}FY${fiscalYear} Operating Budget`,
-        },
-      },
-      update: { status: 'ACTIVE' },
-      create: {
-        name: `${SMP}FY${fiscalYear} Operating Budget`,
-        fiscalYear,
-        startDate: dU(fiscalYear, 1, 1),
-        endDate: dU(fiscalYear, 12, 31),
-        branchId: branchIds[b],
-        currency: currencyOf[b],
-        status: 'ACTIVE',
-        createdById: hrUserId,
-      },
-    });
-
-    const planned = plannedByBranch[b];
-    for (const [category, total] of Object.entries(planned)) {
-      // A company-wide fallback line plus per-department splits. The fallback
-      // line cannot be upserted by key — Postgres treats NULL as distinct, so
-      // the (budget, department, category) unique index never matches it.
-      const fallback = await prisma.budgetLine.findFirst({
-        where: { budgetId: budget.id, departmentId: null, category },
-      });
-      if (!fallback) {
-        await prisma.budgetLine.create({
-          data: {
-            budgetId: budget.id,
-            departmentId: null,
-            category,
-            plannedAmount: Math.round(total * 0.1),
-            notes: 'Unallocated / company-wide contingency.',
-          },
-        });
-      }
-
-      for (let d = 0; d < deptIds.length; d++) {
-        await prisma.budgetLine.upsert({
-          where: { budgetId_departmentId_category: { budgetId: budget.id, departmentId: deptIds[d], category } },
-          update: {},
-          create: {
-            budgetId: budget.id,
-            departmentId: deptIds[d],
-            category,
-            plannedAmount: Math.round((total * 0.9) / deptIds.length),
-          },
-        });
-      }
-    }
-  }
-
-  // Commitments: every approved trip and nomination reserves its money against
-  // the matching Travel/Training line on its own branch's budget.
-  const omanBudget = await prisma.budget.findFirst({
-    where: { branchId: branchIds[MUSCAT], fiscalYear, name: { startsWith: SMP } },
-    include: { lines: true },
-  });
-  if (omanBudget) {
-    const travelLine = omanBudget.lines.find((l) => l.category === 'Travel' && l.departmentId === deptIds[5])
-      ?? omanBudget.lines.find((l) => l.category === 'Travel');
-    const trainingLine = omanBudget.lines.find((l) => l.category === 'Training' && l.departmentId === deptIds[5])
-      ?? omanBudget.lines.find((l) => l.category === 'Training');
-
-    const trips = await prisma.travelRequest.findMany({
-      where: { status: { in: ['APPROVED', 'COMPLETED', 'REJECTED'] }, employee: { branchId: branchIds[MUSCAT] } },
-    });
-    for (const t of trips) {
-      if (!travelLine) break;
-      await prisma.budgetCommitment.upsert({
-        where: { sourceType_sourceId: { sourceType: 'TRAVEL', sourceId: t.id } },
-        update: {},
-        create: {
-          budgetLineId: travelLine.id,
-          sourceType: 'TRAVEL',
-          sourceId: t.id,
-          amount: t.estimatedCost,
-          status: t.status === 'COMPLETED' ? 'REALIZED' : t.status === 'REJECTED' ? 'RELEASED' : 'OPEN',
-          resolvedAt: t.status === 'APPROVED' ? null : day(-3),
-          resolvedNote:
-            t.status === 'COMPLETED' ? 'Per-diem claim landed in actuals.'
-              : t.status === 'REJECTED' ? 'Request rejected; commitment released.'
-                : null,
-        },
-      });
-    }
-
-    const noms = await prisma.trainingNomination.findMany({
-      where: { status: { in: ['APPROVED', 'ATTENDED'] }, employee: { branchId: branchIds[MUSCAT] } },
-    });
-    for (const n of noms) {
-      if (!trainingLine) break;
-      await prisma.budgetCommitment.upsert({
-        where: { sourceType_sourceId: { sourceType: 'TRAINING', sourceId: n.id } },
-        update: {},
-        create: {
-          budgetLineId: trainingLine.id,
-          sourceType: 'TRAINING',
-          sourceId: n.id,
-          amount: n.cost ?? 0,
-          status: n.status === 'ATTENDED' ? 'REALIZED' : 'OPEN',
-          resolvedAt: n.status === 'ATTENDED' ? day(-2) : null,
-          resolvedNote: n.status === 'ATTENDED' ? 'Training fee reimbursed.' : null,
-        },
-      });
     }
   }
 }
@@ -1619,15 +1161,7 @@ async function seedApprovals(ctx: ExtrasContext): Promise<void> {
     where: { status: 'PENDING', employeeId: { in: sampleEmpIds } },
     select: { id: true },
   });
-  const pendingTravel = await prisma.travelRequest.findMany({
-    where: { status: 'PENDING', employeeId: { in: sampleEmpIds } },
-    select: { id: true },
-  });
   const pendingTraining = await prisma.trainingNomination.findMany({
-    where: { status: 'PENDING', employeeId: { in: sampleEmpIds } },
-    select: { id: true },
-  });
-  const pendingBank = await prisma.bankChangeRequest.findMany({
     where: { status: 'PENDING', employeeId: { in: sampleEmpIds } },
     select: { id: true },
   });
@@ -1651,9 +1185,7 @@ async function seedApprovals(ctx: ExtrasContext): Promise<void> {
   };
   await trail('LEAVE', pendingLeave, ['SUPERVISOR', 'HR_MANAGER']);
   await trail('OVERTIME', pendingOt, ['SUPERVISOR', 'MANAGER']);
-  await trail('TRAVEL', pendingTravel, ['MANAGER', 'HR_MANAGER']);
   await trail('TRAINING', pendingTraining, ['MANAGER', 'HR_MANAGER']);
-  await trail('BANK_CHANGE', pendingBank, ['HR_MANAGER', 'ADMIN']);
 
   // One fully-decided trail so the history view is not empty either.
   const approvedLeave = await prisma.leaveRequest.findFirst({
@@ -2176,191 +1708,3 @@ async function seedNotificationsAndAudit(ctx: ExtrasContext): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 19. Garnishment orders — court / authority deductions applied via payroll
-// ---------------------------------------------------------------------------
-
-async function seedGarnishments(ctx: ExtrasContext): Promise<void> {
-  const { prisma, employees, say } = ctx;
-  say('Filing garnishment orders (court-ordered deductions)…');
-
-  const now = new Date();
-  const curYear = now.getUTCFullYear();
-
-  // One order per spec — spread across branches and lifecycle states so every
-  // column on the garnishments page has a value and the filters work.
-  //
-  // Muscat (branchIndex 3) uses OMR-scale amounts and ROP (Royal Oman Police)
-  // court references; India / US branches use INR / USD-scale figures.
-  const specs: {
-    empIdx: number;
-    reference: string;
-    authority: string | null;
-    amount: number | null;
-    percentOfNet: number | null;
-    totalCap: number | null;
-    collected: number;
-    startDaysAgo: number;
-    endDaysFromNow: number | null;
-    isActive: boolean;
-    priority: number;
-    notes: string | null;
-  }[] = [
-    // ── Muscat branch (OMR) ────────────────────────────────────────────────
-    {
-      empIdx: 18,
-      reference: 'ROP-MCT-2024-00781',
-      authority: 'Royal Oman Police — Civil Court Muscat',
-      amount: 80,
-      percentOfNet: null,
-      totalCap: 960,
-      collected: 480,       // 6 months in, half-way to cap
-      startDaysAgo: 180,
-      endDaysFromNow: 180,
-      isActive: true,
-      priority: 10,
-      notes: 'Civil debt recovery. Month 7 of 12.',
-    },
-    {
-      empIdx: 19,
-      reference: 'ROP-MCT-2025-00044',
-      authority: 'Muscat Magistrate Court',
-      amount: null,
-      percentOfNet: 10,     // 10 % of net each cycle
-      totalCap: null,       // runs until end date
-      collected: 150,
-      startDaysAgo: 90,
-      endDaysFromNow: 270,
-      isActive: true,
-      priority: 20,
-      notes: 'Percentage-of-net order; no cap.',
-    },
-    {
-      empIdx: 20,
-      reference: 'ROP-MCT-2023-11902',
-      authority: 'Court of Appeal — Sultanate of Oman',
-      amount: 200,
-      percentOfNet: null,
-      totalCap: 2400,
-      collected: 2400,      // fully recovered — keeps the page interesting
-      startDaysAgo: 400,
-      endDaysFromNow: null,
-      isActive: false,      // deactivated once cap hit
-      priority: 10,
-      notes: 'Fully recovered. Order closed.',
-    },
-    {
-      empIdx: 21,
-      reference: 'ROP-MCT-2025-00201',
-      authority: 'Muscat Primary Court',
-      amount: 50,
-      percentOfNet: null,
-      totalCap: null,
-      collected: 0,
-      startDaysAgo: 14,
-      endDaysFromNow: 350,
-      isActive: true,
-      priority: 30,
-      notes: 'New order; first deduction next payroll cycle.',
-    },
-    // ── Bengaluru branch (INR) ─────────────────────────────────────────────
-    {
-      empIdx: 0,
-      reference: 'DRT-BLR-2024-003812',
-      authority: 'Debt Recovery Tribunal — Bengaluru',
-      amount: 5000,
-      percentOfNet: null,
-      totalCap: 60000,
-      collected: 25000,
-      startDaysAgo: 150,
-      endDaysFromNow: 210,
-      isActive: true,
-      priority: 10,
-      notes: 'Bank loan recovery via DRT order.',
-    },
-    {
-      empIdx: 2,
-      reference: 'CRT-BLR-2025-007744',
-      authority: 'City Civil Court Bengaluru',
-      amount: 3000,
-      percentOfNet: null,
-      totalCap: null,
-      collected: 9000,
-      startDaysAgo: 270,
-      endDaysFromNow: 90,
-      isActive: true,
-      priority: 20,
-      notes: null,
-    },
-    // ── Chennai branch (INR) ───────────────────────────────────────────────
-    {
-      empIdx: 6,
-      reference: 'CRT-MAA-2024-015532',
-      authority: 'Madras High Court',
-      amount: null,
-      percentOfNet: 8,
-      totalCap: 48000,
-      collected: 16000,
-      startDaysAgo: 200,
-      endDaysFromNow: null,
-      isActive: true,
-      priority: 10,
-      notes: 'Percentage order — court-ordered maintenance payment.',
-    },
-    // ── New York branch (USD) ──────────────────────────────────────────────
-    {
-      empIdx: 12,
-      reference: 'NY-GARNISH-2024-88231',
-      authority: 'New York Supreme Court — Civil Division',
-      amount: 400,
-      percentOfNet: null,
-      totalCap: 4800,
-      collected: 800,
-      startDaysAgo: 60,
-      endDaysFromNow: 300,
-      isActive: true,
-      priority: 10,
-      notes: 'Federal student-loan garnishment under Title IV.',
-    },
-    {
-      empIdx: 14,
-      reference: 'NY-GARNISH-2023-71104',
-      authority: 'New York Civil Court',
-      amount: 250,
-      percentOfNet: null,
-      totalCap: 3000,
-      collected: 3000,
-      startDaysAgo: 500,
-      endDaysFromNow: null,
-      isActive: false,
-      priority: 10,
-      notes: 'Order satisfied — cap reached.',
-    },
-  ];
-
-  for (const s of specs) {
-    const emp = employees[s.empIdx];
-    if (!emp) continue;
-    const startDate = new Date(Date.UTC(curYear, now.getUTCMonth(), now.getUTCDate() - s.startDaysAgo));
-    const endDate = s.endDaysFromNow == null
-      ? null
-      : new Date(Date.UTC(curYear, now.getUTCMonth(), now.getUTCDate() + s.endDaysFromNow));
-
-    await prisma.garnishmentOrder.create({
-      data: {
-        employeeId: emp.id,
-        reference: s.reference,
-        authority: s.authority,
-        amount: s.amount != null ? s.amount : undefined,
-        percentOfNet: s.percentOfNet != null ? s.percentOfNet : undefined,
-        totalCap: s.totalCap != null ? s.totalCap : undefined,
-        collected: s.collected,
-        startDate,
-        endDate,
-        isActive: s.isActive,
-        priority: s.priority,
-        notes: s.notes,
-      },
-    });
-  }
-}

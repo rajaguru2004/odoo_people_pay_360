@@ -4,16 +4,16 @@
  * Two jobs, both pure so they can be unit-tested without a browser:
  *
  *   1. **Sanitise.** A raw ESS path carries record identifiers —
- *      `/dashboard/employees/9d2f.../payroll`. Sent as-is, GA4 would hold a
+ *      `/dashboard/employees/9d2f.../edit`. Sent as-is, GA4 would hold a
  *      per-employee page list, which is exactly the personal data this
  *      integration must not collect. Every id-shaped segment collapses to
- *      `:id`, so the report reads `/dashboard/employees/:id/payroll` and counts
+ *      `:id`, so the report reads `/dashboard/employees/:id/edit` and counts
  *      the SCREEN rather than the person.
  *
- *   2. **Group.** 54 route folders is too granular to answer "which modules do
- *      people use". The module map mirrors the navigation groups in
- *      components/dashboard/navConfig.ts, so a GA breakdown lines up with what
- *      the sidebar actually shows.
+ *   2. **Group.** The route folders under app/dashboard are too granular to
+ *      answer "which modules do people use". The module map mirrors the
+ *      navigation groups in components/dashboard/navConfig.ts, so a GA
+ *      breakdown lines up with what the sidebar actually shows.
  */
 
 /** Segments that are record ids rather than screen names. */
@@ -98,15 +98,6 @@ const MODULE_BY_SEGMENT: Record<string, string> = {
   leave: 'leave',
   // Payroll
   payroll: 'payroll',
-  banks: 'payroll',
-  garnishments: 'payroll',
-  // Finance
-  reimbursements: 'finance',
-  travel: 'finance',
-  'advance-loans': 'finance',
-  budgets: 'finance',
-  accounting: 'finance',
-  finance: 'finance',
   // Talent
   appraisal: 'talent',
   training: 'talent',
@@ -161,7 +152,7 @@ export interface ScreenDescriptor {
   path: string;
   /** Nav-group bucket, e.g. `payroll`. */
   module: string;
-  /** Stable screen key, e.g. `dashboard.payroll.:id.wps`. */
+  /** Stable screen key, e.g. `dashboard.payroll.:id`. */
   screen: string;
 }
 
@@ -198,9 +189,6 @@ const NAMED_ACTIONS: Array<{ method: string; path: RegExp; action: string }> = [
   { method: 'POST', path: /^\/payrolls\/:id\/(approve|reject)$/, action: 'payroll_run_decided' },
   { method: 'POST', path: /^\/employees$/, action: 'employee_created' },
   { method: 'POST', path: /^\/employees\/import\/confirm$/, action: 'employee_import_confirmed' },
-  { method: 'POST', path: /^\/reimbursements$/, action: 'reimbursement_submitted' },
-  { method: 'POST', path: /^\/advance-loans$/, action: 'advance_loan_requested' },
-  { method: 'POST', path: /^\/travel-requests$/, action: 'travel_request_submitted' },
   { method: 'POST', path: /^\/grievances$/, action: 'grievance_submitted' },
 ];
 
@@ -219,8 +207,7 @@ export function namedActionFor(method: string, sanitizedEndpoint: string): strin
 const MODULE_BY_ENDPOINT: Array<[RegExp, string]> = [
   [/^\/(attendances|attendance-corrections|face-recognition|timesheets|work-logs)\b/, 'attendance'],
   [/^\/(leave-requests|leave-balances|leave-types|overtime)\b/, 'leave'],
-  [/^\/(payrolls|payroll|salary|banks|garnishments|wps)\b/, 'payroll'],
-  [/^\/(reimbursements|travel-requests|advance-loans|budgets|accounting)\b/, 'finance'],
+  [/^\/(payrolls|payroll|salary)\b/, 'payroll'],
   [/^\/(employees|contracts|termination|supervisor|teams|visa)\b/, 'people'],
   [/^\/(departments|branches|organization)\b/, 'organization'],
   [/^\/(appraisals?|training|rewards|disciplines|grievances)\b/, 'talent'],

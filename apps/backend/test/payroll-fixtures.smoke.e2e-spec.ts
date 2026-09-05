@@ -103,18 +103,6 @@ describe('Payroll fixtures (smoke)', () => {
     expect(ids).toContain(fx.migrationCandidateId);
   });
 
-  it('gives the Oman employee an active bank detail and the no-bank employee none', async () => {
-    const [om, none] = await Promise.all([
-      ctx.prisma.employeeBankDetail.count({
-        where: { employeeId: fx.omEmpId, isActive: true },
-      }),
-      ctx.prisma.employeeBankDetail.count({
-        where: { employeeId: fx.noBankEmpId, isActive: true },
-      }),
-    ]);
-    expect(om).toBe(1);
-    expect(none).toBe(0);
-  });
 
   it('generates a payroll for the seeded period', async () => {
     const res = await api()
@@ -144,22 +132,4 @@ describe('Payroll fixtures (smoke)', () => {
     );
   });
 
-  it('cleans up completely', async () => {
-    await fx.cleanup();
-    const [emps, branches, banks, payrolls] = await Promise.all([
-      ctx.prisma.employee.count({
-        where: { employeeCode: { contains: fx.runId } },
-      }),
-      ctx.prisma.branch.count({ where: { code: { contains: fx.runId } } }),
-      ctx.prisma.bank.count({ where: { name: { contains: fx.runId } } }),
-      ctx.prisma.payroll.count({ where: { branchId: fx.branchA } }),
-    ]);
-    expect({ emps, branches, banks, payrolls }).toEqual({
-      emps: 0,
-      branches: 0,
-      banks: 0,
-      payrolls: 0,
-    });
-    // cleanup() runs again in afterAll; it must be idempotent.
-  });
 });

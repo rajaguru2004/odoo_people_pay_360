@@ -15,9 +15,7 @@ const item = (over: Partial<PayslipItemLike> = {}): PayslipItemLike => ({
   overtimeHours: 4,
   overtimePay: 75,
   foodAllowance: 0,
-  reimbursement: 0,
   deduction: 0,
-  advanceLoanDeduction: 0,
   insurance: 120,
   tax: 90,
   actualWorkDays: 22,
@@ -82,23 +80,19 @@ describe('buildPayslipLines — degradation to today’s layout', () => {
     ]);
   });
 
-  it('keeps food allowance, other deductions and loan recovery conditional', () => {
+  it('keeps food allowance, site allowance and other deductions conditional', () => {
     const zero = buildPayslipLines(item(), { labels: LABELS, daily: false, dayRate: null });
     expect(zero.income.map((r) => r.key)).not.toContain('foodAllowance');
+    expect(zero.income.map((r) => r.key)).not.toContain('siteAllowance');
     expect(zero.deductions.map((r) => r.key)).not.toContain('deduction');
-    expect(zero.deductions.map((r) => r.key)).not.toContain('advanceLoanDeduction');
 
     const some = buildPayslipLines(
-      item({ foodAllowance: 30, deduction: 50, advanceLoanDeduction: 200 }),
+      item({ foodAllowance: 30, siteAllowance: 20, deduction: 50 }),
       { labels: LABELS, daily: false, dayRate: null },
     );
     expect(some.income.map((r) => r.key)).toContain('foodAllowance');
-    expect(some.deductions.map((r) => r.key)).toEqual([
-      'insurance',
-      'tax',
-      'deduction',
-      'advanceLoanDeduction',
-    ]);
+    expect(some.income.map((r) => r.key)).toContain('siteAllowance');
+    expect(some.deductions.map((r) => r.key)).toEqual(['insurance', 'tax', 'deduction']);
   });
 
   it('switches the other-deduction label on pay basis, as today', () => {
@@ -135,20 +129,6 @@ describe('buildPayslipLines — degradation to today’s layout', () => {
 
     const monthly = buildPayslipLines(item(), { labels: LABELS, daily: false, dayRate: null });
     expect(monthly.income[0].sublabelKey).toBeUndefined();
-  });
-
-  it('shows the reimbursement block only when there is one', () => {
-    expect(
-      buildPayslipLines(item(), { labels: LABELS, daily: false, dayRate: null })
-        .reimbursement,
-    ).toEqual([]);
-    expect(
-      buildPayslipLines(item({ reimbursement: 500 }), {
-        labels: LABELS,
-        daily: false,
-        dayRate: null,
-      }).reimbursement,
-    ).toHaveLength(1);
   });
 
   it('treats an empty lines array exactly like no lines at all', () => {

@@ -1,6 +1,5 @@
 import {
   Boxes,
-  Wallet,
   Banknote,
   LayoutDashboard,
   Users,
@@ -34,9 +33,8 @@ export interface NavChild {
   /**
    * Narrows a child below its parent. Omit to inherit the parent's audience.
    *
-   * Needed because a group can mix audiences — Finance is visible to a
-   * department head, but HR Budgets inside it is ADMIN-only, and showing the
-   * link would just hand them a 403 modal.
+   * Needed because a group can mix audiences — a department head sees the
+   * group, but an ADMIN-only screen inside it would just hand them a 403 modal.
    */
   roles?: string[];
 }
@@ -50,12 +48,12 @@ export interface NavGroup {
    * The URL prefix this module OWNS, when that is not the same as where its
    * header points. Defaults to `href`.
    *
-   * Payroll is the case it exists for: its hub is `/dashboard/payroll/overview`,
-   * a SIBLING of the routes it owns, because `/dashboard/payroll` itself is the
-   * payslip screen every role reaches from the user menu. Matching on `href`
-   * alone therefore resolved none of `/dashboard/payroll/:id`,
-   * `/dashboard/payroll/:id/wps` or `/dashboard/payroll` to this module, and
-   * those screens rendered no breadcrumb trail at all.
+   * Payroll is the case it exists for: its header points at
+   * `/dashboard/payroll/manage`, a SIBLING of the routes it owns, because
+   * `/dashboard/payroll` itself is the payslip screen every role reaches from
+   * the user menu. Matching on `href` alone therefore resolved neither
+   * `/dashboard/payroll/:id` nor `/dashboard/payroll` to this module, and those
+   * screens rendered no breadcrumb trail at all.
    */
   basePath?: string;
   roles: string[];
@@ -69,34 +67,15 @@ export type SubMenuItem = NavChild;
 /**
  * Routes that only exist when their feature is on.
  *
- * Read as `!== true` rather than `=== false`, unlike the older overtime and
- * reimbursement switches: those are established features that ship ON, so they
- * hide only when explicitly disabled. These ship OFF, so a missing key — an
- * older backend, a failed request — must hide them rather than surface a screen
- * whose API answers 404.
+ * Read as `!== true` rather than `=== false`, unlike the older overtime switch:
+ * that is an established feature that ships ON, so it hides only when explicitly
+ * disabled. These ship OFF, so a missing key — an older backend, a failed
+ * request — must hide them rather than surface a screen whose API answers 404.
  */
 export const FLAG_ROUTES: Array<{ flag: keyof BrandingData; hrefs: string[] }> = [
-  { flag: 'payroll_preflight_enabled', hrefs: ['/dashboard/payroll/validate'] },
   {
     flag: 'document_engine_enabled',
     hrefs: ['/dashboard/settings/documents'],
-  },
-  {
-    flag: 'payroll_eosb_enabled',
-    hrefs: [
-      '/dashboard/payroll/settlements',
-      '/dashboard/payroll/gratuity-rules',
-      '/dashboard/my-payroll/gratuity',
-    ],
-  },
-  { flag: 'payroll_reports_enabled', hrefs: ['/dashboard/payroll/reports'] },
-  { flag: 'payroll_calendar_enabled', hrefs: ['/dashboard/payroll/calendar'] },
-  { flag: 'employee_transfer_enabled', hrefs: ['/dashboard/payroll/transfers'] },
-  { flag: 'employee_grade_enabled', hrefs: ['/dashboard/payroll/grades'] },
-  { flag: 'leave_encashment_enabled', hrefs: ['/dashboard/payroll/encashment'] },
-  {
-    flag: 'payroll_employee_recovery_enabled',
-    hrefs: ['/dashboard/payroll/recoveries'],
   },
 ];
 
@@ -198,58 +177,21 @@ export const adminMenuItems: NavGroup[] = [
     // Not `/dashboard/payroll` — that URL is the payslip screen every role
     // reaches from the user menu, and an admin hub rendered there would take it
     // away from them. The hub is a sibling under the same prefix instead.
-    href: '/dashboard/payroll/overview',
-    // The hub is a sibling of the routes this module owns, so the prefix has to
-    // be stated separately or the record screens under /dashboard/payroll/
-    // resolve to no module and lose their trail entirely.
+    href: '/dashboard/payroll/manage',
+    // The header points at a sibling of the routes this module owns, so the
+    // prefix has to be stated separately or the record screens under
+    // /dashboard/payroll/ resolve to no module and lose their trail entirely.
     basePath: '/dashboard/payroll',
     roles: ['ADMIN', 'MANAGER'],
     // Only `child.roles` is read by the filter — the group's own `roles` above is
     // inert (see the note at the top of this file). So anything narrower than
-    // "everyone this menu is built for" has to be declared per child, and the
-    // ADMIN-only banking screens were not: HR_MANAGER was offered Bank Master and
-    // then bounced to /403 by its ProtectedRoute.
+    // "everyone this menu is built for" has to be declared per child, or the
+    // role is offered a screen its ProtectedRoute then bounces to /403.
     children: [
       { labelKey: 'runPayroll', href: '/dashboard/payroll/manage' },
-      // Before "Run payroll" would be more logical, but it is placed after so
-      // that an installation without the feature sees the menu it has always
-      // seen, in the order it has always seen it.
-      { labelKey: 'payrollValidate', href: '/dashboard/payroll/validate' },
       { labelKey: 'payrollBatches', href: '/dashboard/payroll/batches' },
       { labelKey: 'payrollApprovals', href: '/dashboard/payroll/approvals' },
       { labelKey: 'salaryStructures', href: '/dashboard/payroll/salary-structure' },
-      { labelKey: 'payrollGrades', href: '/dashboard/payroll/grades' },
-      { labelKey: 'finalSettlements', href: '/dashboard/payroll/settlements' },
-      { labelKey: 'gratuityRules', href: '/dashboard/payroll/gratuity-rules', roles: ['ADMIN'] },
-      { labelKey: 'leaveEncashment', href: '/dashboard/payroll/encashment' },
-      { labelKey: 'payrollRecoveries', href: '/dashboard/payroll/recoveries' },
-      { labelKey: 'payrollCalendar', href: '/dashboard/payroll/calendar', roles: ['ADMIN'] },
-      { labelKey: 'payrollTransfers', href: '/dashboard/payroll/transfers' },
-      { labelKey: 'payrollReports', href: '/dashboard/payroll/reports' },
-      { labelKey: 'bankMaster', href: '/dashboard/banks', roles: ['ADMIN'] },
-      {
-        labelKey: 'bankFieldConfig',
-        href: '/dashboard/banks/config',
-        roles: ['ADMIN'],
-      },
-      // ADMIN + HR_MANAGER server-side, but it had no menu entry at all and was
-      // reachable only from Bank Master's header — which is ADMIN-only, so an HR
-      // authorised for it could never navigate there.
-      { labelKey: 'bankBranchCountries', href: '/dashboard/banks/branch-countries' },
-      { labelKey: 'bankMigration', href: '/dashboard/banks/migrate' },
-    ],
-  },
-  {
-    icon: Wallet,
-    labelKey: 'finance',
-    href: '/dashboard/finance',
-    roles: ['ADMIN', 'MANAGER'],
-    children: [
-      { labelKey: 'reimbursements', href: '/dashboard/reimbursements' },
-      { labelKey: 'travel', href: '/dashboard/travel' },
-      { labelKey: 'advancesLoans', href: '/dashboard/advance-loans' },
-      { labelKey: 'loanReports', href: '/dashboard/advance-loans/reports' },
-      { labelKey: 'budgets', href: '/dashboard/budgets' },
     ],
   },
   {
@@ -331,10 +273,6 @@ export const employeeMenuItems: NavGroup[] = [
     roles: ['EMPLOYEE'],
     children: [
       { labelKey: 'myPayslips', href: '/dashboard/payroll' },
-      { labelKey: 'myGratuity', href: '/dashboard/my-payroll/gratuity' },
-      { labelKey: 'myReimbursements', href: '/dashboard/reimbursements' },
-      { labelKey: 'myAdvancesLoans', href: '/dashboard/advance-loans' },
-      { labelKey: 'myTravel', href: '/dashboard/my-travel' },
     ],
   },
   {
@@ -387,7 +325,6 @@ export const departmentHeadMenuItems: NavGroup[] = [
       { labelKey: 'myDocuments', href: '/dashboard/my-documents' },
       { labelKey: 'myLetters', href: '/dashboard/my-letters' },
       { labelKey: 'myAssets', href: '/dashboard/my-assets' },
-      { labelKey: 'myTravel', href: '/dashboard/my-travel' },
       { labelKey: 'myTraining', href: '/dashboard/my-training' },
       { labelKey: 'myGrievances', href: '/dashboard/my-grievances' },
     ],
@@ -414,17 +351,6 @@ export const departmentHeadMenuItems: NavGroup[] = [
     ],
   },
   {
-    icon: Wallet,
-    labelKey: 'finance',
-    href: '/dashboard/reimbursements',
-    roles: ['MANAGER'],
-    children: [
-      { labelKey: 'reimbursements', href: '/dashboard/reimbursements' },
-      { labelKey: 'travel', href: '/dashboard/travel' },
-      { labelKey: 'advancesLoans', href: '/dashboard/advance-loans' },
-    ],
-  },
-  {
     icon: Award,
     labelKey: 'talent',
     href: '/dashboard/training',
@@ -441,8 +367,8 @@ export const departmentHeadMenuItems: NavGroup[] = [
 
 /**
  * Feature toggles hide a route wherever it appears. Checked against the href
- * rather than the item, so grouping a route under a parent (Finance) does not
- * quietly stop its kill-switch working.
+ * rather than the item, so grouping a route under a parent does not quietly stop
+ * its kill-switch working.
  */
 export function hrefDisabled(href: string | undefined, branding: BrandingData | null | undefined): boolean {
   if (!href) return false;
@@ -452,12 +378,8 @@ export function hrefDisabled(href: string | undefined, branding: BrandingData | 
   ) {
     return true;
   }
-  if (branding?.reimbursement_enabled === false && href === '/dashboard/reimbursements') {
-    return true;
-  }
-  // The payroll extensions, which are OFF by default rather than on. Note the
-  // direction: overtime and reimbursement are existing features, so they hide
-  // only on an explicit `false`; these hide unless explicitly `true`, because an
+  // Note the direction: overtime is an existing feature, so it hides only on an
+  // explicit `false`; a flagged route hides unless explicitly `true`, because an
   // older backend that has never heard of the key must not surface a screen
   // whose API answers 404.
   for (const route of FLAG_ROUTES) {
@@ -524,10 +446,9 @@ export function findGroupByModuleKey(menu: NavGroup[], moduleKey: string): NavGr
  * screen is more use than stopping at the section.
  *
  * A group matches on its `basePath` as well as its `href`, scored the same way
- * by length. That is what lets a module whose hub sits beside the routes it owns
- * (Payroll) still claim them, while a longer child href keeps winning: on
- * `/dashboard/payroll/settlements/x` the 30-char child beats the 18-char
- * basePath, and on the hub itself the 27-char href beats it too.
+ * by length. That is what lets a module whose header points beside the routes it
+ * owns (Payroll) still claim them, while a longer child href keeps winning: on
+ * `/dashboard/payroll/batches` the 26-char child beats the 18-char basePath.
  */
 export function findGroupForPathname(
   menu: NavGroup[],

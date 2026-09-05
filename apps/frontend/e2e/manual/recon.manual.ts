@@ -34,11 +34,6 @@ const SCREENS: Array<{ name: string; path: string; height?: number }> = [
 
   // My Pay
   { name: '20-payroll', path: '/dashboard/payroll', height: 1300 },
-  { name: '21-gratuity', path: '/dashboard/my-payroll/gratuity' },
-  { name: '22-reimbursements', path: '/dashboard/reimbursements', height: 1400 },
-  { name: '23-advance-loans', path: '/dashboard/advance-loans', height: 1400 },
-  { name: '24-my-loan-statement', path: '/dashboard/my-loan-statement', height: 1200 },
-  { name: '25-my-travel', path: '/dashboard/my-travel', height: 1200 },
 
   // My Records
   { name: '30-my-documents', path: '/dashboard/my-documents', height: 1200 },

@@ -55,9 +55,7 @@ describe('ClearanceService', () => {
       await expect(service.getClearanceStatus('emp-1')).resolves.toEqual({
         cleared: true,
         assetCleared: true,
-        loanCleared: true,
         openAssets: [],
-        outstandingLoans: [],
       });
     });
 

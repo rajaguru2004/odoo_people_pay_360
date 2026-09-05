@@ -45,13 +45,13 @@ import {
  *
  * ## What FINAL_SETTLEMENT actually is here
  *
- * A run type, and nothing more: there is no EOSB calculation, no gratuity
- * accrual, no service-years arithmetic and no settlement statement
- * (`docs/PAYROLL-GAP-REPORT.md` §1 — the schema says outright *"This is not an
- * F&F module"*). What it does is lift the loan take-home floor via
- * `loan_final_settlement_ignores_min_net`. So this file asserts that the run type
- * round-trips and behaves like an ordinary run otherwise, and does not pretend to
- * cover a final settlement the product does not compute.
+ * A run type, and nothing more: there is no end-of-service calculation, no
+ * service-years arithmetic and no settlement statement (`docs/PAYROLL-GAP-REPORT.md`
+ * §1 — the schema says outright *"This is not an F&F module"*). What it buys is
+ * a second run over a month the regular run already used, reaching an employee
+ * the regular run leaves out. So this file asserts that the run type round-trips
+ * and behaves like an ordinary run otherwise, and does not pretend to cover a
+ * final settlement the product does not compute.
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -247,10 +247,9 @@ test.describe('joiners, leavers and settlement runs', () => {
       );
       expect(payroll.status, 'and it is an ordinary DRAFT otherwise').toBe('DRAFT');
 
-      // What it is NOT: there is no gratuity, no service-years figure and no
-      // settlement statement — `PayrollItem` has no column that could carry one.
-      // See `docs/PAYROLL-GAP-REPORT.md` §1. The run type's only real effect is on
-      // loan recovery, which `finance-loan-payroll-recovery.spec.ts` owns.
+      // What it is NOT: there is no end-of-service figure, no service-years
+      // figure and no settlement statement — `PayrollItem` has no column that
+      // could carry one. See `docs/PAYROLL-GAP-REPORT.md` §1.
       const item = (await itemsOf(admin, run.id)).find((i) => i.employeeId === subject.id)!;
       expect(item.netSalary, 'the employee is simply paid, as in any other run').toBeGreaterThan(0);
     });

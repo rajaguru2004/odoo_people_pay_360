@@ -312,7 +312,7 @@ describe('the real catalogue', () => {
   it('requires a PIN for anything showing pay or balances', () => {
     const sensitive = essActions().filter((a) => a.sensitivity === 'sensitive');
     expect(sensitive.map((a) => a.key)).toEqual(
-      expect.arrayContaining(['payroll.payslips', 'loan.my']),
+      expect.arrayContaining(['payroll.payslips', 'payroll.ytd']),
     );
     for (const a of sensitive) expect(a.confirmPolicy).not.toBe('implicit');
   });

@@ -36,11 +36,11 @@ async function open(page: import('@playwright/test').Page, path: string): Promis
   await page.waitForLoadState('networkidle').catch(() => {});
 }
 
-/** The Payroll group's row in the rail: its label link and its chevron. */
-function payrollGroup(page: import('@playwright/test').Page) {
+/** The People group's row in the rail: its label link and its chevron. */
+function peopleGroup(page: import('@playwright/test').Page) {
   return {
-    label: page.locator('aside a[href="/dashboard/payroll/overview"]').first(),
-    chevron: page.getByRole('button', { name: /Payroll submenu/i }),
+    label: page.locator('aside a[href="/dashboard/people"]').first(),
+    chevron: page.getByRole('button', { name: /People submenu/i }),
   };
 }
 
@@ -52,28 +52,28 @@ test.describe('as admin', () => {
   test('clicking a group label opens its hub instead of only expanding', async ({ page, problems }) => {
     await open(page, '/dashboard/workplace');
 
-    await payrollGroup(page).label.click();
-    await page.waitForURL('**/dashboard/payroll/overview');
+    await peopleGroup(page).label.click();
+    await page.waitForURL('**/dashboard/people');
 
-    expect(at(page)).toBe('/dashboard/payroll/overview');
+    expect(at(page)).toBe('/dashboard/people');
     // The hub's whole purpose: the group's children, reachable from the page.
-    await expect(page.locator('a[href="/dashboard/payroll/manage"]').first()).toBeVisible();
+    await expect(page.locator('a[href="/dashboard/employees"]').first()).toBeVisible();
 
-    settle(problems, 'opening the payroll hub from the rail');
+    settle(problems, 'opening the people hub from the rail');
   });
 
   test('the chevron expands the group without navigating', async ({ page, problems }) => {
     // Two sibling controls on one row. If the chevron ever swallows the link's
     // click — or a nested button/anchor gets reintroduced — this catches it.
     await open(page, '/dashboard/workplace');
-    const { chevron } = payrollGroup(page);
+    const { chevron } = peopleGroup(page);
 
     await expect(chevron).toHaveAttribute('aria-expanded', 'false');
     await chevron.click();
 
     await expect(chevron).toHaveAttribute('aria-expanded', 'true');
     expect(at(page), 'expanding a group navigated').toBe('/dashboard/workplace');
-    await expect(page.locator('aside a[href="/dashboard/payroll/manage"]')).toBeVisible();
+    await expect(page.locator('aside a[href="/dashboard/employees"]')).toBeVisible();
 
     settle(problems, 'expanding a group in place');
   });
@@ -87,10 +87,10 @@ test.describe('as admin', () => {
     await page.locator('aside button[title="Collapse Menu"]').click();
     await expect(page.locator('aside button[title="Expand Menu"]')).toBeVisible();
 
-    await page.locator('aside a[href="/dashboard/finance"]').first().click();
-    await page.waitForURL('**/dashboard/finance');
+    await page.locator('aside a[href="/dashboard/people"]').first().click();
+    await page.waitForURL('**/dashboard/people');
 
-    expect(at(page)).toBe('/dashboard/finance');
+    expect(at(page)).toBe('/dashboard/people');
     // Still collapsed — navigating did not force the rail open.
     await expect(page.locator('aside button[title="Expand Menu"]')).toBeVisible();
 
@@ -116,10 +116,12 @@ test.describe('as admin', () => {
     // Rooted at the module, so nothing in the trail leads to the main dashboard.
     await expect(trail.locator('a[href="/dashboard"]')).toHaveCount(0);
 
-    // The section crumb is the way back up to the hub.
-    await trail.locator('a[href="/dashboard/payroll/overview"]').click();
-    await page.waitForURL('**/dashboard/payroll/overview');
-    expect(at(page)).toBe('/dashboard/payroll/overview');
+    // The section crumb is the way back up to the hub, on a module that has one.
+    await open(page, '/dashboard/branches');
+    const orgTrail = page.locator('main nav[aria-label="Breadcrumb"]').first();
+    await orgTrail.locator('a[href="/dashboard/organization"]').click();
+    await page.waitForURL('**/dashboard/organization');
+    expect(at(page)).toBe('/dashboard/organization');
 
     settle(problems, 'the derived breadcrumb trail');
   });
@@ -148,7 +150,7 @@ test.describe('as admin', () => {
   test('a hub offers nothing the rail withholds', async ({ page, problems }) => {
     // Both are built from navConfig; this is the assertion that keeps them
     // from drifting apart and handing the user a link into /403.
-    await open(page, '/dashboard/payroll/overview');
+    await open(page, '/dashboard/people');
 
     const railHrefs = await new SidebarNav(page).links();
     const tileHrefs = await page

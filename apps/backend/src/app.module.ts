@@ -11,7 +11,6 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { OrganizationHubModule } from './organization-hub/organization-hub.module';
-import { FinanceModule } from './finance/finance.module';
 import { TalentModule } from './talent/talent.module';
 import { WorkplaceModule } from './workplace/workplace.module';
 import { BranchesModule } from './branches/branches.module';
@@ -20,9 +19,7 @@ import { ContractsModule } from './contracts/contracts.module';
 import { LegalDocumentsModule } from './legal-documents/legal-documents.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { AssetsModule } from './assets/assets.module';
-import { TravelModule } from './travel/travel.module';
 import { TrainingModule } from './training/training.module';
-import { BudgetsModule } from './budgets/budgets.module';
 import { LettersModule } from './letters/letters.module';
 import { GrievancesModule } from './grievances/grievances.module';
 import { DocumentVaultModule } from './document-vault/document-vault.module';
@@ -51,11 +48,6 @@ import { FaceRecognitionModule } from './face-recognition/face-recognition.modul
 import { SystemSettingsModule } from './system-settings/system-settings.module';
 import { TimezoneModule } from './common/timezone/timezone.module';
 import { PayrollBatchesModule } from './payroll-batches/payroll-batches.module';
-import { GratuityModule } from './gratuity/gratuity.module';
-import { LeaveEncashmentModule } from './leave-encashment/leave-encashment.module';
-import { FinalSettlementsModule } from './final-settlements/final-settlements.module';
-import { PayrollCalendarModule } from './payroll-calendar/payroll-calendar.module';
-import { EmployeeRecoveriesModule } from './employee-recoveries/employee-recoveries.module';
 import { LibraryItemsModule } from './library-items/library-items.module';
 // Task Tracker + Timesheet Management
 
@@ -72,15 +64,9 @@ import { TaskDashboardModule } from './task-dashboard/task-dashboard.module';
 import { AuditModule } from './audit/audit.module';
 import { AuditInterceptor } from './audit/audit.interceptor';
 import { LeaveAttachmentsModule } from './leave-attachments/leave-attachments.module';
-import { ReimbursementsModule } from './reimbursements/reimbursements.module';
 import { ApprovalsModule } from './approvals/approvals.module';
 import { SupervisorsModule } from './supervisors/supervisors.module';
-import { BankDetailsModule } from './bank-details/bank-details.module';
 import { ProfileTemplatesModule } from './profile-templates/profile-templates.module';
-import { WpsModule } from './wps/wps.module';
-import { AdvanceLoansModule } from './advance-loans/advance-loans.module';
-import { GarnishmentsModule } from './garnishments/garnishments.module';
-import { AccountingModule } from './accounting/accounting.module';
 import { SampleDataModule } from './sample-data/sample-data.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { McpModule } from './mcp/mcp.module';
@@ -95,9 +81,6 @@ import { TelegramModule } from './telegram/telegram.module';
 import { TelegramInboundModule } from './telegram/telegram-inbound.module';
 import { ChannelVerificationInboundModule } from './common/verification/channel-verification-inbound.module';
 import { AppraisalModule } from './appraisal/appraisal.module';
-import { EmployeeTransfersModule } from './employee-transfers/employee-transfers.module';
-import { GradesModule } from './grades/grades.module';
-import { PayrollReportsModule } from './payroll-reports/payroll-reports.module';
 
 @Module({
   imports: [
@@ -120,7 +103,6 @@ import { PayrollReportsModule } from './payroll-reports/payroll-reports.module';
     // Module hub aggregates. Each reads across four or five feature modules,
     // so none of them belongs to one — same reason OrganizationHubModule is
     // its own module rather than a method on DepartmentsService.
-    FinanceModule,
     TalentModule,
     WorkplaceModule,
     BranchesModule,
@@ -129,9 +111,7 @@ import { PayrollReportsModule } from './payroll-reports/payroll-reports.module';
     LegalDocumentsModule,
     RemindersModule,
     AssetsModule,
-    TravelModule,
     TrainingModule,
-    BudgetsModule,
     LettersModule,
     GrievancesModule,
     DocumentVaultModule,
@@ -139,22 +119,10 @@ import { PayrollReportsModule } from './payroll-reports/payroll-reports.module';
     AttendancesModule,
     LeaveRequestsModule,
     LeaveAttachmentsModule,
-    ReimbursementsModule,
-    AdvanceLoansModule,
     // Before PayrollsModule: `payrolls/reports/...` must be matched before
     // `payrolls/:id`, or every report name is read as a payroll id.
-    PayrollReportsModule,
-    AccountingModule,
     PayrollsModule,
     PayrollBatchesModule,
-    GarnishmentsModule,
-    GratuityModule,
-    LeaveEncashmentModule,
-    FinalSettlementsModule,
-    PayrollCalendarModule,
-    EmployeeRecoveriesModule,
-    EmployeeTransfersModule,
-    GradesModule,
     RewardsModule,
     DisciplinesModule,
     HolidaysModule,
@@ -207,9 +175,7 @@ import { PayrollReportsModule } from './payroll-reports/payroll-reports.module';
     AuditModule,
     ApprovalsModule,
     SupervisorsModule,
-    BankDetailsModule,
     ProfileTemplatesModule,
-    WpsModule,
   ],
   controllers: [AppController],
   providers: [

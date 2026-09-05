@@ -233,90 +233,6 @@ const TEMPLATES: WhatsAppTemplate[] = [
       ),
   },
 
-  // ------------------------------------------------------------ bank details
-  {
-    key: 'bank_change_approved',
-    group: 'Money',
-    label: 'Bank details updated',
-    notificationTypes: ['BANK_CHANGE_APPROVED'],
-    render: (ctx) =>
-      // Never echo account numbers into a consumer messenger.
-      lines(
-        header(ctx, '✅ Bank details updated'),
-        '',
-        escapeWa(ctx.message),
-        '',
-        italicNote('If you did not request this, contact HR immediately.'),
-        '',
-        footer(ctx),
-      ),
-  },
-  {
-    key: 'bank_change_rejected',
-    group: 'Money',
-    label: 'Bank details change declined',
-    notificationTypes: ['BANK_CHANGE_REJECTED'],
-    render: (ctx) =>
-      lines(header(ctx, '❌ Bank change rejected'), '', escapeWa(ctx.message), '', footer(ctx)),
-  },
-
-  // ------------------------------------------------------------------- loans
-  {
-    key: 'loan_decision',
-    group: 'Money',
-    label: 'Loan or advance decision',
-    render: (ctx) =>
-      lines(
-        header(ctx),
-        '',
-        detail(ctx, [
-          ['Type', 'requestType'],
-          ['Amount', 'amount'],
-          ['Status', 'status'],
-        ]),
-        escapeWa(ctx.message),
-        '',
-        footer(ctx),
-      ),
-  },
-  {
-    key: 'loan_lifecycle',
-    group: 'Money',
-    label: 'Loan account update',
-    render: (ctx) =>
-      lines(
-        header(ctx),
-        '',
-        detail(ctx, [
-          ['Loan', 'loanRef'],
-          ['Action', 'action'],
-          ['Outstanding', 'outstanding'],
-        ]),
-        escapeWa(ctx.message),
-        '',
-        footer(ctx),
-      ),
-  },
-
-  // ------------------------------------------------------- travel & training
-  {
-    key: 'travel_decision',
-    group: 'Travel & training',
-    label: 'Travel request decision',
-    render: (ctx) =>
-      lines(
-        header(ctx),
-        '',
-        detail(ctx, [
-          ['Destination', 'destination'],
-          ['From', 'startDate'],
-          ['To', 'endDate'],
-        ]),
-        escapeWa(ctx.message),
-        '',
-        footer(ctx),
-      ),
-  },
   {
     key: 'training_nomination',
     group: 'Travel & training',
@@ -413,29 +329,6 @@ const TEMPLATES: WhatsAppTemplate[] = [
     },
   },
 
-  // -------------------------------------------------------------- money back
-  {
-    key: 'reimbursement_decision',
-    group: 'Money',
-    label: 'Reimbursement approved / declined',
-    notificationTypes: ['REIMBURSEMENT_APPROVED', 'REIMBURSEMENT_REJECTED'],
-    render: (ctx) =>
-      // The amount is the employee's own claim, which they submitted and can
-      // already see — not a salary figure, so no PIN gate applies.
-      lines(
-        header(ctx),
-        '',
-        detail(ctx, [
-          ['Type', 'reimbursementType'],
-          ['Amount', 'amount'],
-          ['Status', 'status'],
-          ['Reason', 'rejectionReason'],
-        ]),
-        escapeWa(ctx.message),
-        '',
-        footer(ctx),
-      ),
-  },
 
   // ------------------------------------------------------------------- work
   {

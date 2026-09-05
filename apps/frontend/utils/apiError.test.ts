@@ -31,7 +31,7 @@ function interceptorRejection(
     statusCode,
     message: body.message ?? 'An error occurred',
     timestamp: new Date().toISOString(),
-    path: '/advance-loans/abc/skip-installment',
+    path: '/payrolls/abc/lock',
     errors: body.errors ?? null,
     details: body,
   };

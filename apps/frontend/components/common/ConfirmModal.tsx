@@ -14,10 +14,11 @@ import Sheet from './Sheet';
  *
  * **Two things here are load-bearing and must not be tidied.**
  *
- * 1. `e2e/pages/travel.ts` finds the panel by walking two ancestors up from
- *    `confirm-modal-confirm` (button → footer → panel), because the message a
- *    spec needs to read is the thing under test and cannot be matched by its own
- *    text. So the buttons stay **direct children** of the sheet's footer.
+ * 1. The buttons stay **direct children** of the sheet's footer. A spec that
+ *    has to READ the message — the thing under test, and so not matchable by
+ *    its own text — reaches the panel by walking two ancestors up from
+ *    `confirm-modal-confirm` (button → footer → panel), and one more wrapper
+ *    breaks that walk.
  * 2. At ≥768px this renders the same box it always did — same width, padding,
  *    borders and colours. The phone gets `h-12` buttons and a bottom sheet;
  *    desktop gets `md:h-auto md:py-2`, which is the class it had. The one

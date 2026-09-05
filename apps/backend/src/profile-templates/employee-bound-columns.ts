@@ -74,7 +74,6 @@ export const EXCLUDED_COLUMNS: Record<'employee' | 'employeeProfile', string[]> 
       // generic profile field would write the FK straight past that check, so
       // an employee could sit on a grade their salary is not eligible for and
       // nothing would ever say so.
-      'gradeId',
     ],
     employeeProfile: [
       'id',
