@@ -135,3 +135,19 @@ export function useCancelLeaveRequest() {
     },
   });
 }
+
+/**
+ * One employee's headline entitlement, for a screen that shows it beside
+ * something else.
+ *
+ * `retry: false` because a missing balance must never block the page it sits
+ * on — the approver has the authoritative figure either way.
+ */
+export function useLeaveBalance(employeeId: string | undefined, year?: number) {
+  return useQuery({
+    queryKey: balanceKeys.employee(employeeId!, year),
+    queryFn: () => leaveService.balance(employeeId!, year),
+    enabled: !!employeeId,
+    retry: false,
+  });
+}

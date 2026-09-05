@@ -172,6 +172,14 @@ enum LegalDocumentCategory {
 enum LibraryType {
   LEAVE_TYPE
   EMPLOYMENT_TYPE
+  POSITION
+  CONTRACT_TYPE
+  WORK_MODE
+  DOCUMENT_TYPE
+  VISA_TYPE
+  ASSET_CATEGORY
+  COURSE_CATEGORY
+  GRIEVANCE_CATEGORY
 }
 
 /// How a day is classified for overtime purposes.
@@ -233,6 +241,18 @@ model User {
   overtimeDecided        OvertimeRequest[]         @relation("OvertimeApprover")
   overtimeEdited         OvertimeRequest[]         @relation("OvertimeEditor")
   leaveAttachments       LeaveAttachment[]         @relation("LeaveAttachmentUploader")
+
+  // Employee self-service
+  approvalsAssigned    RequestApproval[]    @relation("RequestApprovalApprover")
+  approvalsDecided     RequestApproval[]    @relation("RequestApprovalDecider")
+  documentsUploaded    EmployeeDocument[]   @relation("DocumentUploader")
+  lettersIssued        LetterRequest[]      @relation("LetterIssuedBy")
+  assetsAssigned       AssetAssignment[]    @relation("AssetAssignedBy")
+  assetReturnsReceived AssetAssignment[]    @relation("AssetReturnReceivedBy")
+  trainingNominated    TrainingNomination[] @relation("TrainingNominatedBy")
+  trainingApproved     TrainingNomination[] @relation("TrainingApprover")
+  grievancesHandled    Grievance[]          @relation("GrievanceHandler")
+  grievanceEvents      GrievanceEvent[]     @relation("GrievanceEventActor")
 
   @@index([role])
   @@map("users")
@@ -313,12 +333,14 @@ model Branch {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
-  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  manager     Employee?    @relation("BranchManager", fields: [managerId], references: [id], onDelete: SetNull)
-  departments Department[]
-  employees   Employee[]
-  attendances Attendance[]
-  holidays    Holiday[]
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  manager          Employee?         @relation("BranchManager", fields: [managerId], references: [id], onDelete: SetNull)
+  departments      Department[]
+  employees        Employee[]
+  attendances      Attendance[]
+  holidays         Holiday[]
+  assets           AssetItem[]
+  trainingSessions TrainingSession[]
 
   @@index([companyId])
   @@index([isActive])
@@ -488,6 +510,14 @@ model Employee {
   leaveTypeBalances LeaveTypeBalance[]
   leaveAccruals    LeaveAccrualHistory[]
   overtimeRequests OvertimeRequest[]
+
+  // Employee self-service
+  documents           EmployeeDocument[]
+  letterRequests      LetterRequest[]       @relation("LetterRequester")
+  assetAssignments    AssetAssignment[]     @relation("AssetHolder")
+  trainingNominations TrainingNomination[]  @relation("TrainingNominee")
+  grievancesRaised    Grievance[]           @relation("GrievanceRaisedBy")
+  grievancesAgainst   Grievance[]           @relation("GrievanceAgainst")
 
   @@index([departmentId])
   @@index([branchId])
@@ -998,17 +1028,33 @@ model AuditLog {
 
 // =====================================================
 // LEAVE & OVERTIME
-// =====================================================
+// ==============================================
+enum ApprovalRequestType {
+  LEAVE
+  OVERTIME
+  TRAINING
+}
 
-/// One row of an admin-managed pick list.
-///
-/// `label` is the key everything else stores — `LeaveRequest.leaveType`,
-/// `LeaveTypeBalance.leaveTypeKey` and `Employee.employmentType` all hold the
-/// label rather than the id. That is deliberate: a balance row has to keep
-/// naming the leave it belongs to even after somebody deletes the library item,
-/// or a year of history stops resolving. The cost is that renaming a library
-/// item does not rename the history behind it, which is the correct trade for a
-/// record an auditor reads.
+enum ApproverType {
+  SUPERVISOR
+  MANAGER
+  HR_MANAGER
+  ADMIN
+}
+
+enum ApprovalMode {
+  SEQUENTIAL
+  PARALLEL
+}
+
+enum AssetStatus {
+  AVAILABLE
+  ASSIGNED
+  IN_REPAIR
+  LOST
+  RETIRED
+}
+
 model LibraryItem {
   id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   libraryType LibraryType @map("library_type")
@@ -1028,12 +1074,75 @@ model LibraryItem {
   /// 'MALE' | 'FEMALE' | null. Maternity and paternity are the reason.
   genderRestriction  String? @map("gender_restriction") @db.VarChar(10)
 
+  /// EMPLOYMENT_TYPE metadata: the pay basis this type forces on anyone
+  /// assigned it. MONTHLY | DAILY | null (the employee's own basis stands).
+  payBasis String? @map("pay_basis") @db.VarChar(20)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
   @@unique([libraryType, label])
   @@index([libraryType, isActive])
   @@map("library_items")
+}
+
+
+// ── Approval chains ──────────────────────────────────────────────────────────
+
+model ApprovalWorkflow {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestType ApprovalRequestType @map("request_type")
+  name        String?             @db.VarChar(150)
+  mode        ApprovalMode        @default(SEQUENTIAL)
+  isActive    Boolean             @default(true) @map("is_active")
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  steps ApprovalStep[]
+
+  @@index([requestType])
+  @@map("approval_workflows")
+}
+
+model ApprovalStep {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workflowId   String       @map("workflow_id") @db.Uuid
+  stepOrder    Int          @map("step_order")
+  approverType ApproverType @map("approver_type")
+
+  workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, stepOrder])
+  @@index([workflowId])
+  @@map("approval_steps")
+}
+
+/// One row per step per request, created when the request is raised.
+///
+/// `resolvedApproverId` is SNAPSHOTTED when the step activates, not resolved on
+/// read: the person who was the supervisor when the step opened is the person
+/// who owes the decision, even if the reporting line moves underneath it.
+model RequestApproval {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestType        ApprovalRequestType @map("request_type")
+  requestId          String              @map("request_id") @db.Uuid
+  stepOrder          Int                 @map("step_order")
+  approverType       ApproverType        @map("approver_type")
+  resolvedApproverId String?             @map("resolved_approver_id") @db.Uuid
+  /// PENDING | ACTIVE | APPROVED | REJECTED | SKIPPED
+  status             String              @default("PENDING") @db.VarChar(50)
+  comment            String?             @db.Text
+  decidedById        String?             @map("decided_by_id") @db.Uuid
+  decidedAt          DateTime?           @map("decided_at") @db.Timestamp(6)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt          DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  resolvedApprover User? @relation("RequestApprovalApprover", fields: [resolvedApproverId], references: [id], onDelete: SetNull)
+  decidedBy        User? @relation("RequestApprovalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([requestType, requestId])
+  @@index([resolvedApproverId])
+  @@map("request_approvals")
 }
 
 /// An application to be away, and the decision on it.
@@ -1279,4 +1388,293 @@ model OvertimeRequest {
   @@index([date])
   @@index([overtimePolicyId])
   @@map("overtime_requests")
+}
+
+// ── The employee's own records ───────────────────────────────────────────────
+
+model EmployeeDocument {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId   String  @map("employee_id") @db.Uuid
+  documentType String  @map("document_type") @db.VarChar(50)
+  fileName     String  @map("file_name") @db.VarChar(255)
+  fileUrl      String  @map("file_url") @db.Text
+  fileSize     BigInt? @map("file_size")
+  mimeType     String? @map("mime_type") @db.VarChar(100)
+  description  String? @db.Text
+
+  issueDate         DateTime? @map("issue_date") @db.Date
+  expiryDate        DateTime? @map("expiry_date") @db.Date
+  /// True for letters and certificates the system produced, so the vault can
+  /// tell them apart from what the employee uploaded.
+  isSystemGenerated Boolean   @default(false) @map("is_system_generated")
+  /// Set when the file lives in the private bucket — a salary certificate must
+  /// not be readable by link alone.
+  privateRef        String?   @map("private_ref") @db.Text
+
+  uploadedAt DateTime @default(now()) @map("uploaded_at") @db.Timestamp(6)
+  uploadedBy String?  @map("uploaded_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  uploader User?    @relation("DocumentUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  @@index([employeeId])
+  @@index([documentType])
+  @@index([expiryDate])
+  @@map("employee_documents")
+}
+
+model LetterTemplate {
+  id               String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// SALARY_CERTIFICATE | NOC | EXPERIENCE | EMBASSY | …
+  key              String  @db.VarChar(50)
+  name             String  @db.VarChar(200)
+  locale           String  @default("en") @db.VarChar(5)
+  bodyHtml         String  @map("body_html") @db.Text
+  /// A salary certificate states someone's pay to a bank, so it needs a
+  /// signature step. Low-risk letters can be issued on request.
+  requiresApproval Boolean @default(true) @map("requires_approval")
+  isActive         Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  @@unique([key, locale])
+  @@map("letter_templates")
+}
+
+model LetterRequest {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId  String  @map("employee_id") @db.Uuid
+  templateKey String  @map("template_key") @db.VarChar(50)
+  locale      String  @default("en") @db.VarChar(5)
+  purpose     String? @db.Text
+  addressedTo String? @map("addressed_to") @db.VarChar(200)
+
+  status String @default("PENDING") @db.VarChar(20)
+
+  /// Printed on the letter and verifiable without signing in.
+  serialNumber String? @unique @map("serial_number") @db.VarChar(50)
+  fileRef      String? @map("file_ref") @db.Text
+  /// The vault entry this letter was filed as.
+  documentId   String? @map("document_id") @db.Uuid
+
+  issuedById     String?   @map("issued_by_id") @db.Uuid
+  issuedAt       DateTime? @map("issued_at") @db.Timestamp(6)
+  rejectedReason String?   @map("rejected_reason") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee Employee @relation("LetterRequester", fields: [employeeId], references: [id], onDelete: Cascade)
+  issuedBy User?    @relation("LetterIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, status])
+  @@index([status])
+  @@map("letter_requests")
+}
+
+// ── Assets ───────────────────────────────────────────────────────────────────
+
+model AssetItem {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assetTag     String      @map("asset_tag") @db.VarChar(50)
+  /// An ASSET_CATEGORY library label, copied not referenced.
+  category     String      @db.VarChar(100)
+  name         String      @db.VarChar(200)
+  serialNumber String?     @map("serial_number") @db.VarChar(150)
+  branchId     String      @map("branch_id") @db.Uuid
+  status       AssetStatus @default(AVAILABLE)
+
+  purchaseDate   DateTime? @map("purchase_date") @db.Date
+  purchaseCost   Decimal?  @map("purchase_cost") @db.Decimal(18, 3)
+  warrantyExpiry DateTime? @map("warranty_expiry") @db.Date
+  notes          String?   @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  branch      Branch            @relation(fields: [branchId], references: [id])
+  assignments AssetAssignment[]
+
+  /// Asset numbering belongs to a BRANCH — two sites genuinely both run a
+  /// "LAP-001", and a global unique refuses the second one with a conflict
+  /// naming a row that branch cannot see.
+  @@unique([branchId, assetTag])
+  @@index([branchId, status])
+  @@index([category])
+  @@map("asset_items")
+}
+
+model AssetAssignment {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assetId            String    @map("asset_id") @db.Uuid
+  employeeId         String    @map("employee_id") @db.Uuid
+  assignedAt         DateTime  @map("assigned_at") @db.Date
+  assignedById       String    @map("assigned_by_id") @db.Uuid
+  conditionOut       String?   @map("condition_out") @db.VarChar(50)
+  /// The digital receipt: the employee confirming they took possession.
+  acknowledgedAt     DateTime? @map("acknowledged_at") @db.Timestamp(6)
+  acknowledgedNote   String?   @map("acknowledged_note") @db.Text
+  returnedAt         DateTime? @map("returned_at") @db.Date
+  conditionIn        String?   @map("condition_in") @db.VarChar(50)
+  returnReceivedById String?   @map("return_received_by_id") @db.Uuid
+  notes              String?   @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  asset      AssetItem @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  employee   Employee  @relation("AssetHolder", fields: [employeeId], references: [id], onDelete: Cascade)
+  assignedBy User      @relation("AssetAssignedBy", fields: [assignedById], references: [id])
+  returnedTo User?     @relation("AssetReturnReceivedBy", fields: [returnReceivedById], references: [id], onDelete: SetNull)
+
+  /// An OPEN assignment (returnedAt null) is what blocks offboarding.
+  @@index([employeeId, returnedAt])
+  @@index([assetId])
+  @@map("asset_assignments")
+}
+
+// ── Training ─────────────────────────────────────────────────────────────────
+
+model Course {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code            String   @unique @db.VarChar(50)
+  title           String   @db.VarChar(200)
+  category        String?  @db.VarChar(100)
+  provider        String?  @db.VarChar(200)
+  description     String?  @db.Text
+  durationHours   Decimal? @map("duration_hours") @db.Decimal(6, 2)
+  defaultCost     Decimal? @map("default_cost") @db.Decimal(18, 3)
+  /// Months a certificate stays valid; null = it never expires.
+  certValidMonths Int?     @map("cert_valid_months")
+  isActive        Boolean  @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  sessions TrainingSession[]
+
+  @@index([isActive])
+  @@map("courses")
+}
+
+model TrainingSession {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  courseId String  @map("course_id") @db.Uuid
+  /// Null = open to every branch.
+  branchId String? @map("branch_id") @db.Uuid
+
+  startDate   DateTime @map("start_date") @db.Date
+  endDate     DateTime @map("end_date") @db.Date
+  location    String?  @db.VarChar(200)
+  trainer     String?  @db.VarChar(200)
+  seats       Int?
+  costPerSeat Decimal? @map("cost_per_seat") @db.Decimal(18, 3)
+  status      String   @default("SCHEDULED") @db.VarChar(20)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  course      Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  branch      Branch?              @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  nominations TrainingNomination[]
+
+  @@index([startDate])
+  @@index([status])
+  @@map("training_sessions")
+}
+
+model TrainingNomination {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId     String @map("session_id") @db.Uuid
+  employeeId    String @map("employee_id") @db.Uuid
+  nominatedById String @map("nominated_by_id") @db.Uuid
+
+  justification String?  @db.Text
+  /// Snapshotted from the session at nomination: an approved cost must not move
+  /// when somebody edits the session later.
+  cost          Decimal? @db.Decimal(18, 3)
+
+  /// PENDING | APPROVED | REJECTED | CANCELLED | ATTENDED | NO_SHOW
+  status         String    @default("PENDING") @db.VarChar(20)
+  approverId     String?   @map("approver_id") @db.Uuid
+  approvedAt     DateTime? @map("approved_at") @db.Timestamp(6)
+  rejectedReason String?   @map("rejected_reason") @db.Text
+
+  attendedAt        DateTime? @map("attended_at") @db.Date
+  score             Decimal?  @db.Decimal(6, 2)
+  passed            Boolean?
+  certificateUrl    String?   @map("certificate_url") @db.Text
+  certificateExpiry DateTime? @map("certificate_expiry") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  session     TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  employee    Employee        @relation("TrainingNominee", fields: [employeeId], references: [id], onDelete: Cascade)
+  nominatedBy User            @relation("TrainingNominatedBy", fields: [nominatedById], references: [id])
+  approver    User?           @relation("TrainingApprover", fields: [approverId], references: [id], onDelete: SetNull)
+
+  @@unique([sessionId, employeeId])
+  @@index([employeeId, status])
+  @@index([certificateExpiry])
+  @@map("training_nominations")
+}
+
+// ── Grievances ───────────────────────────────────────────────────────────────
+
+model Grievance {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId  String @map("employee_id") @db.Uuid
+  category    String @db.VarChar(100)
+  subject     String @db.VarChar(200)
+  description String @db.Text
+
+  /// Narrows visibility to ADMIN, HR, the complainant and the handler.
+  isConfidential    Boolean @default(false) @map("is_confidential")
+  /// Who it is about, when it is about a person — so the subject and their
+  /// management line can be excluded from ever seeing it.
+  againstEmployeeId String? @map("against_employee_id") @db.Uuid
+
+  /// OPEN | ACKNOWLEDGED | INVESTIGATING | RESOLVED | CLOSED | WITHDRAWN
+  status       String    @default("OPEN") @db.VarChar(20)
+  assignedToId String?   @map("assigned_to_id") @db.Uuid
+  resolution   String?   @db.Text
+  resolvedAt   DateTime? @map("resolved_at") @db.Timestamp(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee        Employee         @relation("GrievanceRaisedBy", fields: [employeeId], references: [id], onDelete: Cascade)
+  againstEmployee Employee?        @relation("GrievanceAgainst", fields: [againstEmployeeId], references: [id], onDelete: SetNull)
+  assignedTo      User?            @relation("GrievanceHandler", fields: [assignedToId], references: [id], onDelete: SetNull)
+  events          GrievanceEvent[]
+
+  @@index([employeeId, status])
+  @@index([assignedToId, status])
+  @@index([status])
+  @@map("grievances")
+}
+
+model GrievanceEvent {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  grievanceId String  @map("grievance_id") @db.Uuid
+  /// STATUS_CHANGE | NOTE | ASSIGNED
+  type        String  @db.VarChar(30)
+  fromStatus  String? @map("from_status") @db.VarChar(20)
+  toStatus    String? @map("to_status") @db.VarChar(20)
+  note        String? @db.Text
+  /// Internal notes are never shown to the complainant.
+  isInternal  Boolean @default(false) @map("is_internal")
+  actorUserId String? @map("actor_user_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  grievance Grievance @relation(fields: [grievanceId], references: [id], onDelete: Cascade)
+  actor     User?     @relation("GrievanceEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([grievanceId, createdAt])
+  @@map("grievance_events")
 }

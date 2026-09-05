@@ -5,6 +5,10 @@ import libraryItemService, {
   type LibraryType,
   type SaveLibraryItemPayload,
 } from '@/services/libraryItemService';
+import type {
+  CreateLibraryItemPayload,
+  LibraryItemQuery,
+} from '@/types/library';
 import { balanceKeys, leaveKeys } from './useLeaveRequests';
 
 export const libraryKeys = {
@@ -13,10 +17,23 @@ export const libraryKeys = {
     [...libraryKeys.all, 'list', type ?? 'any', activeOnly ?? 'any'] as const,
 };
 
-export function useLibraryItems(type?: LibraryType, activeOnly?: boolean) {
+/**
+ * Accepts either the positional form or a `{ type, activeOnly }` query object.
+ * Both spellings are in use across the settings screens and the self-service
+ * pages, and normalising here is cheaper than touching every caller.
+ */
+export function useLibraryItems(
+  typeOrQuery?: LibraryType | LibraryItemQuery,
+  activeOnlyArg?: boolean,
+) {
+  const query: LibraryItemQuery =
+    typeof typeOrQuery === 'string'
+      ? { type: typeOrQuery, activeOnly: activeOnlyArg }
+      : (typeOrQuery ?? {});
+
   return useQuery({
-    queryKey: libraryKeys.list(type, activeOnly),
-    queryFn: () => libraryItemService.list(type, activeOnly),
+    queryKey: libraryKeys.list(query.type, query.activeOnly),
+    queryFn: () => libraryItemService.list(query.type, query.activeOnly),
   });
 }
 
@@ -36,7 +53,7 @@ function invalidate(queryClient: ReturnType<typeof useQueryClient>) {
 export function useCreateLibraryItem() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: SaveLibraryItemPayload) =>
+    mutationFn: (payload: CreateLibraryItemPayload) =>
       libraryItemService.create(payload),
     onSuccess: () => invalidate(queryClient),
   });
@@ -60,6 +77,21 @@ export function useDeactivateLibraryItem() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => libraryItemService.deactivate(id),
+    onSuccess: () => invalidate(queryClient),
+  });
+}
+
+/**
+ * The same soft DELETE as `useDeactivateLibraryItem`, under the name the
+ * settings screen calls it by. There is no hard delete: the label is the key a
+ * year of history is stored against.
+ */
+export const useDeleteLibraryItem = useDeactivateLibraryItem;
+
+export function useSeedLibraryDefaults() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => libraryItemService.seedDefaults(),
     onSuccess: () => invalidate(queryClient),
   });
 }

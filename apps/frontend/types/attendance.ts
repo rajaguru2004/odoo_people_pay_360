@@ -58,6 +58,37 @@ export interface AttendanceListQuery {
   search?: string;
 }
 
+/**
+ * `GET /attendances/employee/:id` — one person's history and its totals.
+ *
+ * Not a bare array: the endpoint answers the whole question a person's own
+ * attendance screen asks, so the range it resolved and the figures it counted
+ * come back with the rows rather than being re-derived on the client. Deriving
+ * them here would disagree with the report screens the moment a rule changes.
+ */
+export interface EmployeeAttendanceHistory {
+  employee: EmployeeRef & {
+    department?: { id: string; name: string } | null;
+    branch?: { id: string; code: string; name: string } | null;
+  };
+  range: { startDate: string; endDate: string };
+  summary: {
+    records: number;
+    present: number;
+    late: number;
+    halfDay: number;
+    absent: number;
+    onLeave: number;
+    workHours: number;
+    /** Averaged over the days that recorded hours, not over every day. */
+    avgWorkHours: number | null;
+    lateMinutes: number;
+    /** null when nothing was expected — 0% would claim a total no-show. */
+    attendanceRate: number | null;
+  };
+  records: Attendance[];
+}
+
 export interface CheckInPayload {
   latitude?: number;
   longitude?: number;
@@ -463,4 +494,44 @@ export interface CreateFaceEnrollmentPayload {
   descriptor: number[];
   quality: number;
   imageUrl?: string;
+}
+
+/** `GET /face-enrollments/status` — am I enrolled, and how good is the capture? */
+export interface FaceEnrollmentStatus {
+  /** null for a user with no employee record, who cannot be enrolled at all. */
+  employeeId: string | null;
+  isRegistered: boolean;
+  totalRegistered: number;
+  /** The best capture held, not the most recent — that is what matching uses. */
+  bestQuality: number | null;
+  lastEnrolledAt: string | null;
+  /** The distance a match has to beat. Reported so the screen can explain it. */
+  threshold: number;
+}
+
+export interface VerifyFacePayload {
+  /** The probe. Sent, never stored, never echoed back. */
+  descriptor: number[];
+  /** Verify against ONE person instead of searching everybody enrolled. */
+  employeeId?: string;
+}
+
+/**
+ * The verdict.
+ *
+ * On a FAILURE the server names nobody and reports no distance — being told you
+ * are 41% like a named colleague is a fact about that colleague. `candidates`
+ * is still given, because "nobody is enrolled" and "nobody was close enough"
+ * are different problems with different fixes.
+ */
+export interface FaceVerifyResult {
+  matched: boolean;
+  threshold: number;
+  candidates: number;
+  confidence: number | null;
+  distance: number | null;
+  employeeId?: string;
+  employee:
+    | (EmployeeRef & { fullName: string; status: string })
+    | null;
 }

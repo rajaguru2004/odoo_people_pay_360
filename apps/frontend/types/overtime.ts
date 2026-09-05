@@ -253,3 +253,13 @@ export interface ResolvedPolicy {
     holiday: OvertimeRateTier;
   };
 }
+
+// ── Employee self-service aliases ───────────────────────────────────────────
+// The self-service screens spell these two differently. Aliased rather than
+// re-declared so there is still ONE definition of each union.
+
+/** Where a request sits in its lifecycle. Mirrors the server enum. */
+export type OvertimeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+
+/** The self-service spelling of `OvertimeType`. */
+export type OtType = OvertimeType;

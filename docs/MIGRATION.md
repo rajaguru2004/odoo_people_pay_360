@@ -163,6 +163,38 @@ Recorded rather than quietly fixed because it is the useful lesson: route parity
 is not feature parity, and counting routes said this migration was done when it
 was not.
 
+## 7b. Employee self-service ⚠️ in progress
+
+The EMPLOYEE role was missed almost entirely in the first pass: signed in as an
+employee the rail offered Dashboard, Payroll and Settings and nothing else. That
+was a deliberate decision when the navigation was written — not to declare
+routes nobody was building — and it was the wrong one.
+
+Being closed now as a PORT rather than a redesign: the original works and is
+going to keep being used against this backend, so endpoint paths, request bodies
+and response field names are carried across unchanged. Where the original emits
+`fullName` this one emits `fullName` too, joined in the service, even though the
+schema stores `firstName`/`lastName`.
+
+Two adaptations were unavoidable and are the only ones: imports rewired to this
+repo's `PrismaService` and guards, and money at `Decimal(18, 3)` rather than
+`(12, 2)` — the currencies this runs on are thousandths.
+
+**Schema is done**: twenty models added, validated and pushed — leave (requests,
+attachments, balances, per-type balances), overtime (requests, policies), the
+approval engine (workflows, steps, per-request rows), employee documents,
+letters, assets, training, grievances, and the `LibraryItem` pick lists.
+
+**Screens being ported**: approvals · my team · my attendance · biometric
+verification · my calendar · my leaves · my overtime · my payslips · my
+documents · my letters · my assets · my training · my grievances · my profile ·
+settings, plus the role-aware dashboard.
+
+**Excluded by instruction**: reimbursements, advances and loans, travel,
+end-of-service, projects. Also excluded because nothing in the employee screens
+reaches them: appraisals, the messaging integrations, and the document ENGINE
+(the small vault behind My Documents IS in scope).
+
 ## 8. Open items ⚠️
 
 | Item | Detail |

@@ -34,3 +34,8 @@ AGENT_INSTRUCTIONS.md
 
 # Local-only env for the e2e suite (never commit credentials)
 .env.test
+
+# Privately stored files (issued letters). Deliberately outside `uploads/`,
+# which is served statically — a salary certificate must not be readable by
+# link alone. Runtime data, never source.
+/storage
