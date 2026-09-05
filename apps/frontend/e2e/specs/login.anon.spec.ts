@@ -8,15 +8,15 @@ test.describe('Sign in', () => {
 
   test('the form is reachable and labelled', async ({ page }) => {
     await page.goto('/login');
-    await expect(page.getByLabel('Email')).toBeVisible();
-    await expect(page.getByLabel('Password')).toBeVisible();
+    await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeEnabled();
   });
 
   test('wrong credentials show an error and do NOT navigate', async ({ page }) => {
     await page.goto('/login');
-    await page.getByLabel('Email').fill('nobody@peoplepay360.com');
-    await page.getByLabel('Password').fill('wrong-password');
+    await page.getByLabel('Email', { exact: true }).fill('nobody@peoplepay360.com');
+    await page.getByLabel('Password', { exact: true }).fill('wrong-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page.getByRole('alert')).toBeVisible();

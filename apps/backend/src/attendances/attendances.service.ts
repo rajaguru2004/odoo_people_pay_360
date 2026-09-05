@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AttendanceStatus, Prisma } from '@prisma/client';
+import { AttendanceStatus, Prisma, UserRole } from '@prisma/client';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../prisma/prisma.service';
 import { paginated, resolvePagination } from '../common/utils/pagination.util';

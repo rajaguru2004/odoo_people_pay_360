@@ -294,7 +294,10 @@ function TimeHubContent() {
 
 export default function TimeAttendanceHubPage() {
   return (
-    <ProtectedRoute requiredRoles={['ADMIN', 'HR_MANAGER']}>
+    // Wider than the other module hubs on purpose: payroll is run per branch
+    // and per department, and a department head owns their team's attendance.
+    // Both are management views the API serves; only an EMPLOYEE is refused.
+    <ProtectedRoute requiredRoles={['ADMIN', 'HR_MANAGER', 'PAYROLL_OFFICER', 'MANAGER']}>
       <TimeHubContent />
     </ProtectedRoute>
   );

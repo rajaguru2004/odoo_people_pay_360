@@ -188,3 +188,48 @@ describe('findGroupByModuleKey', () => {
     expect(findGroupByModuleKey(buildMenu('EMPLOYEE'), 'people')).toBeUndefined();
   });
 });
+
+describe('a hub the role may not open', () => {
+  /**
+   * The rail must never offer a route the server refuses. A payroll officer is
+   * entitled to the employee directory and the branch list but not to the
+   * governance aggregates behind the Organisation and People hubs.
+   */
+  it('re-points the group header at the first screen the role can reach', () => {
+    const menu = buildMenu('PAYROLL_OFFICER');
+
+    const organisation = findGroupByModuleKey(menu, 'organization');
+    expect(organisation).toBeDefined();
+    expect(organisation!.href).not.toBe('/dashboard/organization');
+    expect(organisation!.href).toBe(organisation!.children![0].href);
+
+    const people = findGroupByModuleKey(menu, 'people');
+    expect(people!.href).toBe(people!.children![0].href);
+  });
+
+  it('leaves the group owning its URL prefix after the re-point', () => {
+    const menu = buildMenu('PAYROLL_OFFICER');
+    const organisation = findGroupByModuleKey(menu, 'organization');
+
+    // Without basePath the re-pointed header would stop claiming
+    // /dashboard/organization, and a direct visit would resolve to no module —
+    // losing the breadcrumb trail and the active-section highlight.
+    expect(organisation!.basePath).toBe('/dashboard/organization');
+  });
+
+  it('leaves a hub the role CAN open pointing at the hub', () => {
+    // Time & Attendance admits payroll officers server-side, so its header is
+    // not re-pointed.
+    const menu = buildMenu('PAYROLL_OFFICER');
+    const time = findGroupByModuleKey(menu, 'timeAttendance');
+    expect(time!.href).toBe('/dashboard/time');
+  });
+
+  it('is untouched for a role that may open everything', () => {
+    const menu = buildMenu('ADMIN');
+    expect(findGroupByModuleKey(menu, 'organization')!.href).toBe(
+      '/dashboard/organization',
+    );
+    expect(findGroupByModuleKey(menu, 'people')!.href).toBe('/dashboard/people');
+  });
+});

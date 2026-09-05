@@ -85,7 +85,9 @@ describe('People (e2e)', () => {
     });
 
     it('refuses an employee reporting to themselves', async () => {
-      const list = await admin.auth(http().get('/employees?limit=1')).expect(200);
+      const list = await admin
+        .auth(http().get('/employees?limit=1'))
+        .expect(200);
       const one = list.body.data[0];
 
       await admin
@@ -145,7 +147,9 @@ describe('People (e2e)', () => {
 
   describe('contracts', () => {
     it('lists contracts with their employee attached', async () => {
-      const res = await admin.auth(http().get('/contracts?limit=5')).expect(200);
+      const res = await admin
+        .auth(http().get('/contracts?limit=5'))
+        .expect(200);
       expect(res.body.meta.total).toBeGreaterThan(0);
       expect(res.body.data[0].employee).toBeDefined();
     });
@@ -236,7 +240,11 @@ describe('People (e2e)', () => {
       expect(after.body.data.status).toBe('ACTIVE');
 
       await admin
-        .auth(http().patch(`/contracts/terminations/${created.body.data.id}/review`))
+        .auth(
+          http().patch(
+            `/contracts/terminations/${created.body.data.id}/review`,
+          ),
+        )
         .send({ action: 'REJECT', reviewNote: 'Reverting the test fixture.' })
         .expect(200);
     });
@@ -252,7 +260,8 @@ describe('People (e2e)', () => {
         category: 'RESIGNATION' as const,
         noticeDate: '2030-03-01',
         terminationDate: '2030-04-01',
-        reason: 'First request, raised so the second one has something to clash with.',
+        reason:
+          'First request, raised so the second one has something to clash with.',
       };
 
       const first = await admin
@@ -266,7 +275,9 @@ describe('People (e2e)', () => {
         .expect(409);
 
       await admin
-        .auth(http().patch(`/contracts/terminations/${first.body.data.id}/review`))
+        .auth(
+          http().patch(`/contracts/terminations/${first.body.data.id}/review`),
+        )
         .send({ action: 'REJECT', reviewNote: 'Reverting the test fixture.' })
         .expect(200);
     });

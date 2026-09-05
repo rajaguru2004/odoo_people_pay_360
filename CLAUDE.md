@@ -84,6 +84,30 @@ and `GET /attendances/hub-summary`.
   `anchor=2026-13-45` is refused, because a page that answers for a period
   nobody asked about cannot show the reader that it did.
 
+### Who reaches which hub
+
+The rail must never offer a route the server refuses, so `NavGroup.hubRoles` in
+`components/layout/navConfig.ts` mirrors the `@Roles` on the aggregate. Where a
+role may see the group but not open its hub, `buildMenu` re-points the group
+header at the first child that role CAN reach and keeps `basePath` so the group
+still owns its URL prefix.
+
+| | ADMIN | HR_MANAGER | PAYROLL_OFFICER | MANAGER | EMPLOYEE |
+| --- | --- | --- | --- | --- | --- |
+| `/organization/hub-summary` | ✓ | ✓ | | | |
+| `/employees/hub-summary` | ✓ | ✓ | | | |
+| `/attendances/hub-summary` | ✓ | ✓ | ✓ | ✓ | |
+| Attendance list / today / summary | ✓ | ✓ | ✓ | ✓ | |
+| Own attendance history | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Branch / department / employee lists | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Biometric enrolment | ✓ | ✓ | | | |
+
+The workforce-wide attendance views answer BY NAME — who was absent, who arrived
+late — which is why an employee is refused them while still being entitled to
+their own history. That last row is enforced in the service rather than by
+`@Roles`, because the answer depends on whose record it is and a decorator
+cannot see that.
+
 ### Module-specific rules
 
 - **A snapshot is the point of a change request.** `DepartmentChangeRequest`

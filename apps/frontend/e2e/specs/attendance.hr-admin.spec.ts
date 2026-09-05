@@ -61,7 +61,7 @@ test.describe('Attendance logs', () => {
   test('filters by status', async ({ page }) => {
     await page.goto('/dashboard/attendance/history');
 
-    await page.getByLabel('Status').selectOption('LATE');
+    await page.getByLabel('Status', { exact: true }).selectOption('LATE');
     const badges = page.getByTestId('attendance-status');
     await expect(badges.first()).toContainText(/late/i);
   });
@@ -94,8 +94,11 @@ test.describe('Attendance reports', () => {
     await expect(
       page.getByRole('heading', { name: /attendance reports/i }),
     ).toBeVisible();
-    await expect(page.getByLabel('From')).toBeVisible();
-    await expect(page.getByLabel('To')).toBeVisible();
+    // `exact` because getByLabel matches a SUBSTRING of the accessible name:
+    // a bare 'To' also matches the rail's "Toggle Organisation", and three
+    // matches is a strict-mode violation before the assertion is even read.
+    await expect(page.getByLabel('From', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('To', { exact: true })).toBeVisible();
   });
 });
 
@@ -106,7 +109,7 @@ test.describe('Attendance manager', () => {
     await expect(
       page.getByRole('heading', { name: /attendance manager/i }),
     ).toBeVisible();
-    await expect(page.getByLabel('Date')).toBeVisible();
+    await expect(page.getByLabel('Date', { exact: true })).toBeVisible();
   });
 });
 

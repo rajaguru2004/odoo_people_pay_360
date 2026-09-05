@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
@@ -53,7 +53,7 @@ const numericInRange = (min: number, max: number, message: string) =>
 
 const branchSchema = z
   .object({
-    code: z.string().trim().min(1, 'A code is required').max(50, 'At most 50 characters'),
+    code: z.string().trim().min(1, 'A code is required').max(32, 'At most 32 characters'),
     name: z.string().trim().min(1, 'A name is required').max(255, 'At most 255 characters'),
     description: z.string().optional(),
     isActive: z.boolean().optional(),
@@ -89,14 +89,9 @@ const branchSchema = z
     geofencingEnabled: z.boolean(),
     latitude: numericInRange(-90, 90, 'Between -90 and 90'),
     longitude: numericInRange(-180, 180, 'Between -180 and 180'),
-    geofenceRadiusM: z
-      .string()
-      .optional()
-      .refine(
-        (value) =>
-          !value || value.trim() === '' || (!Number.isNaN(Number(value)) && Number(value) > 0),
-        { message: 'Must be greater than zero' },
-      ),
+    // The bounds are the server's: below ten metres GPS noise alone would push
+    // somebody outside their own office.
+    geofenceRadiusM: numericInRange(10, 50_000, 'Between 10 and 50,000 metres'),
   })
   /**
    * The server refuses an enabled fence with no centre, and so does this.
@@ -196,9 +191,9 @@ export default function BranchForm({
   const saving = createBranch.isPending || updateBranch.isPending;
 
   const {
+    control,
     register,
     handleSubmit,
-    watch,
     reset,
     setValue,
     formState: { errors },
@@ -207,8 +202,11 @@ export default function BranchForm({
     defaultValues: EMPTY,
   });
 
-  const geofencingEnabled = watch('geofencingEnabled');
-  const weeklyOffDays = watch('weeklyOffDays');
+  // `useWatch` rather than `watch()`: the latter hands back a function the
+  // React compiler refuses to memoise, so the whole form opts out of
+  // compilation for the sake of two subscriptions.
+  const geofencingEnabled = useWatch({ control, name: 'geofencingEnabled' });
+  const weeklyOffDays = useWatch({ control, name: 'weeklyOffDays' });
 
   useEffect(() => {
     const branch = branchResponse?.data;

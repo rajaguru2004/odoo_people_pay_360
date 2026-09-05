@@ -112,7 +112,8 @@ export class CreateBranchDto {
 
   @ApiPropertyOptional({
     example: 15,
-    description: 'Minutes after the start time before an arrival counts as late',
+    description:
+      'Minutes after the start time before an arrival counts as late',
   })
   @IsOptional()
   @Type(() => Number)
@@ -123,7 +124,8 @@ export class CreateBranchDto {
 
   @ApiPropertyOptional({
     example: [5, 6],
-    description: 'ISO weekday numbers, 1 = Monday. Empty inherits the company calendar.',
+    description:
+      'ISO weekday numbers, 1 = Monday. Empty inherits the company calendar.',
   })
   @IsOptional()
   @IsArray()

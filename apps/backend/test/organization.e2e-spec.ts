@@ -107,7 +107,9 @@ describe('Organisation (e2e)', () => {
     });
 
     it('refuses a parent that would close a cycle', async () => {
-      const tree = await admin.auth(http().get('/departments/tree')).expect(200);
+      const tree = await admin
+        .auth(http().get('/departments/tree'))
+        .expect(200);
       const root = tree.body.data[0];
       const child = root.children?.[0];
       expect(child).toBeDefined();
@@ -134,10 +136,13 @@ describe('Organisation (e2e)', () => {
     });
 
     it('snapshots the current value when a request is raised, and applies it on approval', async () => {
-      const departments = await admin.auth(http().get('/departments')).expect(200);
-      const target = departments.body.data.find(
-        (d: { _count: { employees: number } }) => d._count.employees === 0,
-      ) ?? departments.body.data[0];
+      const departments = await admin
+        .auth(http().get('/departments'))
+        .expect(200);
+      const target =
+        departments.body.data.find(
+          (d: { _count: { employees: number } }) => d._count.employees === 0,
+        ) ?? departments.body.data[0];
 
       const originalName = target.name;
       const proposed = `${originalName} (renamed)`;

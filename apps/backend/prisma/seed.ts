@@ -32,6 +32,7 @@ import {
   ShiftType,
   TeamMemberRole,
   TeamType,
+  TerminationCategory,
   UserRole,
   WorkType,
 } from '@prisma/client';
@@ -242,10 +243,23 @@ interface SeedPerson {
   position: string;
   department: string;
   branch: string;
-  hireDate: string;
+  hireDate?: string;
   nationality: string;
   gender: string;
   dateOfBirth: string;
+  /**
+   * Days from today, used INSTEAD of `hireDate`.
+   *
+   * A few people have to be recent joiners — and one a future starter — or the
+   * lifecycle cards on the People hub all read zero, and a reader cannot tell a
+   * working card from a broken one. Relative because "this month" moves.
+   */
+  hireOffsetDays?: number;
+  /** Days from today the fixed term ends, for a contract that should be visible
+   *  in the expiry window. */
+  contractEndOffsetDays?: number;
+  /** Days from today probation ends. */
+  probationOffsetDays?: number;
   /** Employee code of their line manager, resolved on a second pass. */
   manager?: string;
   supervisor?: string;
@@ -263,18 +277,19 @@ const PEOPLE: SeedPerson[] = [
   { code: 'EMP-0004', firstName: 'Rahul', lastName: 'Menon', position: 'Payroll Officer', department: 'FIN', branch: 'HQ', hireDate: '2021-06-14', nationality: 'IN', gender: 'Male', dateOfBirth: '1990-07-19', manager: 'EMP-0003', supervisor: 'EMP-0003', salary: 1200, contractType: ContractType.PERMANENT, account: { email: 'payroll@peoplepay360.com', role: UserRole.PAYROLL_OFFICER } },
   { code: 'EMP-0005', firstName: 'Fatma', lastName: 'Al Rashdi', position: 'HR Officer', department: 'HR', branch: 'HQ', hireDate: '2022-01-10', nationality: 'OM', gender: 'Female', dateOfBirth: '1994-02-28', manager: 'EMP-0002', supervisor: 'EMP-0002', salary: 950, contractType: ContractType.PERMANENT, account: { email: 'employee@peoplepay360.com', role: UserRole.EMPLOYEE } },
   { code: 'EMP-0006', firstName: 'Salim', lastName: 'Al Kindi', position: 'IT Manager', department: 'IT', branch: 'HQ', hireDate: '2020-09-01', nationality: 'OM', gender: 'Male', dateOfBirth: '1986-05-30', manager: 'EMP-0001', salary: 2400, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0007', firstName: 'Priya', lastName: 'Nair', position: 'Systems Engineer', department: 'IT', branch: 'HQ', hireDate: '2023-04-03', nationality: 'IN', gender: 'Female', dateOfBirth: '1995-12-08', manager: 'EMP-0006', supervisor: 'EMP-0006', salary: 1100, contractType: ContractType.FIXED_TERM },
-  { code: 'EMP-0008', firstName: 'Yusuf', lastName: 'Al Amri', position: 'Support Analyst', department: 'IT', branch: 'HQ', hireDate: '2024-08-19', nationality: 'OM', gender: 'Male', dateOfBirth: '1998-03-16', manager: 'EMP-0006', supervisor: 'EMP-0006', salary: 780, contractType: ContractType.PROBATION },
+  { code: 'EMP-0007', firstName: 'Priya', lastName: 'Nair', position: 'Systems Engineer', department: 'IT', branch: 'HQ', hireDate: '2023-04-03', nationality: 'IN', gender: 'Female', dateOfBirth: '1995-12-08', manager: 'EMP-0006', supervisor: 'EMP-0006', salary: 1100, contractType: ContractType.FIXED_TERM, contractEndOffsetDays: 21 },
+  { code: 'EMP-0008', firstName: 'Yusuf', lastName: 'Al Amri', position: 'Support Analyst', department: 'IT', branch: 'HQ', hireOffsetDays: -74, nationality: 'OM', gender: 'Male', dateOfBirth: '1998-03-16', manager: 'EMP-0006', supervisor: 'EMP-0006', salary: 780, contractType: ContractType.PROBATION, probationOffsetDays: 16 },
   { code: 'EMP-0009', firstName: 'Noora', lastName: 'Al Siyabi', position: 'Office Administrator', department: 'ADMIN', branch: 'HQ', hireDate: '2022-11-07', nationality: 'OM', gender: 'Female', dateOfBirth: '1993-06-21', manager: 'EMP-0002', salary: 720, contractType: ContractType.PERMANENT },
   { code: 'EMP-0010', firstName: 'Ahmed', lastName: 'Al Farsi', position: 'Operations Manager', department: 'OPS', branch: 'SOH', hireDate: '2019-08-12', nationality: 'OM', gender: 'Male', dateOfBirth: '1983-10-04', manager: 'EMP-0001', salary: 2700, contractType: ContractType.PERMANENT },
   { code: 'EMP-0011', firstName: 'Ravi', lastName: 'Kumar', position: 'Shift Supervisor', department: 'OPS', branch: 'SOH', hireDate: '2021-02-01', nationality: 'IN', gender: 'Male', dateOfBirth: '1989-01-25', manager: 'EMP-0010', supervisor: 'EMP-0010', salary: 980, contractType: ContractType.PERMANENT },
   { code: 'EMP-0012', firstName: 'Hassan', lastName: 'Al Hinai', position: 'Plant Operator', department: 'OPS', branch: 'SOH', hireDate: '2022-05-23', nationality: 'OM', gender: 'Male', dateOfBirth: '1996-08-11', manager: 'EMP-0011', supervisor: 'EMP-0011', salary: 640, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0013', firstName: 'Anil', lastName: 'Verma', position: 'Plant Operator', department: 'OPS', branch: 'SOH', hireDate: '2023-01-16', nationality: 'IN', gender: 'Male', dateOfBirth: '1997-04-09', manager: 'EMP-0011', supervisor: 'EMP-0011', salary: 620, contractType: ContractType.FIXED_TERM },
+  { code: 'EMP-0013', firstName: 'Anil', lastName: 'Verma', position: 'Plant Operator', department: 'OPS', branch: 'SOH', hireDate: '2023-01-16', nationality: 'IN', gender: 'Male', dateOfBirth: '1997-04-09', manager: 'EMP-0011', supervisor: 'EMP-0011', salary: 620, contractType: ContractType.FIXED_TERM, contractEndOffsetDays: 52 },
   { code: 'EMP-0014', firstName: 'Said', lastName: 'Al Mahrouqi', position: 'Maintenance Lead', department: 'MAINT', branch: 'SOH', hireDate: '2020-11-30', nationality: 'OM', gender: 'Male', dateOfBirth: '1988-12-14', manager: 'EMP-0010', supervisor: 'EMP-0010', salary: 1050, contractType: ContractType.PERMANENT },
   { code: 'EMP-0015', firstName: 'Imran', lastName: 'Sheikh', position: 'Electrical Technician', department: 'MAINT', branch: 'SOH', hireDate: '2024-03-11', nationality: 'PK', gender: 'Male', dateOfBirth: '1999-09-02', manager: 'EMP-0014', supervisor: 'EMP-0014', salary: 600, contractType: ContractType.FIXED_TERM },
-  { code: 'EMP-0016', firstName: 'Laila', lastName: 'Al Busaidi', position: 'Recruitment Specialist', department: 'HR', branch: 'HQ', hireDate: '2024-10-01', nationality: 'OM', gender: 'Female', dateOfBirth: '1996-01-17', manager: 'EMP-0002', supervisor: 'EMP-0002', salary: 840, contractType: ContractType.PROBATION },
+  { code: 'EMP-0016', firstName: 'Laila', lastName: 'Al Busaidi', position: 'Recruitment Specialist', department: 'HR', branch: 'HQ', hireOffsetDays: -11, nationality: 'OM', gender: 'Female', dateOfBirth: '1996-01-17', manager: 'EMP-0002', supervisor: 'EMP-0002', salary: 840, contractType: ContractType.PROBATION, probationOffsetDays: 79 },
   { code: 'EMP-0017', firstName: 'Omar', lastName: 'Al Lawati', position: 'Accountant', department: 'FIN', branch: 'HQ', hireDate: '2023-07-24', nationality: 'OM', gender: 'Male', dateOfBirth: '1994-05-06', manager: 'EMP-0003', supervisor: 'EMP-0003', salary: 890, contractType: ContractType.PERMANENT },
   { code: 'EMP-0018', firstName: 'Zainab', lastName: 'Al Habsi', position: 'Storekeeper', department: 'OPS', branch: 'SOH', hireDate: '2021-09-05', nationality: 'OM', gender: 'Female', dateOfBirth: '1992-02-19', manager: 'EMP-0010', salary: 610, contractType: ContractType.PERMANENT, status: EmployeeStatus.ON_LEAVE },
+  { code: 'EMP-0021', firstName: 'Reem', lastName: 'Al Saadi', position: 'Financial Analyst', department: 'FIN', branch: 'HQ', hireOffsetDays: 12, nationality: 'OM', gender: 'Female', dateOfBirth: '1997-03-05', manager: 'EMP-0003', supervisor: 'EMP-0003', salary: 900, contractType: ContractType.PERMANENT },
   { code: 'EMP-0019', firstName: 'Deepak', lastName: 'Rao', position: 'Mechanical Technician', department: 'MAINT', branch: 'SOH', hireDate: '2022-03-14', nationality: 'IN', gender: 'Male', dateOfBirth: '1991-10-27', manager: 'EMP-0014', supervisor: 'EMP-0014', salary: 660, contractType: ContractType.PERMANENT },
   { code: 'EMP-0020', firstName: 'Huda', lastName: 'Al Riyami', position: 'Receptionist', department: 'ADMIN', branch: 'HQ', hireDate: '2020-06-08', nationality: 'OM', gender: 'Female', dateOfBirth: '1995-07-30', manager: 'EMP-0009', salary: 520, contractType: ContractType.PERMANENT, status: EmployeeStatus.TERMINATED },
 ];
@@ -296,6 +311,13 @@ const BRANCH_MANAGERS: Record<string, string> = {
   HQ: 'EMP-0001',
   SOH: 'EMP-0010',
 };
+
+/** A person's start date, whether it was written absolutely or as an offset. */
+function hireDateOf(p: SeedPerson): Date {
+  return p.hireOffsetDays === undefined
+    ? isoDate(p.hireDate as string)
+    : daysFromToday(p.hireOffsetDays);
+}
 
 function isoDate(value: string | Date): Date {
   return typeof value === 'string' ? new Date(`${value}T00:00:00.000Z`) : value;
@@ -324,6 +346,7 @@ async function seedEmployees(
         firstName: p.firstName,
         lastName: p.lastName,
         position: p.position,
+        hireDate: hireDateOf(p),
         departmentId: departments[p.department],
         branchId: branches[p.branch],
         status: p.status ?? EmployeeStatus.ACTIVE,
@@ -336,7 +359,7 @@ async function seedEmployees(
         phone: `+9689${String(1000000 + PEOPLE.indexOf(p)).slice(-7)}`,
         position: p.position,
         status: p.status ?? EmployeeStatus.ACTIVE,
-        hireDate: isoDate(p.hireDate),
+        hireDate: hireDateOf(p),
         exitDate: p.status === EmployeeStatus.TERMINATED ? daysFromToday(-45) : null,
         dateOfBirth: isoDate(p.dateOfBirth),
         gender: p.gender,
@@ -450,20 +473,38 @@ async function seedContracts(employees: Record<string, string>) {
   let created = 0;
 
   for (const p of PEOPLE) {
-    const number = `CTR-${new Date(p.hireDate).getUTCFullYear()}-${p.code.replace('EMP-', '')}`;
+    const start = hireDateOf(p);
+    // Keyed on the employee code alone, NOT on the start year. The year moves
+    // for anyone whose hire date is expressed relative to today, and a moving
+    // key makes the upsert insert a SECOND contract instead of updating the
+    // first — leaving one employee holding two.
+    const number = `CTR-${p.code.replace('EMP-', 'E')}`;
     const isFixed = p.contractType !== ContractType.PERMANENT;
 
-    // Spread the fixed-term expiries across the alert window and beyond it, so
-    // the People hub's "expiring soon" card has both a population and a
-    // remainder to be a fraction OF.
+    // Some terms land inside the expiry window and some well outside it, so the
+    // People hub's "expiring soon" card has both a population and a remainder
+    // to be a fraction OF. A demo where every deadline card reads zero cannot
+    // show the reader that the card works.
     const index = PEOPLE.indexOf(p);
-    const endDate = isFixed ? daysFromToday(15 + index * 23) : null;
+    const endDate = isFixed
+      ? daysFromToday(p.contractEndOffsetDays ?? 120 + index * 23)
+      : null;
     const probationEnd =
-      p.contractType === ContractType.PROBATION ? daysFromToday(9 + index * 4) : null;
+      p.contractType === ContractType.PROBATION
+        ? daysFromToday(p.probationOffsetDays ?? 45 + index * 4)
+        : null;
 
     await prisma.contract.upsert({
       where: { contractNumber: number },
+      // The dates ARE refreshed on a re-run, unlike the admin password above.
+      // These are demo fixtures positioned relative to today — a term seeded to
+      // expire in three weeks has to still expire in three weeks when the seed
+      // runs again months later, or the expiry cards quietly go empty and stop
+      // demonstrating the thing they exist to show.
       update: {
+        startDate: start,
+        endDate,
+        probationEndDate: probationEnd,
         status: p.status === EmployeeStatus.TERMINATED ? ContractStatus.TERMINATED : ContractStatus.ACTIVE,
       },
       create: {
@@ -472,7 +513,7 @@ async function seedContracts(employees: Record<string, string>) {
         contractType: p.contractType,
         workType: WorkType.FULL_TIME,
         status: p.status === EmployeeStatus.TERMINATED ? ContractStatus.TERMINATED : ContractStatus.ACTIVE,
-        startDate: isoDate(p.hireDate),
+        startDate: start,
         endDate,
         probationEndDate: probationEnd,
         workHoursPerWeek: 45,
@@ -495,13 +536,27 @@ async function seedLegalDocuments(employees: Record<string, string>) {
   // report meaningless.
   const EXPATS = PEOPLE.filter((p) => p.nationality !== 'OM' && p.status !== EmployeeStatus.TERMINATED);
   let created = 0;
+  let refreshed = 0;
 
   for (const p of EXPATS) {
     const index = EXPATS.indexOf(p);
     const existing = await prisma.employeeLegalDocument.findFirst({
       where: { employeeId: employees[p.code], category: LegalDocumentCategory.VISA, isCurrent: true },
     });
-    if (existing) continue;
+    if (existing) {
+      // Re-position the expiry rather than skipping. Same reasoning as the
+      // contracts above: a window fixed at seed time is meaningless a month
+      // later, and the permit cards would report an empty runway.
+      await prisma.employeeLegalDocument.update({
+        where: { id: existing.id },
+        data: {
+          issueDate: daysFromToday(-700 + index * 30),
+          expiryDate: daysFromToday(12 + index * 55),
+        },
+      });
+      refreshed += 1;
+      continue;
+    }
 
     await prisma.employeeLegalDocument.create({
       data: {
@@ -524,7 +579,7 @@ async function seedLegalDocuments(employees: Record<string, string>) {
     created += 1;
   }
 
-  console.log(`  ✔ ${created} work permits`);
+  console.log(`  ✔ ${created} work permits created, ${refreshed} re-dated`);
 }
 
 async function seedHolidays(branches: Record<string, string>) {
@@ -771,6 +826,50 @@ async function seedChangeRequests(
   console.log('  ✔ 2 pending department change requests');
 }
 
+
+/**
+ * One termination awaiting a decision.
+ *
+ * The People hub counts open terminations and the queue screen lists them; with
+ * none seeded both read zero and a reviewer cannot tell a working queue from a
+ * broken one. Deliberately left PENDING — the employee record stays ACTIVE,
+ * which is the invariant worth being able to see.
+ */
+async function seedTerminationRequest(
+  employees: Record<string, string>,
+  adminEmail: string,
+) {
+  const admin = await prisma.user.findUnique({ where: { email: adminEmail } });
+  if (!admin) return;
+
+  const existing = await prisma.terminationRequest.count();
+  if (existing > 0) {
+    console.log('  ✔ termination request already present');
+    return;
+  }
+
+  const contract = await prisma.contract.findFirst({
+    where: { employeeId: employees['EMP-0013'], status: ContractStatus.ACTIVE },
+  });
+  if (!contract) return;
+
+  await prisma.terminationRequest.create({
+    data: {
+      contractId: contract.id,
+      category: TerminationCategory.END_OF_CONTRACT,
+      noticeDate: daysFromToday(-4),
+      terminationDate: daysFromToday(26),
+      reason:
+        'The fixed term ends and the plant headcount plan for next quarter does not renew it.',
+      noticeServed: true,
+      requestedById: admin.id,
+      status: RequestStatus.PENDING,
+    },
+  });
+
+  console.log('  ✔ 1 termination awaiting approval');
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -786,6 +885,7 @@ async function main() {
 
   await seedTeams(departments, employees);
   await seedContracts(employees);
+  await seedTerminationRequest(employees, adminEmail);
   await seedLegalDocuments(employees);
 
   await seedHolidays(branches);

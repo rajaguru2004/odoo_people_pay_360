@@ -132,7 +132,10 @@ export class AttendancesController {
     description:
       'An employee may read their own; anyone else needs a management role.',
   })
-  findOne(@CurrentUser() user: Principal, @Param('id', ParseUUIDPipe) id: string) {
+  findOne(
+    @CurrentUser() user: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.attendancesService.findOne(id, user);
   }
 

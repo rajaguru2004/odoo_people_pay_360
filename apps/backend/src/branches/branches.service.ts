@@ -62,7 +62,7 @@ export class BranchesService {
         'No company exists yet. Run the seed before creating branches.',
       );
 
-    await this.assertGeofenceComplete(dto);
+    this.assertGeofenceComplete(dto);
 
     return this.prisma.branch.create({
       data: { ...dto, companyId: company.id },
@@ -78,10 +78,12 @@ export class BranchesService {
         where: { code: dto.code },
       });
       if (clash)
-        throw new ConflictException(`Branch code ${dto.code} is already in use`);
+        throw new ConflictException(
+          `Branch code ${dto.code} is already in use`,
+        );
     }
 
-    await this.assertGeofenceComplete({ ...branch, ...dto } as CreateBranchDto);
+    this.assertGeofenceComplete({ ...branch, ...dto } as CreateBranchDto);
 
     return this.prisma.branch.update({
       where: { id },
@@ -135,9 +137,9 @@ export class BranchesService {
    */
   private assertGeofenceComplete(dto: Partial<CreateBranchDto>) {
     if (!dto.geofencingEnabled) return;
-    const missing = (['latitude', 'longitude', 'geofenceRadiusM'] as const).filter(
-      (k) => dto[k] === null || dto[k] === undefined,
-    );
+    const missing = (
+      ['latitude', 'longitude', 'geofenceRadiusM'] as const
+    ).filter((k) => dto[k] === null || dto[k] === undefined);
     if (missing.length) {
       throw new BadRequestException(
         `Geofencing needs ${missing.join(', ')} before it can be switched on`,

@@ -12,12 +12,14 @@ describe('Time and attendance (e2e)', () => {
   let app: INestApplication;
   let admin: Session;
   let hr: Session;
+  let payroll: Session;
   let employee: Session;
 
   beforeAll(async () => {
     app = await createTestApp();
     admin = await signIn(app, ACCOUNTS.admin);
     hr = await signIn(app, ACCOUNTS.hr);
+    payroll = await signIn(app, ACCOUNTS.payroll);
     employee = await signIn(app, ACCOUNTS.employee);
   });
 
@@ -39,7 +41,9 @@ describe('Time and attendance (e2e)', () => {
 
     it('narrows to a date range', async () => {
       const res = await admin
-        .auth(http().get('/attendances?startDate=2020-01-01&endDate=2020-01-31'))
+        .auth(
+          http().get('/attendances?startDate=2020-01-01&endDate=2020-01-31'),
+        )
         .expect(200);
 
       // The seed writes the last thirty days only, so a window five years back
@@ -58,7 +62,9 @@ describe('Time and attendance (e2e)', () => {
     });
 
     it('serves today with the people who have NOT punched, not only those who have', async () => {
-      const res = await admin.auth(http().get('/attendances/today')).expect(200);
+      const res = await admin
+        .auth(http().get('/attendances/today'))
+        .expect(200);
 
       const board = res.body.data;
       expect(Array.isArray(board.records)).toBe(true);
@@ -72,7 +78,9 @@ describe('Time and attendance (e2e)', () => {
     });
 
     it('marks a record unsettled until the office day has ended', async () => {
-      const res = await admin.auth(http().get('/attendances/today')).expect(200);
+      const res = await admin
+        .auth(http().get('/attendances/today'))
+        .expect(200);
 
       for (const record of res.body.data.records) {
         // Before the day closes, an absence is a prediction. The flag is what
@@ -80,6 +88,69 @@ describe('Time and attendance (e2e)', () => {
         expect(typeof record.settled).toBe('boolean');
         expect(typeof record.zone).toBe('string');
       }
+    });
+  });
+
+  describe('who may read what', () => {
+    it('does not let an employee read the whole workforce', async () => {
+      // These views answer by NAME — who was absent, who arrived late. An
+      // employee asking for them is asking about their colleagues.
+      await employee.auth(http().get('/attendances')).expect(403);
+      await employee.auth(http().get('/attendances/today')).expect(403);
+      await employee
+        .auth(
+          http().get(
+            '/attendances/summary?startDate=2026-01-01&endDate=2026-01-31',
+          ),
+        )
+        .expect(403);
+      await employee.auth(http().get('/attendances/hub-summary')).expect(403);
+    });
+
+    it('lets an employee read their own history', async () => {
+      const me = await employee.auth(http().get('/auth/me')).expect(200);
+
+      // "My own attendance" is a question every employee is entitled to ask,
+      // which is why this route is gated in the service rather than by role.
+      await employee
+        .auth(http().get(`/attendances/employee/${me.body.data.employee.id}`))
+        .expect(200);
+    });
+
+    it("refuses an employee somebody else's history", async () => {
+      const others = await admin
+        .auth(http().get('/employees?limit=50'))
+        .expect(200);
+      const me = await employee.auth(http().get('/auth/me')).expect(200);
+
+      const someoneElse = others.body.data.find(
+        (e: { id: string }) => e.id !== me.body.data.employee.id,
+      );
+
+      await employee
+        .auth(http().get(`/attendances/employee/${someoneElse.id}`))
+        .expect(403);
+    });
+
+    it("refuses an employee somebody else's individual record", async () => {
+      const rows = await admin
+        .auth(http().get('/attendances?limit=50'))
+        .expect(200);
+      const me = await employee.auth(http().get('/auth/me')).expect(200);
+
+      const foreign = rows.body.data.find(
+        (r: { employeeId: string }) =>
+          r.employeeId !== me.body.data.employee.id,
+      );
+      expect(foreign).toBeDefined();
+
+      await employee.auth(http().get(`/attendances/${foreign.id}`)).expect(403);
+    });
+
+    it('lets a payroll officer and a department head read the workforce view', async () => {
+      // Payroll runs per branch and per department, and a department head owns
+      // their team's attendance. Both are management questions.
+      await payroll.auth(http().get('/attendances/hub-summary')).expect(200);
     });
   });
 
@@ -91,7 +162,9 @@ describe('Time and attendance (e2e)', () => {
         .slice(0, 10);
 
       const res = await admin
-        .auth(http().get(`/attendances/summary?startDate=${start}&endDate=${end}`))
+        .auth(
+          http().get(`/attendances/summary?startDate=${start}&endDate=${end}`),
+        )
         .expect(200);
 
       const d = res.body.data;
@@ -108,7 +181,9 @@ describe('Time and attendance (e2e)', () => {
         .slice(0, 10);
 
       const res = await admin
-        .auth(http().get(`/attendances/summary?startDate=${start}&endDate=${end}`))
+        .auth(
+          http().get(`/attendances/summary?startDate=${start}&endDate=${end}`),
+        )
         .expect(200);
 
       // Dividing the hours by every row, including the days nobody worked,
@@ -204,7 +279,9 @@ describe('Time and attendance (e2e)', () => {
 
     it('refuses a malformed anchor instead of quietly answering for today', () =>
       admin
-        .auth(http().get('/attendances/hub-summary?period=month&anchor=2026-13-45'))
+        .auth(
+          http().get('/attendances/hub-summary?period=month&anchor=2026-13-45'),
+        )
         .expect(400));
 
     it('refuses a period it does not offer', () =>
@@ -302,13 +379,18 @@ describe('Time and attendance (e2e)', () => {
     });
 
     it('is raised for the caller themselves, not for an arbitrary employee', async () => {
-      const day = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+      const day = new Date(Date.now() - 3 * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
 
       const res = await employee
         .auth(http().post('/attendance-corrections'))
         .send({
           date: day,
-          requestedCheckIn: `${day}T08:05:00.000Z`,
+          // +04:00, not Z: the seeded company runs on Asia/Muscat, and 08:05
+          // UTC is a quarter past noon there. Sending the offset keeps the
+          // fixture meaning what it appears to mean.
+          requestedCheckIn: `${day}T08:05:00.000+04:00`,
           reason: 'The reader did not register my arrival this morning.',
         })
         .expect(201);
@@ -318,7 +400,9 @@ describe('Time and attendance (e2e)', () => {
     });
 
     it('refuses a requested time that belongs to a different day', async () => {
-      const day = new Date(Date.now() - 9 * 86_400_000).toISOString().slice(0, 10);
+      const day = new Date(Date.now() - 9 * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
 
       // Approving this would write the stray instant onto the attendance row,
       // producing a working day of several thousand hours that is then summed

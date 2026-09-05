@@ -141,16 +141,16 @@ function BranchesContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        {canManage && (
+      {canManage && (
+        <div className="flex flex-wrap items-center justify-end gap-3">
           <Link href="/dashboard/branches/new">
             <Button>
               <Plus className="h-4 w-4" aria-hidden />
               New branch
             </Button>
           </Link>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard

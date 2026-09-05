@@ -74,9 +74,9 @@ test.describe('Employee directory', () => {
   test('the new-employee form is reachable and labelled', async ({ page }) => {
     await page.goto('/dashboard/employees/new');
 
-    await expect(page.getByLabel('Employee code')).toBeVisible();
-    await expect(page.getByLabel('First name')).toBeVisible();
-    await expect(page.getByLabel('Last name')).toBeVisible();
+    await expect(page.getByLabel('Employee code', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('First name', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Last name', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /create employee/i })).toBeEnabled();
   });
 
@@ -120,9 +120,10 @@ test.describe('Contracts', () => {
   test('the new-contract form is reachable and labelled', async ({ page }) => {
     await page.goto('/dashboard/contracts/new');
 
-    await expect(page.getByLabel('Employee')).toBeVisible();
-    await expect(page.getByLabel('Contract type')).toBeVisible();
-    await expect(page.getByLabel('Start date')).toBeVisible();
+    // `exact` so this does not also match 'Employee code' on the same form.
+    await expect(page.getByLabel('Employee', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Contract type', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Start date', { exact: true })).toBeVisible();
   });
 
   test('shows the terminations queue', async ({ page }) => {

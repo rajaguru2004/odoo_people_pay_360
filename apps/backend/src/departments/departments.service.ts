@@ -13,7 +13,13 @@ const DEPARTMENT_INCLUDE = {
   branch: { select: { id: true, code: true, name: true } },
   parent: { select: { id: true, code: true, name: true } },
   manager: {
-    select: { id: true, employeeCode: true, firstName: true, lastName: true, position: true },
+    select: {
+      id: true,
+      employeeCode: true,
+      firstName: true,
+      lastName: true,
+      position: true,
+    },
   },
   _count: { select: { employees: true, children: true, teams: true } },
 } satisfies Prisma.DepartmentInclude;
@@ -196,7 +202,8 @@ export class DepartmentsService {
         `Department code ${dto.code} is already in use`,
       );
 
-    if (dto.parentId) await this.assertExists(dto.parentId, 'Parent department');
+    if (dto.parentId)
+      await this.assertExists(dto.parentId, 'Parent department');
 
     return this.prisma.department.create({
       data: dto,
@@ -219,9 +226,7 @@ export class DepartmentsService {
 
     if (dto.parentId) {
       if (dto.parentId === id)
-        throw new BadRequestException(
-          'A department cannot sit inside itself',
-        );
+        throw new BadRequestException('A department cannot sit inside itself');
       await this.assertExists(dto.parentId, 'Parent department');
       await this.assertNoHierarchyCycle(id, dto.parentId);
     }
@@ -230,7 +235,7 @@ export class DepartmentsService {
       where: { id },
       // `parentId: null` has to survive as an explicit null — Prisma reads it as
       // "clear the column", which is exactly the detach-to-root case.
-      data: dto as Prisma.DepartmentUpdateInput,
+      data: dto,
       include: DEPARTMENT_INCLUDE,
     });
   }

@@ -77,21 +77,55 @@ export type UpdateAttendancePayload = Partial<
   Omit<CreateAttendancePayload, 'employeeId' | 'date'>
 >;
 
+/**
+ * The verdicts a human is allowed to assert.
+ *
+ * PRESENT, LATE and HALF_DAY are DERIVED from the times on the row — asserting
+ * one would overwrite the calculation a payroll run later reads. The four below
+ * say something the clock does not know, so they are the only ones the endpoint
+ * accepts.
+ */
+export type NonPunchStatus = Extract<
+  AttendanceStatus,
+  'ABSENT' | 'ON_LEAVE' | 'HOLIDAY' | 'WEEKEND'
+>;
+
+/** One verdict applied to a set of people for one day. */
+/**
+ * One call, one date, mixed verdicts.
+ *
+ * The verdict travels PER ENTRY rather than once for the whole batch, so
+ * marking a morning's absences and one half-day is a single request. A
+ * batch-level status would force one call per distinct verdict and turn a
+ * partial failure into several partial failures to reconcile.
+ */
 export interface BulkAttendancePayload {
   date: string;
-  entries: Array<{
-    employeeId: string;
-    status: AttendanceStatus;
-    checkIn?: string;
-    checkOut?: string;
-    notes?: string;
-  }>;
+  entries: BulkAttendanceEntry[];
 }
 
-/** Per-row outcomes, so one bad id does not fail the whole batch. */
+export interface BulkAttendanceEntry {
+  employeeId: string;
+  /** Defaults to ABSENT when the entry carries no times. */
+  status?: AttendanceStatus;
+  checkIn?: string;
+  checkOut?: string;
+  notes?: string;
+}
+
+/** Per-row outcomes, so one bad id does not read as a failed batch. */
 export interface BulkAttendanceResult {
+  date: string;
   applied: number;
+  created: number;
+  updated: number;
   failed: Array<{ employeeId: string; message: string }>;
+  results: Array<{
+    employeeId: string;
+    outcome: 'created' | 'updated' | 'failed';
+    message?: string;
+    attendanceId?: string;
+  }>;
 }
 
 /** `GET /attendances/today` — the board, with the header figures it needs. */

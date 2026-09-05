@@ -56,21 +56,25 @@ function OrganizationHubContent() {
   /**
    * The one rule this page turns on.
    *
-   * Every figure below reads `null` — printed as an em dash — the moment the
+   * Nothing below reads `summary` directly. Every figure resolves to `null` —
+   * printed as an em dash — and every derived list to empty, the moment the
    * aggregate failed. An empty organisation and an unreachable endpoint are
    * different claims, and a card showing 0 for both has told the reader
    * something false about one of them.
+   *
+   * The `failed` check does real work even when a payload is present:
+   * `placeholderData` keeps the last good one on screen while a refetch is
+   * failing, so `summary` existing is not evidence that any of it is current.
    */
-  const known = <T,>(value: T | undefined): T | null =>
-    failed || !summary ? null : (value as T);
+  const trustworthy = failed ? undefined : summary;
 
   // A span of one is not a span worth flagging, and a supervisor the caller
   // cannot resolve arrives unnamed — "widest span: —" reads as a bug rather
   // than as an absence.
-  const rawWidest = summary?.managers.widestSpan ?? null;
+  const rawWidest = trustworthy?.managers.widestSpan ?? null;
   const widest = rawWidest && rawWidest.name && rawWidest.reports > 1 ? rawWidest : null;
-  const headless = summary?.departments.headless ?? [];
-  const deptRows = summary?.departments.rows ?? [];
+  const headless = trustworthy?.departments.headless ?? [];
+  const deptRows = trustworthy?.departments.rows ?? [];
 
   // ── KPI row ───────────────────────────────────────────────────────────────
   // Every card carries a governance footnote. A bare "Departments: 7" is the
@@ -80,12 +84,12 @@ function OrganizationHubContent() {
     {
       key: 'employees',
       label: 'Active employees',
-      value: known(summary?.headcount.active),
+      value: trustworthy?.headcount.active ?? null,
       icon: Users,
-      tone: (summary?.unassigned.noBranch ?? 0) > 0 ? 'warning' : 'default',
-      footnote: summary
-        ? summary.unassigned.noBranch > 0
-          ? `${summary.unassigned.noBranch} posted to no branch`
+      tone: (trustworthy?.unassigned.noBranch ?? 0) > 0 ? 'warning' : 'default',
+      footnote: trustworthy
+        ? trustworthy.unassigned.noBranch > 0
+          ? `${trustworthy.unassigned.noBranch} posted to no branch`
           : 'Everyone is posted to a branch'
         : undefined,
       href: '/dashboard/employees',
@@ -93,12 +97,12 @@ function OrganizationHubContent() {
     {
       key: 'branches',
       label: 'Branches',
-      value: known(summary?.branches.total),
+      value: trustworthy?.branches.total ?? null,
       icon: Building2,
-      tone: (summary?.branches.withoutManager ?? 0) > 0 ? 'warning' : 'default',
-      footnote: summary
-        ? summary.branches.withoutManager > 0
-          ? `${summary.branches.withoutManager} with no manager`
+      tone: (trustworthy?.branches.withoutManager ?? 0) > 0 ? 'warning' : 'default',
+      footnote: trustworthy
+        ? trustworthy.branches.withoutManager > 0
+          ? `${trustworthy.branches.withoutManager} with no manager`
           : 'Every branch has a manager'
         : undefined,
       href: '/dashboard/branches',
@@ -106,14 +110,14 @@ function OrganizationHubContent() {
     {
       key: 'departments',
       label: 'Departments',
-      value: known(summary?.departments.total),
+      value: trustworthy?.departments.total ?? null,
       icon: Network,
       // The consequence, not the count: those people have no approver for
       // anything routed by department.
-      tone: (summary?.departments.withoutHead ?? 0) > 0 ? 'danger' : 'default',
-      footnote: summary
-        ? summary.departments.withoutHead > 0
-          ? `${summary.departments.withoutHead} headless, ${summary.departments.unmanagedHeadcount} ${plural(summary.departments.unmanagedHeadcount, 'person', 'people')} with no approver`
+      tone: (trustworthy?.departments.withoutHead ?? 0) > 0 ? 'danger' : 'default',
+      footnote: trustworthy
+        ? trustworthy.departments.withoutHead > 0
+          ? `${trustworthy.departments.withoutHead} headless, ${trustworthy.departments.unmanagedHeadcount} ${plural(trustworthy.departments.unmanagedHeadcount, 'person', 'people')} with no approver`
           : 'Every department has a head'
         : undefined,
       href: '/dashboard/departments',
@@ -121,14 +125,14 @@ function OrganizationHubContent() {
     {
       key: 'managers',
       label: 'Managers',
-      value: known(summary?.managers.total),
+      value: trustworthy?.managers.total ?? null,
       icon: UserCog,
       // Past a dozen direct reports one-to-ones stop happening and the approval
       // queue behind that person becomes the bottleneck.
       tone: (widest?.reports ?? 0) >= 12 ? 'warning' : 'default',
       footnote: widest
         ? `Widest span: ${widest.name}, ${widest.reports} reports`
-        : summary
+        : trustworthy
           ? 'Nobody carries an outsized span'
           : undefined,
       href: '/dashboard/teams',
@@ -137,11 +141,11 @@ function OrganizationHubContent() {
       // Keyed with a hyphen because the key is also the card's test id.
       key: 'change-requests',
       label: 'Pending change requests',
-      value: known(summary?.changeRequests.pending),
+      value: trustworthy?.changeRequests.pending ?? null,
       icon: GitPullRequestArrow,
-      tone: (summary?.changeRequests.pending ?? 0) > 0 ? 'warning' : 'success',
-      footnote: summary
-        ? `${summary.changeRequests.approved} approved, ${summary.changeRequests.rejected} rejected`
+      tone: (trustworthy?.changeRequests.pending ?? 0) > 0 ? 'warning' : 'success',
+      footnote: trustworthy
+        ? `${trustworthy.changeRequests.approved} approved, ${trustworthy.changeRequests.rejected} rejected`
         : undefined,
       href: '/dashboard/departments/change-requests',
     },
@@ -149,11 +153,11 @@ function OrganizationHubContent() {
 
   // ── Needs attention ───────────────────────────────────────────────────────
   const attention: AttentionItem[] = [];
-  if (summary && !failed) {
-    if (summary.changeRequests.pending > 0) {
+  if (trustworthy) {
+    if (trustworthy.changeRequests.pending > 0) {
       attention.push({
         key: 'change-requests',
-        label: `${summary.changeRequests.pending} change ${plural(summary.changeRequests.pending, 'request', 'requests')} waiting`,
+        label: `${trustworthy.changeRequests.pending} change ${plural(trustworthy.changeRequests.pending, 'request', 'requests')} waiting`,
         detail: 'Review',
         severity: 'warning',
         href: '/dashboard/departments/change-requests',
@@ -170,19 +174,19 @@ function OrganizationHubContent() {
         href: '/dashboard/departments',
       });
     }
-    if (summary.unassigned.noBranch > 0) {
+    if (trustworthy.unassigned.noBranch > 0) {
       attention.push({
         key: 'no-branch',
-        label: `${summary.unassigned.noBranch} ${plural(summary.unassigned.noBranch, 'employee is', 'employees are')} posted to no branch`,
+        label: `${trustworthy.unassigned.noBranch} ${plural(trustworthy.unassigned.noBranch, 'employee is', 'employees are')} posted to no branch`,
         detail: 'Assign',
         severity: 'warning',
         href: '/dashboard/employees',
       });
     }
-    if (summary.branches.withoutManager > 0) {
+    if (trustworthy.branches.withoutManager > 0) {
       attention.push({
         key: 'branch-no-manager',
-        label: `${summary.branches.withoutManager} ${plural(summary.branches.withoutManager, 'branch has', 'branches have')} no manager`,
+        label: `${trustworthy.branches.withoutManager} ${plural(trustworthy.branches.withoutManager, 'branch has', 'branches have')} no manager`,
         detail: 'Assign',
         severity: 'warning',
         href: '/dashboard/branches',
@@ -234,7 +238,7 @@ function OrganizationHubContent() {
       subtitle={tm('organization.subtitle')}
       kpis={kpis}
       kpisLoading={loading}
-      badges={{ changeRequests: summary?.changeRequests.pending }}
+      badges={{ changeRequests: trustworthy?.changeRequests.pending }}
       badgeTones={{ changeRequests: 'warning' }}
       insights={
         <div className="space-y-6">
@@ -255,7 +259,7 @@ function OrganizationHubContent() {
             <div className="surface-panel flex flex-col justify-between rounded-[20px] p-6 lg:col-span-7 xl:col-span-8">
               <PanelHeader
                 title="Headcount by department"
-                hint={summary && !failed ? chartHint : undefined}
+                hint={trustworthy ? chartHint : undefined}
                 action={<PanelLink href="/dashboard/departments">See departments</PanelLink>}
               />
               {/* min-h keeps the chart readable when this is the shorter panel;
@@ -283,8 +287,8 @@ function OrganizationHubContent() {
 
             <div className="flex flex-col lg:col-span-5 xl:col-span-4">
               <BranchWorkforceMeters
-                rows={summary?.branches.rows}
-                withoutManager={summary?.branches.withoutManager ?? 0}
+                rows={trustworthy?.branches.rows}
+                withoutManager={trustworthy?.branches.withoutManager ?? 0}
                 loading={loading}
                 failed={failed}
               />
@@ -293,14 +297,14 @@ function OrganizationHubContent() {
 
           {/* The structure, the queue, and the direction of travel. */}
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-            <OrgStructureBlocks summary={failed ? undefined : summary} loading={loading} />
+            <OrgStructureBlocks summary={trustworthy} loading={loading} />
             <ChangeRequestDonut
-              counts={summary?.changeRequests}
+              counts={trustworthy?.changeRequests}
               loading={loading}
               failed={failed}
             />
             <WorkforceGrowthPanel
-              growth={summary?.growth}
+              growth={trustworthy?.growth}
               months={months}
               onMonthsChange={setMonths}
               loading={loading}

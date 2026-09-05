@@ -45,6 +45,19 @@ export interface NavGroup {
   basePath?: string;
   roles: UserRole[];
   /**
+   * Who may open the HUB itself, when that is narrower than who may see the
+   * group. Omit when the two are the same.
+   *
+   * A module hub aggregates governance figures — headless departments, the
+   * change-request queue, span of control — and its endpoint is gated tighter
+   * than the list screens underneath it. A payroll officer is entitled to the
+   * employee directory and the branch list but not to that aggregate, so the
+   * group must still appear for them with its header pointing at the first
+   * screen they CAN open. Without this the rail offers a route the server
+   * refuses, and the user is bounced to /403 by their own sidebar.
+   */
+  hubRoles?: UserRole[];
+  /**
    * The UI-affordance gate, mirroring `utils/permissions.ts`. It decides what to
    * draw; the backend's RolesGuard decides what is allowed, and a hidden entry
    * must never be the only thing stopping an action.
@@ -78,6 +91,8 @@ export const adminMenuItems: NavGroup[] = [
     labelKey: 'organization',
     href: '/dashboard/organization',
     roles: ['ADMIN', 'HR_MANAGER', 'PAYROLL_OFFICER'],
+    // GET /organization/hub-summary is ADMIN + HR only.
+    hubRoles: ['ADMIN', 'HR_MANAGER'],
     permissions: ['VIEW_DEPARTMENTS'],
     children: [
       { labelKey: 'branches', href: '/dashboard/branches' },
@@ -97,6 +112,8 @@ export const adminMenuItems: NavGroup[] = [
     labelKey: 'people',
     href: '/dashboard/people',
     roles: ['ADMIN', 'HR_MANAGER', 'PAYROLL_OFFICER'],
+    // GET /employees/hub-summary is ADMIN + HR only.
+    hubRoles: ['ADMIN', 'HR_MANAGER'],
     permissions: ['VIEW_EMPLOYEES'],
     children: [
       { labelKey: 'employeeDirectory', href: '/dashboard/employees' },
@@ -182,6 +199,7 @@ export const departmentHeadMenuItems: NavGroup[] = [
     labelKey: 'organization',
     href: '/dashboard/organization',
     roles: ['MANAGER'],
+    hubRoles: ['ADMIN', 'HR_MANAGER'],
     permissions: ['VIEW_DEPARTMENTS'],
     children: [
       { labelKey: 'branches', href: '/dashboard/branches' },
@@ -194,6 +212,7 @@ export const departmentHeadMenuItems: NavGroup[] = [
     labelKey: 'people',
     href: '/dashboard/people',
     roles: ['MANAGER'],
+    hubRoles: ['ADMIN', 'HR_MANAGER'],
     permissions: ['VIEW_EMPLOYEES'],
     children: [
       { labelKey: 'employeeDirectory', href: '/dashboard/employees' },
@@ -295,7 +314,18 @@ export function filterMenuForRole(menu: NavGroup[], role: UserRole): NavGroup[] 
         const children = group.children.filter(
           (child) => !child.roles || child.roles.includes(role),
         );
-        return { ...group, children };
+        // A role that may see the group but not open its hub gets a header
+        // pointing at the first screen it is actually allowed to reach.
+        // `basePath` keeps the group owning its URL prefix, so breadcrumbs and
+        // the active-section highlight are unaffected by the re-point.
+        const canOpenHub = !group.hubRoles || group.hubRoles.includes(role);
+        if (canOpenHub || !children.length) return { ...group, children };
+        return {
+          ...group,
+          href: children[0].href,
+          basePath: group.basePath ?? group.href,
+          children,
+        };
       })
       // A group whose children all filtered away is an empty accordion: it opens
       // onto nothing while its header still promises a section. Better no entry.
