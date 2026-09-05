@@ -5,6 +5,20 @@ import { AppModule } from '../src/app.module';
 import { TransformInterceptor } from '../src/common/interceptors/transform.interceptor';
 
 /**
+ * NOTE ON ISOLATION
+ *
+ * These specs write to the e2e database and some of what they write is
+ * HISTORY that the application deliberately does not delete — an approved
+ * change request, a renewed permit. Re-running them accumulates that history,
+ * which is correct behaviour and harmless, but it means no assertion here or
+ * in the browser suite may depend on a whole-table count.
+ *
+ * Start from a clean slate with `npm run e2e:db reset` (which drops the
+ * container) rather than `npm run e2e:up` (which only re-seeds a database that
+ * is already running).
+ */
+
+/**
  * Smoke test for the wiring, not for the domain.
  *
  * Needs the test database up: `npm run e2e:up` from the repo root, with

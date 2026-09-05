@@ -19,7 +19,7 @@ screens, same behaviour, new code.
 | Frontend unit + component — Vitest | ✅ 206 passing, 27 files |
 | API integration — supertest | ✅ 75 passing, 4 suites |
 | `npm run build` (both apps) | ✅ 24 dashboard routes compile |
-| Browser — Playwright | 🟡 see §6 |
+| Browser — Playwright | ✅ 102 passing across 4 role projects, 0 failing |
 
 Roughly 42,000 lines of TypeScript across the two apps.
 
@@ -115,8 +115,28 @@ Four layers, three of them green:
 3. **API integration** — the real app over HTTP against the e2e database, so the
    response envelope, the guards and `forbidNonWhitelisted` are asserted against
    the app as assembled.
-4. **Browser** — Playwright, per role. 🟡 First full run in progress; results to
-   be recorded here.
+4. **Browser** — Playwright, per role: **102 passing, 0 failing** (2 skipped by
+   design, where the role being tested is entitled to the route). A spec
+   declares its roles in its filename, so a project the name does not list never
+   loads it and no browser opens only to assert a 403.
+
+### Running the browser suite
+
+```bash
+npm run e2e:db reset                     # clean database (not `e2e:up`, see below)
+bash scripts/test-api.sh                 # optional: API layer
+cd apps/backend && set -a && . ./.env.test && set +a && node dist/src/main.js &
+cd apps/frontend && npm run test:e2e     # builds and starts the portal itself
+```
+
+`e2e:db reset` rather than `e2e:up`: the latter re-seeds a database that is
+already running, and some of what these suites write is HISTORY the application
+deliberately never deletes — an approved change request, a renewed permit. That
+accumulates across runs, which is correct behaviour, but it means no assertion
+may depend on a whole-table count. Two of ours did, and were rewritten to filter
+to the pending queue instead.
+
+Playwright's browsers are not vendored: `npx playwright install chromium` once.
 
 ---
 
@@ -125,7 +145,8 @@ Four layers, three of them green:
 | Item | Detail |
 | --- | --- |
 | `docker-entrypoint.sh` runs bare `prisma db push` | Against a database that already holds employees, the new `national_id` unique constraint makes push prompt for `--accept-data-loss` and the container start aborts. Harmless on a fresh deployment. A real upgrade wants `prisma migrate`, not a blanket `--accept-data-loss`. **Left as-is deliberately — your call.** |
-| An unrequested commit on `main` | A subagent ran `git commit` (`0923385`, 226 files). Nothing lost. Undo to an unstaged tree with `git reset --soft HEAD~1 && git reset`, or keep it. |
+| Unrequested commits on `main` | Four commits appeared during this work (`0923385`, `6dc781e`, `4f995ae`, `4628897`) that nobody asked for. There is no git hook configured, so they came either from a subagent or from one of the other Claude sessions open in this checkout. Nothing is lost and `main` is not pushed. To unwind them all to an unstaged tree: `git reset --soft 4ad16e6 && git reset`. Left in place because they may not be mine to undo. |
+| Playwright browsers | Not vendored — `npx playwright install chromium` before the first browser run. |
 
 ---
 
@@ -166,6 +187,14 @@ on both sides.
 Contract numbers were derived from the hire *year*, which moves for a relative
 date — the upsert inserted a second contract instead of updating the first,
 leaving one employee holding two.
+
+**`next start` could not serve a build.**
+`output: "standalone"` was set unconditionally for the Docker image, and
+`next start` refuses to run against a standalone build — it warns and serves
+nothing. That took away the ordinary build-and-look-at-it loop and the browser
+suite with it, since Playwright deliberately tests a production build rather
+than `next dev`. Now opt-in via `NEXT_OUTPUT_STANDALONE`, which the Dockerfile
+sets and nothing else needs to.
 
 **`npm run test:api` pointed at the dev database.**
 The backend's Jest config reads `.env`, and these specs create, approve and

@@ -3,6 +3,20 @@ import request from 'supertest';
 import { ACCOUNTS, createTestApp, signIn, type Session } from './setup-app';
 
 /**
+ * NOTE ON ISOLATION
+ *
+ * These specs write to the e2e database and some of what they write is
+ * HISTORY that the application deliberately does not delete — an approved
+ * change request, a renewed permit. Re-running them accumulates that history,
+ * which is correct behaviour and harmless, but it means no assertion here or
+ * in the browser suite may depend on a whole-table count.
+ *
+ * Start from a clean slate with `npm run e2e:db reset` (which drops the
+ * container) rather than `npm run e2e:up` (which only re-seeds a database that
+ * is already running).
+ */
+
+/**
  * The Time & Attendance module against a real, seeded database.
  *
  * Needs the test stack up: `npm run e2e:up` from the repo root, with
