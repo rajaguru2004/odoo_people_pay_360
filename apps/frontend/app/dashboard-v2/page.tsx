@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { CalendarDays, Sliders, Check, Star, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { motion } from 'framer-motion';
-import { useTranslations, useLocale } from 'next-intl';
+import { useTranslations } from 'next-intl';
 
 import dashboardService from '@/services/dashboardService';
 import employeeService from '@/services/employeeService';
@@ -30,7 +30,6 @@ import StatusSummaryCardsV2 from '@/components/dashboard-v2/StatusSummaryCardsV2
 export default function DashboardV2Page() {
   const { user } = useAuthStore();
   const t = useTranslations('dashboardV2');
-  const locale = useLocale();
   const displayName = user?.employee?.fullName?.split(' ')[0] || user?.email?.split('@')[0] || 'Admin';
 
   const [loading, setLoading] = useState(true);
@@ -104,7 +103,7 @@ export default function DashboardV2Page() {
 
   const getFormattedDate = () => {
     const options: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
-    return new Date().toLocaleDateString(locale === 'ar' ? 'ar' : 'en-US', options);
+    return new Date().toLocaleDateString('en-US', options);
   };
 
   useEffect(() => {

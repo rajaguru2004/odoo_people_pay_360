@@ -23,7 +23,6 @@ import { activeTheme } from './index';
 import { resolveTheme } from './resolveTheme';
 import { setChartTheme } from './chartColors';
 import { useBrandingStore } from '@/store/brandingStore';
-import { useLocaleStore } from '@/store/localeStore';
 import type { ThemeConfig } from './types';
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -156,9 +155,6 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const customColorsJson = useBrandingStore((s) => s.branding.theme_custom_colors);
   const customFontFamily = useBrandingStore((s) => s.branding.theme_custom_font_family);
   const customFontUrl = useBrandingStore((s) => s.branding.theme_custom_font_url);
-  // Dashboard-module locale PoC: layer in the Arabic font here (single writer
-  // of --font-brand-sans) instead of a second effect racing this one.
-  const locale = useLocaleStore((s) => s.locale);
   const theme = useMemo(() => {
     let colors;
     try {
@@ -170,8 +166,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       colors,
       fontFamily: customFontFamily,
       fontUrl: customFontUrl,
-    }, locale);
-  }, [presetId, fontId, customColorsJson, customFontFamily, customFontUrl, locale]);
+    });
+  }, [presetId, fontId, customColorsJson, customFontFamily, customFontUrl]);
 
   useEffect(() => {
     // Keep Recharts (which reads hex values, not CSS vars) in sync

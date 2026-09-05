@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslations } from 'next-intl';
 import { X, Loader2, Trash2, Share2, Maximize2, Check, Plus, ChevronDown, MapPin } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useLocaleStore } from '@/store/localeStore';
 import { useProjectPermissions } from '@/hooks/useProjectPermissions';
 import { triggerPermissionError } from '@/lib/permissionError';
 import projectTaskService from '@/services/projectTaskService';
@@ -115,7 +114,6 @@ interface Props {
 
 export default function TaskDetailDrawer({ taskId, slug, onClose, onChanged }: Props) {
   const router    = useRouter();
-  const locale    = useLocaleStore((s) => s.locale);
 
   const t  = useTranslations('taskDetailShared');
   const te = useTranslations('projectEnums');
@@ -134,9 +132,9 @@ export default function TaskDetailDrawer({ taskId, slug, onClose, onChanged }: P
     URGENT: te('priorityUrgent'),
   };
 
-  // RTL: the drawer is anchored via `end-0` (visually left in RTL), so it
-  // should slide in from that same side rather than hardcoding the right.
-  const offscreenX = locale === 'ar' ? '-100%' : '100%';
+  // Anchored via `end-0`, which is the right edge in the one locale the portal
+  // ships, so the drawer slides in from there.
+  const offscreenX = '100%';
 
   const [task,      setTask]      = useState<any>(null);
   const [statuses,  setStatuses]  = useState<ProjectTaskStatus[]>([]);
