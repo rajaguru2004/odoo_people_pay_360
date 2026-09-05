@@ -68,6 +68,50 @@ describe('StatCard', () => {
     expect(real.container.querySelector('svg.sparkline-mask')).toBeTruthy();
   });
 
+  it('abbreviates a figure too long for the card instead of letting it clip', () => {
+    // "OMR 23,567.125" ran past the card edge and was read back as
+    // "OMR 23,567.1" — a different number the reader has no reason to doubt.
+    renderWithProviders(<StatCard stat={stat({ value: 'OMR 23,567.125' })} />);
+    const shown = screen.getByText('OMR 23.6K');
+    // The exact figure stays reachable on hover, and is what assistive tech is
+    // given: an abbreviation announced as the value has rounded a payroll.
+    expect(shown).toHaveAttribute('title', 'OMR 23,567.125');
+    expect(screen.getByText('OMR 23,567.125').className).toContain('sr-only');
+  });
+
+  it('prints a figure that fits exactly, abbreviating nothing', () => {
+    renderWithProviders(<StatCard stat={stat({ value: 'OMR 940.500' })} />);
+    expect(screen.getByText('OMR 940.500')).not.toHaveAttribute('title');
+  });
+
+  it('never shortens a period label, which is not a magnitude', () => {
+    // A sub-stat carries the last run's label beside money; 2026 is over the
+    // compaction floor and must still not become "2K".
+    renderWithProviders(
+      <StatCard stat={stat({ subStats: [{ key: 'run', label: 'Last run', value: 'August 2026' }] })} />,
+    );
+    expect(screen.getByText('August 2026')).toBeInTheDocument();
+  });
+
+  it('moves the sparkline off the hero line rather than drawing over it', () => {
+    // Beside a long figure the two used to occupy the same pixels: neither the
+    // svg nor the value could shrink, so the row overflowed onto itself.
+    const { container } = renderWithProviders(
+      <StatCard stat={stat({ value: 'OMR 23,567.125', trend: [1, 4, 2, 6] })} />,
+    );
+    const spark = container.querySelector('svg.sparkline-mask');
+    expect(spark).toBeTruthy();
+    expect(spark?.getAttribute('class')).toContain('w-full');
+  });
+
+  it('keeps a sub-stat label whole rather than ellipsing it to nothing', () => {
+    // "ACTIVE EMPL…" leaves a figure on the card that belongs to nothing.
+    renderWithProviders(
+      <StatCard stat={stat({ subStats: [{ key: 'a', label: 'Active employees', value: 4 }] })} />,
+    );
+    expect(screen.getByText('Active employees').className).not.toContain('truncate');
+  });
+
   it('keeps the hero figure in the heading colour whatever the tone', () => {
     // Only the icon chip and the delta carry colour; five cards each shouting in
     // a different hue is a traffic light, not a dashboard.

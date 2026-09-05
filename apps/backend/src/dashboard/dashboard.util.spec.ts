@@ -85,9 +85,7 @@ describe('canSee', () => {
     ];
     for (const role of Object.values(UserRole)) {
       for (const section of sections) {
-        expect(canSee(role, section)).toBe(
-          sectionsFor(role).includes(section),
-        );
+        expect(canSee(role, section)).toBe(sectionsFor(role).includes(section));
       }
     }
   });
@@ -102,9 +100,7 @@ const queue = (
 ): ApprovalQueueCount => ({ key, count, oldestDays });
 
 const everyQueue = (count: number, oldestDays = 0): ApprovalQueueCount[] =>
-  APPROVAL_QUEUES.map((definition) =>
-    queue(definition.key, count, oldestDays),
-  );
+  APPROVAL_QUEUES.map((definition) => queue(definition.key, count, oldestDays));
 
 describe('buildApprovals', () => {
   it('drops the empty queues rather than drawing them as zeroes', () => {
@@ -132,9 +128,7 @@ describe('buildApprovals', () => {
 
   it('shows a payroll officer the run gate and nothing else', () => {
     const out = buildApprovals(UserRole.PAYROLL_OFFICER, everyQueue(3));
-    expect(out.items.map((item) => item.key)).toEqual([
-      'PAYROLL_RUN_APPROVAL',
-    ]);
+    expect(out.items.map((item) => item.key)).toEqual(['PAYROLL_RUN_APPROVAL']);
   });
 
   it('shows an employee nothing, whatever is pending', () => {
@@ -479,7 +473,10 @@ describe('rollUpDepartments', () => {
   });
 
   it('averages a net over the heads that earned it', () => {
-    const out = rollUpDepartments([payslip(finance, 100), payslip(finance, 50)]);
+    const out = rollUpDepartments([
+      payslip(finance, 100),
+      payslip(finance, 50),
+    ]);
     expect(out[0].avgNet).toBe(75);
   });
 

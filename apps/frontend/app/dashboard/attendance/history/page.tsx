@@ -410,7 +410,12 @@ function AttendanceLogs() {
           // The grid is wider than any screen. It scrolls INSIDE this box, with
           // the employee and summary columns pinned to the edges — the page
           // body must never scroll sideways.
-          <div className="max-h-[calc(100vh-22rem)] min-h-[18rem] overflow-auto">
+          // `dvh`, not `vh`, for the same reason the shell is `h-dvh`: on a
+          // phone `100vh` is the tallest the viewport ever gets, so a pane sized
+          // off it stays taller than the space actually on screen while the
+          // toolbar is up, and the page grows a second vertical scrollbar
+          // beside `<main>`'s.
+          <div className="max-h-[calc(100dvh-22rem)] min-h-[18rem] overflow-auto">
             <table className="border-collapse text-sm">
               <thead>
                 <tr>

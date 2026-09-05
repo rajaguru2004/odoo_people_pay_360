@@ -1,5 +1,8 @@
 import { UserRole } from '@prisma/client';
-import { rate, UNASSIGNED_DEPARTMENT } from '../attendances/attendance-calendar.util';
+import {
+  rate,
+  UNASSIGNED_DEPARTMENT,
+} from '../attendances/attendance-calendar.util';
 import { daysUntil } from '../common/utils/expiry.util';
 import { roundMoney } from '../payroll/payroll-calc.util';
 import { UNASSIGNED_LABEL } from '../payroll/payroll-dashboard.util';
@@ -28,11 +31,7 @@ import { UNASSIGNED_LABEL } from '../payroll/payroll-dashboard.util';
 
 /** The blocks a caller may be entitled to. Mirrors `DashboardSection`. */
 export type DashboardSection =
-  | 'workforce'
-  | 'attendance'
-  | 'payroll'
-  | 'approvals'
-  | 'compliance';
+  'workforce' | 'attendance' | 'payroll' | 'approvals' | 'compliance';
 
 /**
  * Role → the sections that role may see.

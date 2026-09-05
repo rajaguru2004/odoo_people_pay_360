@@ -458,7 +458,10 @@ export class DashboardService {
     const countOf = (status: AttendanceStatus) => counted.get(status) ?? 0;
     const present = WORKED.reduce((sum, status) => sum + countOf(status), 0);
     const recordedAbsent = countOf(AttendanceStatus.ABSENT);
-    const onLeave = Math.max(countOf(AttendanceStatus.ON_LEAVE), calendarOnLeave);
+    const onLeave = Math.max(
+      countOf(AttendanceStatus.ON_LEAVE),
+      calendarOnLeave,
+    );
 
     return attendanceSnapshot({
       // Reconciled against what actually happened, so a call-out on a closed
@@ -686,7 +689,15 @@ export class DashboardService {
 
     const own = subject ? { employee: subject } : {};
     const pending = { status: RequestStatus.PENDING } as const;
-    const aggregate = { _count: { _all: true }, _min: { createdAt: true } };
+    // `as const` rather than a plain object literal: without it the selection
+    // widens to `{ _all: boolean }`, which Prisma's `Subset` refuses and which
+    // loses the `_count: { _all: number }` shape `queueCount` reads off the
+    // result. One shared selection is still right — six copies of it is how one
+    // queue quietly stops reporting its age.
+    const aggregate = {
+      _count: { _all: true },
+      _min: { createdAt: true },
+    } as const;
 
     const [leave, overtime, corrections, terminations, changes, runs] =
       await Promise.all([
@@ -883,6 +894,11 @@ export class DashboardService {
         today,
         NAME_CAP,
       ),
+      // The window these were gathered over, so the panel can name it rather
+      // than calling everything in the payload "expiring soon" with no period
+      // attached. It is a configured setting, not a constant, so the reader
+      // cannot infer it and the number has to travel with the data.
+      horizonDays,
     };
   }
 
@@ -942,7 +958,9 @@ export class DashboardService {
       payslip,
     ] = await Promise.all([
       this.prisma.attendance.findUnique({
-        where: { employeeId_date: { employeeId, date: dayKeyToDate(todayKey) } },
+        where: {
+          employeeId_date: { employeeId, date: dayKeyToDate(todayKey) },
+        },
         select: { status: true },
       }),
       this.prisma.leaveTypeBalance.findMany({
@@ -982,8 +1000,7 @@ export class DashboardService {
       // the person has not punched YET, which is not the same claim.
       todayStatus: today?.status ?? null,
       leaveBalanceDays: remainingLeaveDays(typeBalances, headline),
-      pendingOwnRequests:
-        leavePending + overtimePending + correctionsPending,
+      pendingOwnRequests: leavePending + overtimePending + correctionsPending,
       latestPayslip: payslip
         ? {
             id: payslip.id,

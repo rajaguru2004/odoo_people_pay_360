@@ -29,8 +29,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
      * header with it, so on any page longer than the window the navigation
      * scrolled off the top and the way out of the page went with it. Pinning
      * the frame and scrolling only the content is what keeps them reachable.
+     *
+     * `data-app-shell` is not decoration: `globals.css` keys the rule that
+     * stops the DOCUMENT scrolling off it. `body` carries `overflow-x: hidden`
+     * for /login, which makes the viewport a vertical scroller too, and 100dvh
+     * overshoots the space actually available by a fraction of a pixel on a
+     * fractionally-scaled display — enough for the viewport to draw a second,
+     * dead scrollbar beside the live one on `<main>`. The attribute is what
+     * lets that rule apply here and not to the sign-in screen, which is
+     * `min-h-dvh` and still has to scroll on a short window.
      */
-    <div className="flex h-dvh overflow-hidden bg-surface-page">
+    <div data-app-shell className="flex h-dvh overflow-hidden bg-surface-page">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar />

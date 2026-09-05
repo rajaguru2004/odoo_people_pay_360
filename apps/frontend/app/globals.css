@@ -228,6 +228,32 @@ body {
   overflow-x: hidden;
 }
 
+/*
+ * THE DOCUMENT DOES NOT SCROLL BEHIND THE DASHBOARD SHELL.
+ *
+ * `overflow-x: hidden` above is not only a horizontal rule. When one axis is
+ * not `visible` the other's `visible` computes to `auto` (CSS Overflow 3), and
+ * body's used overflow is then propagated to the VIEWPORT — so the document is
+ * a live vertical scroll container in its own right. On /login that is exactly
+ * what we want.
+ *
+ * Under the dashboard shell it is the second scrollbar. The shell is `h-dvh`,
+ * and 100dvh resolves a fraction of a pixel over the height actually available
+ * on a fractionally-scaled display (Windows at 125%), and a whole toolbar over
+ * it on a phone whose dynamic viewport has just changed. The viewport then
+ * draws a vertical bar of its own — dead or nearly dead, and styled by whatever
+ * treatment it picks up — hard against the real one on `<main>`. Two bars, one
+ * of which does nothing.
+ *
+ * Pinned only where the shell is actually mounted, keyed off the attribute it
+ * sets: /login is `min-h-dvh` and must keep scrolling the document on a short
+ * window. Nothing becomes unreachable — the shell is one viewport tall by
+ * construction and `<main>` scrolls every pixel of the page inside it.
+ */
+body:has([data-app-shell]) {
+  overflow: hidden;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
  * GLASS EFFECTS
  * ───────────────────────────────────────────────────────────────────────────── */
@@ -246,52 +272,54 @@ body {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * SCROLLBARS — Use surface tokens (neutral — not brand)
+ * SCROLLBARS — ONE treatment, worn by every scroller
+ *
+ * This product has three legitimate scrollers: `<main>` in the dashboard shell,
+ * the sidebar's `<nav>`, and the `overflow-x-auto` box a wide table or chart
+ * scrolls inside. They have to look the same. Two scroll regions on one screen
+ * wearing different chrome reads as a bug even when both are working — which is
+ * what the old `.custom-scrollbar` was: 8px, a solid brand-DARK thumb and a
+ * track colour of its own, sitting next to the 10px pale-blue default. It had
+ * no call sites left, so it is gone rather than reconciled; this block is the
+ * only scrollbar treatment in the app.
+ *
+ * Declared BOTH ways on purpose. `scrollbar-width`/`scrollbar-color` are the
+ * standard properties and they INHERIT, so declaring them once on the root
+ * reaches every scroller — including ones added by a screen written next month;
+ * Firefox and Chrome 121+ use them and ignore the pseudo-elements below. The
+ * `::-webkit-scrollbar` block is the fallback for engines that have not shipped
+ * the standard pair (older Safari).
+ *
+ * The track is TRANSPARENT rather than a surface colour: one treatment now sits
+ * on the page background, on the sidebar and inside a card, and a track painted
+ * to match any one of those is a light stripe down the other two. Colours are
+ * the tokens ThemeProvider writes, so a preset or theme change moves the
+ * scrollbars with everything else and no hex is repeated here.
  * ───────────────────────────────────────────────────────────────────────────── */
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-brand-primary-light) transparent;
+}
+
 ::-webkit-scrollbar {
   width:  10px;
   height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--color-surface-page);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background:    var(--color-brand-primary-light);
-  border-radius: 5px;
+  background:       var(--color-brand-primary-light);
+  border:           2px solid transparent;
+  background-clip:  padding-box;
+  border-radius:    9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-brand-primary);
+  background:      var(--color-brand-primary);
+  background-clip: padding-box;
 }
-
-.custom-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-brand-primary-light) transparent;
-}
-.custom-scrollbar::-webkit-scrollbar {
-  width:  8px;
-  height: 8px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background:    var(--color-surface-border-light);
-  border-radius: 10px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background:    var(--color-brand-primary);
-  border-radius: 10px;
-  border: 2px solid var(--color-surface-border-light);
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: var(--color-brand-primary-dark);
-}
-
-.no-scrollbar,
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width:    none;
-}
-.no-scrollbar::-webkit-scrollbar,
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -371,15 +399,23 @@ nav button:focus, nav button:active, nav button:focus-visible {
 }
 
 /*
- * Horizontal rails (leave balances, chip rows) scroll by swipe on a phone; the
- * scrollbar is chrome the gesture does not need, and on desktop-class engines
- * it eats 8px of the card it sits under.
+ * The one opt-out from the treatment above. Horizontal rails (leave balances,
+ * chip rows) scroll by swipe on a phone; the scrollbar is chrome the gesture
+ * does not need, and on desktop-class engines it eats 8px of the card it sits
+ * under. `.scrollbar-hide` is the same utility under the second name some
+ * screens were written against — one definition, so the two cannot drift.
+ *
+ * HORIZONTAL rails only. A vertical scroller with its bar hidden is worse than
+ * one with a mismatched bar: the content still moves, with nothing on screen
+ * saying it could.
  */
-.no-scrollbar {
+.no-scrollbar,
+.scrollbar-hide {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
-.no-scrollbar::-webkit-scrollbar {
+.no-scrollbar::-webkit-scrollbar,
+.scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
 
