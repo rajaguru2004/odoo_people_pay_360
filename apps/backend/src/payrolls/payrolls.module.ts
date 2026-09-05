@@ -11,9 +11,14 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditModule } from '../audit/audit.module';
 import { PayrollFeaturesService } from './payroll-features.service';
 import { PayrollItemLinesService } from './payroll-item-lines.service';
+import { DeductionCarryForwardModule } from './deduction-carry-forward.module';
 
 @Module({
   imports: [
+    // Deduction balances an earlier run could not take. Its own module rather
+    // than a provider here: contracts and employees need the same service on
+    // termination, and none of them should import the run engine to get it.
+    DeductionCarryForwardModule,
     PrismaModule,
     HolidaysModule,
     OvertimeModule,
