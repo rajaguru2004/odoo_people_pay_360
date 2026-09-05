@@ -2,117 +2,85 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { GitBranch, Network, Plus, Search, UserX, Users } from 'lucide-react';
+import { GitBranch, Network, Plus } from 'lucide-react';
+import { toast } from 'sonner';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
+import DepartmentCardView from '@/components/departments/DepartmentCardView';
+import DepartmentFilterPanel from '@/components/departments/DepartmentFilterPanel';
+import DepartmentStatsBar from '@/components/departments/DepartmentStatsBar';
+import DepartmentTableView from '@/components/departments/DepartmentTableView';
+import DepartmentViewSwitcher, {
+  type DepartmentViewType,
+} from '@/components/departments/DepartmentViewSwitcher';
+import {
+  departmentStats,
+  EMPTY_DEPARTMENT_FILTERS,
+  filterDepartments,
+  type DepartmentFilters,
+} from '@/components/departments/departmentFacts';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/common/EmptyState';
-import { StatCard } from '@/components/common/StatCard';
 import { usePageHeader } from '@/hooks/usePageHeader';
 import { useBranches } from '@/hooks/useBranches';
 import { useDepartments } from '@/hooks/useDepartments';
 import { useAuthStore } from '@/store/authStore';
+import { apiErrorMessage } from '@/utils/apiError';
+import { datedStem, exportWorkbook } from '@/utils/exportSheet';
 import { fullName } from '@/utils/formatters';
 import { hasPermission } from '@/utils/permissions';
-import type { Department } from '@/types/department';
-
-function DepartmentTile({ department }: { department: Department }) {
-  const headcount = department._count?.employees ?? 0;
-  const subUnits = department._count?.children ?? department.children?.length ?? 0;
-
-  return (
-    <Link
-      href={`/dashboard/departments/${department.id}`}
-      className="surface-panel group flex h-full flex-col gap-4 rounded-[var(--radius-card)] p-5 transition-all"
-    >
-      <div className="flex items-start gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-[var(--radius-card)] bg-brand-primary/10 text-brand-primary transition-colors group-hover:bg-brand-primary group-hover:text-text-on-brand">
-          <Network className="h-5 w-5" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-base font-semibold text-text-heading transition-colors group-hover:text-brand-primary">
-            {department.name}
-          </h3>
-          <p className="mt-0.5 text-xs font-medium uppercase tracking-wide text-text-muted">
-            {department.code}
-          </p>
-        </div>
-        {!department.isActive && <Badge tone="error">Closed</Badge>}
-      </div>
-
-      <dl className="space-y-1.5 text-sm">
-        <div className="flex items-baseline justify-between gap-3">
-          <dt className="text-text-muted">Branch</dt>
-          <dd className="truncate text-text-body">{department.branch?.name ?? 'Unassigned'}</dd>
-        </div>
-        <div className="flex items-baseline justify-between gap-3">
-          <dt className="text-text-muted">Reports to</dt>
-          <dd className="truncate text-text-body">{department.parent?.name ?? 'Top level'}</dd>
-        </div>
-        <div className="flex items-baseline justify-between gap-3">
-          <dt className="text-text-muted">Head</dt>
-          {/* A department with no head is not a blank field — the people in it
-              have no approver, which is the whole point of flagging it. */}
-          <dd
-            className={`truncate ${department.manager ? 'text-text-body' : 'font-medium text-status-warning'}`}
-          >
-            {department.manager ? fullName(department.manager) : 'Nobody'}
-          </dd>
-        </div>
-      </dl>
-
-      <div className="mt-auto grid grid-cols-2 gap-3 border-t border-surface-border-light pt-3 text-sm">
-        <div>
-          <p className="text-xs text-text-muted">People</p>
-          <p className="font-semibold tabular-nums text-text-heading">{headcount}</p>
-        </div>
-        <div>
-          <p className="text-xs text-text-muted">Sub-units</p>
-          <p className="font-semibold tabular-nums text-text-heading">{subUnits}</p>
-        </div>
-      </div>
-    </Link>
-  );
-}
 
 function DepartmentsContent() {
   const role = useAuthStore((s) => s.user?.role);
   const canManage = hasPermission(role, 'MANAGE_DEPARTMENTS');
 
-  const [search, setSearch] = useState('');
-  const [branchId, setBranchId] = useState('');
-  const [headlessOnly, setHeadlessOnly] = useState(false);
+  const [view, setView] = useState<DepartmentViewType>('cards');
+  const [filters, setFilters] = useState<DepartmentFilters>(EMPTY_DEPARTMENT_FILTERS);
+  const [exporting, setExporting] = useState(false);
 
   const branches = useBranches();
-  const { data, isLoading, isError } = useDepartments(branchId ? { branchId } : {});
+  // Every unit, closed ones included, with the STATUS filter deciding what is
+  // listed. Asking the API for the open ones only would make the bar above the
+  // list report a total it can never contradict.
+  const { data, isLoading, isError } = useDepartments({ includeInactive: true });
   const departments = useMemo(() => data?.data ?? [], [data]);
 
-  usePageHeader('Departments', `${departments.length} units and who heads them`);
-
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return departments.filter((department) => {
-      if (headlessOnly && department.managerId) return false;
-      if (!needle) return true;
-      return [department.name, department.code, department.description]
-        .filter(Boolean)
-        .some((field) => field!.toLowerCase().includes(needle));
-    });
-  }, [departments, search, headlessOnly]);
-
-  const stats = useMemo(
-    () => ({
-      total: departments.length,
-      topLevel: departments.filter((department) => !department.parentId).length,
-      headless: departments.filter((department) => !department.managerId).length,
-      people: departments.reduce(
-        (sum, department) => sum + (department._count?.employees ?? 0),
-        0,
-      ),
-    }),
-    [departments],
+  const filtered = useMemo(
+    () => filterDepartments(departments, filters),
+    [departments, filters],
   );
+  const stats = useMemo(() => departmentStats(departments), [departments]);
+
+  usePageHeader('Departments', `${stats.total} units and who heads them`);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await exportWorkbook(datedStem('departments'), [
+        {
+          name: 'Departments',
+          rows: filtered.map((department) => ({
+            Code: department.code,
+            Name: department.name,
+            'Reports to': department.parent?.name,
+            Branch: department.branch?.name,
+            // Blank rather than "Nobody": the cell is a name column, and a word
+            // in it would sort and filter alongside the real names.
+            Head: department.manager ? fullName(department.manager) : null,
+            People: department._count?.employees ?? 0,
+            'Sub-units': department._count?.children ?? 0,
+            Teams: department._count?.teams ?? 0,
+            Description: department.description,
+            Status: department.isActive ? 'Open' : 'Closed',
+          })),
+        },
+      ]);
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'The export could not be written'));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -133,83 +101,18 @@ function DepartmentsContent() {
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Units"
-          value={stats.total}
-          icon={<Network className="h-5 w-5" aria-hidden />}
-        />
-        <StatCard label="Top level" value={stats.topLevel} hint="Reporting to nobody" />
-        <StatCard
-          label="Without a head"
-          value={stats.headless}
-          hint="Nothing routed here has an approver"
-          icon={<UserX className="h-5 w-5" aria-hidden />}
-        />
-        <StatCard
-          label="People placed"
-          value={stats.people}
-          icon={<Users className="h-5 w-5" aria-hidden />}
-        />
-      </div>
+      <DepartmentStatsBar stats={stats} />
 
-      <Card className="p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="w-full sm:max-w-xs">
-              <label htmlFor="department-search" className="sr-only">
-                Search departments
-              </label>
-              <div className="relative">
-                <Search
-                  className="pointer-events-none absolute inset-y-0 start-3 my-auto h-4 w-4 text-text-muted"
-                  aria-hidden
-                />
-                <input
-                  id="department-search"
-                  type="search"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Name or code"
-                  className="w-full rounded-[var(--radius-input)] border border-surface-border bg-surface-card py-2 pe-3 ps-9 text-sm text-text-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-                />
-              </div>
-            </div>
-
-            <div className="w-full sm:w-56">
-              <label
-                htmlFor="department-branch"
-                className="mb-1.5 block text-xs font-medium text-text-muted"
-              >
-                Branch
-              </label>
-              <select
-                id="department-branch"
-                value={branchId}
-                onChange={(event) => setBranchId(event.target.value)}
-                className="w-full rounded-[var(--radius-input)] border border-surface-border bg-surface-card px-3 py-2 text-sm text-text-body focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-              >
-                <option value="">Every location</option>
-                {(branches.data?.data ?? []).map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <Button
-            variant={headlessOnly ? 'primary' : 'outline'}
-            size="sm"
-            aria-pressed={headlessOnly}
-            onClick={() => setHeadlessOnly((value) => !value)}
-          >
-            <UserX className="h-4 w-4" aria-hidden />
-            Only without a head
-          </Button>
-        </div>
-      </Card>
+      <DepartmentFilterPanel
+        filters={filters}
+        onChange={setFilters}
+        branches={branches.data?.data ?? []}
+        shown={filtered.length}
+        total={departments.length}
+        onExport={() => void handleExport()}
+        exporting={exporting}
+        trailing={<DepartmentViewSwitcher view={view} onChange={setView} />}
+      />
 
       {isLoading && <Card className="p-6 text-sm text-text-muted">Loading units…</Card>}
 
@@ -229,12 +132,15 @@ function DepartmentsContent() {
         </Card>
       )}
 
-      {filtered.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((department) => (
-            <DepartmentTile key={department.id} department={department} />
-          ))}
-        </div>
+      {/* Exactly one view is mounted. Keeping the other behind a hidden class
+          would put every unit name on the page twice, which is a real problem
+          for anyone reading it with assistive technology. */}
+      {filtered.length > 0 && view === 'cards' && <DepartmentCardView departments={filtered} />}
+
+      {filtered.length > 0 && view === 'table' && (
+        <Card>
+          <DepartmentTableView departments={filtered} />
+        </Card>
       )}
     </div>
   );

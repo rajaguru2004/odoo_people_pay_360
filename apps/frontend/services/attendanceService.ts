@@ -8,6 +8,8 @@ import type {
   BulkAttendanceResult,
   CheckInPayload,
   CreateAttendancePayload,
+  MonthlyAttendanceReport,
+  MonthlyReportQuery,
   TodayBoard,
   UpdateAttendancePayload,
 } from '@/types/attendance';
@@ -37,6 +39,19 @@ class AttendanceService {
     branchId?: string;
   }): Promise<ApiResponse<AttendanceSummary>> {
     return axiosInstance.get('/attendances/summary', { params });
+  }
+
+  /**
+   * One calendar month of the workforce for the attendance log grid.
+   *
+   * Not the paginated list narrowed to a month: this answers for everyone,
+   * including the people with no record at all, and derives each absence from
+   * the working calendar rather than counting rows that happen to say ABSENT.
+   */
+  monthlyReport(
+    query: MonthlyReportQuery = {},
+  ): Promise<ApiResponse<MonthlyAttendanceReport>> {
+    return axiosInstance.get('/attendances/monthly-report', { params: query });
   }
 
   hubSummary(

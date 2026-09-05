@@ -12,12 +12,16 @@ import { paginated, resolvePagination } from '../common/utils/pagination.util';
 import type { Principal } from '../auth/auth.service';
 import {
   AttendanceCalendarService,
+  rosterKey,
   type DayCalendar,
 } from './attendance-calendar.service';
 import {
   computeStatus,
   dayKeyToDate,
   haversineMetres,
+  isWeeklyOff,
+  minutesFromShiftStart,
+  parseDayKey,
   rate,
   resolveZone,
   round2,
@@ -32,6 +36,7 @@ import { UpdateAttendanceDto } from './dto/update-attendance.dto';
 import { BulkAttendanceDto } from './dto/bulk-attendance.dto';
 import { AttendanceSummaryDto } from './dto/attendance-summary.dto';
 import { EmployeeHistoryDto } from './dto/employee-history.dto';
+import { MonthlyReportDto } from './dto/monthly-report.dto';
 
 const ATTENDANCE_INCLUDE = {
   employee: {
@@ -546,6 +551,301 @@ export class AttendancesService {
       },
       daily,
       departments,
+    };
+  }
+
+  /**
+   * One calendar month of the whole workforce, as the attendance log grid.
+   *
+   * Built from the EMPLOYEE list outward rather than from the attendance rows
+   * inward. A report assembled by grouping rows silently omits anybody who
+   * produced none — which is precisely the person the reader opened the log to
+   * find. Everyone still on the books gets a row here, and the days they have
+   * no record for are filled in from the working calendar.
+   *
+   * Absence is likewise derived rather than counted: a missing row on a working
+   * day IS the absence, and a report that only counts rows saying `ABSENT`
+   * reports nought for a month nobody was marked up in.
+   */
+  async monthlyReport(query: MonthlyReportDto) {
+    const companyZone = await this.calendar.companyTimezone();
+    const todayKey = this.calendar.todayIn(companyZone);
+    const now = DateTime.now();
+
+    const anchor = DateTime.fromFormat(todayKey, 'yyyy-MM-dd', { zone: 'utc' });
+    const month = query.month ?? anchor.month;
+    const year = query.year ?? anchor.year;
+    const first = DateTime.fromObject({ year, month, day: 1 }, { zone: 'utc' });
+    if (!first.isValid) {
+      throw new BadRequestException('month and year must be a real month');
+    }
+
+    const dayCount = first.daysInMonth ?? 31;
+    const dayKeys = Array.from({ length: dayCount }, (_, i) =>
+      first.plus({ days: i }).toFormat('yyyy-MM-dd'),
+    );
+    const startKey = dayKeys[0];
+    const endKey = dayKeys[dayKeys.length - 1];
+
+    const insensitive = Prisma.QueryMode.insensitive;
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        status: { not: 'TERMINATED' },
+        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+        ...(query.search
+          ? {
+              OR: [
+                { employeeCode: { contains: query.search, mode: insensitive } },
+                { firstName: { contains: query.search, mode: insensitive } },
+                { lastName: { contains: query.search, mode: insensitive } },
+                // The department too: the grid is read a team at a time as
+                // often as a person at a time, and typing "Finance" into the
+                // one search box is what a reader expects to narrow it.
+                {
+                  department: {
+                    name: { contains: query.search, mode: insensitive },
+                  },
+                },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        employeeCode: true,
+        firstName: true,
+        lastName: true,
+        position: true,
+        avatarUrl: true,
+        status: true,
+        timezone: true,
+        branchId: true,
+        department: { select: { id: true, name: true } },
+        branch: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    });
+
+    const employeeIds = employees.map((e) => e.id);
+    const [configs, holidayIndex, schedules, rows] = await Promise.all([
+      this.calendar.branchConfigs(),
+      this.calendar.holidayIndex(startKey, endKey),
+      this.calendar.scheduleIndex(employeeIds, startKey, endKey),
+      this.prisma.attendance.findMany({
+        where: {
+          employeeId: { in: employeeIds },
+          date: { gte: dayKeyToDate(startKey), lte: dayKeyToDate(endKey) },
+        },
+      }),
+    ]);
+
+    const byEmployeeDay = new Map(
+      rows.map((row) => [rosterKey(row.employeeId, toDayKey(row.date)), row]),
+    );
+
+    // The header calendar, which has to speak for the whole table.
+    //
+    // A column is shaded as weekly rest only when EVERY branch on screen agrees
+    // it is one — Muscat resting on Friday says nothing about a branch that
+    // rests on Sunday, and shading the column from one of them would contradict
+    // the cells underneath it. The per-employee cells carry each person's own
+    // calendar, so nothing is lost by the header being cautious.
+    const branchesInPlay = [
+      ...new Set(employees.map((e) => e.branchId ?? null)),
+    ].map((id) => this.calendar.configFor(configs, id));
+    const headerConfig = query.branchId
+      ? this.calendar.configFor(configs, query.branchId)
+      : this.calendar.configFor(configs, null);
+
+    const days = dayKeys.map((dayKey) => {
+      const date = parseDayKey(dayKey) as DateTime;
+      const restEverywhere =
+        branchesInPlay.length > 0 &&
+        branchesInPlay.every((config) => isWeeklyOff(date, config.weeklyOffDays));
+      const holiday = this.calendar.holidayOn(
+        holidayIndex,
+        dayKey,
+        headerConfig.branchId,
+      );
+      return {
+        date: dayKey,
+        day: date.day,
+        /** ISO weekday, 1 = Monday … 7 = Sunday. */
+        weekday: date.weekday,
+        isWeeklyOff: restEverywhere,
+        holiday: holiday ? { id: holiday.id, name: holiday.name } : null,
+        isToday: dayKey === todayKey,
+        isFuture: dayKey > todayKey,
+      };
+    });
+
+    const entries = employees.map((employee) => {
+      const branchConfig = this.calendar.configFor(configs, employee.branchId);
+      const zone = employee.timezone?.trim() || branchConfig.zone;
+      const employeeToday = this.calendar.todayIn(zone);
+
+      const cells = dayKeys.map((dayKey) => {
+        const day = this.calendar.composeDay({
+          dayKey,
+          zone,
+          branchConfig,
+          holiday: this.calendar.holidayOn(
+            holidayIndex,
+            dayKey,
+            employee.branchId,
+          ),
+          schedule: schedules.get(rosterKey(employee.id, dayKey)) ?? null,
+        });
+        const row = byEmployeeDay.get(rosterKey(employee.id, dayKey));
+
+        // A day is settled once its shift has closed. Until then a missing
+        // punch is somebody still on their way, not an absence.
+        const settled =
+          this.calendar.officeEndInstant(dayKey, day).toMillis() <= now.toMillis();
+        const isFuture = dayKey > employeeToday;
+
+        // The verdict, and NULL where there is not one yet.
+        //
+        // A day that has not happened cannot be an absence, and neither can
+        // today before its shift closes — the person may still be on their way.
+        // Reporting ABSENT there would paint five-sixths of a current month red
+        // for the entire workforce, and no consumer reading the column could
+        // tell the prediction from the fact. Null is the honest answer, and it
+        // is `null` rather than a new enum member because the status column a
+        // payroll run reads has exactly seven values and inventing an eighth
+        // here would give every other consumer a second vocabulary to learn.
+        const status: AttendanceStatus | null =
+          row?.status ??
+          (day.holiday
+            ? 'HOLIDAY'
+            : !day.isWorkingDay
+              ? 'WEEKEND'
+              : settled
+                ? 'ABSENT'
+                : null);
+
+        const checkIn = row?.checkIn ?? null;
+        const checkOut = row?.checkOut ?? null;
+
+        // Measured against the shift the CALENDAR set for that day, not against
+        // a fixed office clock: a rostered early shift is not an early arrival.
+        const fromStart = checkIn
+          ? minutesFromShiftStart(checkIn, day.officeStart, day.zone)
+          : null;
+        const shiftEnd = this.calendar.officeEndInstant(dayKey, day);
+
+        return {
+          date: dayKey,
+          attendanceId: row?.id ?? null,
+          hasRecord: Boolean(row),
+          status,
+          checkIn,
+          checkOut,
+          workHours: row?.workHours == null ? null : Number(row.workHours),
+          expectedHours:
+            row?.expectedHours == null
+              ? day.expectedHours
+              : Number(row.expectedHours),
+          source: row?.source ?? null,
+          isLate: row?.isLate ?? false,
+          lateMinutes: row?.lateMinutes ?? 0,
+          isEarlyLeave: row?.isEarlyLeave ?? false,
+          isEarlyIn: fromStart !== null && fromStart < 0,
+          isLateOut: Boolean(
+            checkOut && checkOut.getTime() > shiftEnd.toMillis(),
+          ),
+          isWorkingDay: day.isWorkingDay,
+          isWeeklyOff: day.isWeeklyOff,
+          holiday: day.holiday
+            ? { id: day.holiday.id, name: day.holiday.name }
+            : null,
+          isFuture,
+          settled,
+          notes: row?.notes ?? null,
+          zone: day.zone,
+        };
+      });
+
+      const worked = cells.filter(
+        (cell) => cell.status !== null && WORKED.includes(cell.status),
+      );
+      // A recorded absence is a fact the moment somebody writes it. A DERIVED
+      // one waits for the day to close, so nobody is reported absent at 09:05.
+      const absent = cells.filter(
+        (cell) =>
+          cell.status === 'ABSENT' &&
+          (cell.hasRecord || (cell.isWorkingDay && cell.settled)),
+      ).length;
+      const late = cells.filter((cell) => cell.isLate).length;
+      const earlyLeave = cells.filter((cell) => cell.isEarlyLeave).length;
+      const workHours = round2(
+        cells.reduce((sum, cell) => sum + (cell.workHours ?? 0), 0),
+      );
+
+      return {
+        employee: {
+          id: employee.id,
+          employeeCode: employee.employeeCode,
+          firstName: employee.firstName,
+          lastName: employee.lastName,
+          position: employee.position,
+          avatarUrl: employee.avatarUrl,
+          status: employee.status,
+          department: employee.department,
+          branch: employee.branch,
+        },
+        zone,
+        days: cells,
+        summary: {
+          present: worked.length,
+          absent,
+          late,
+          earlyLeave,
+          /** The grid's one "Late/Early" column: both kinds of deviation. */
+          lateOrEarly: late + earlyLeave,
+          onLeave: cells.filter((cell) => cell.status === 'ON_LEAVE').length,
+          holiday: cells.filter((cell) => cell.status === 'HOLIDAY').length,
+          weekend: cells.filter((cell) => cell.status === 'WEEKEND').length,
+          workingDays: cells.filter((cell) => cell.isWorkingDay).length,
+          workHours,
+          expectedHours: round2(
+            cells
+              .filter((cell) => cell.isWorkingDay)
+              .reduce((sum, cell) => sum + cell.expectedHours, 0),
+          ),
+          earlyIn: cells.filter((cell) => cell.isEarlyIn).length,
+          lateOut: cells.filter((cell) => cell.isLateOut).length,
+          lateMinutes: cells.reduce((sum, cell) => sum + cell.lateMinutes, 0),
+          // Null, never 0%, when nothing was expected — a month entirely ahead
+          // of today has no rate, and 0% would read as total absence.
+          attendanceRate: rate(worked.length, worked.length + absent),
+        },
+      };
+    });
+
+    const totalPresent = entries.reduce((a, e) => a + e.summary.present, 0);
+    const totalAbsent = entries.reduce((a, e) => a + e.summary.absent, 0);
+
+    return {
+      month,
+      year,
+      range: { startDate: startKey, endDate: endKey },
+      generatedAt: now.toJSDate(),
+      days,
+      totals: {
+        employees: entries.length,
+        present: totalPresent,
+        absent: totalAbsent,
+        late: entries.reduce((a, e) => a + e.summary.late, 0),
+        earlyLeave: entries.reduce((a, e) => a + e.summary.earlyLeave, 0),
+        onLeave: entries.reduce((a, e) => a + e.summary.onLeave, 0),
+        earlyIn: entries.reduce((a, e) => a + e.summary.earlyIn, 0),
+        lateOut: entries.reduce((a, e) => a + e.summary.lateOut, 0),
+        workHours: round2(entries.reduce((a, e) => a + e.summary.workHours, 0)),
+        attendanceRate: rate(totalPresent, totalPresent + totalAbsent),
+      },
+      entries,
     };
   }
 

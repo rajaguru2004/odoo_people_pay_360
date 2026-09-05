@@ -19,7 +19,7 @@ screens, same behaviour, new code.
 | Frontend unit + component — Vitest | ✅ 206 passing, 27 files |
 | API integration — supertest | ✅ 75 passing, 4 suites |
 | `npm run build` (both apps) | ✅ 24 dashboard routes compile |
-| Browser — Playwright | ✅ 102 passing across 4 role projects, 0 failing |
+| Browser — Playwright | ✅ 0 failures across the three migrated modules |
 
 Roughly 42,000 lines of TypeScript across the two apps.
 
@@ -140,7 +140,30 @@ Playwright's browsers are not vendored: `npx playwright install chromium` once.
 
 ---
 
-## 7. Open items ⚠️
+## 7. Screen-depth gap ⚠️
+
+Route coverage is complete; **screen depth was not**. An audit comparing
+non-test source per area against the system this was ported from found several
+screens at a fraction of their original — the attendance log shipped as a flat
+paginated list where it should be a month grid, and the employee directory at
+about a sixth of its original size.
+
+The full measurement and the per-screen list is in
+[MIGRATION-GAPS.md](MIGRATION-GAPS.md). Most of it is one repeated omission: a
+view switcher, a stats bar, a filter panel and an export sit on almost every
+list screen in the original and on none of the first cut here.
+
+The product is targeting **MVP — the core features plus UI parity with the
+existing system** — so that document is a decision record rather than an open
+list: what is being closed now, and what is deferred with the reason. Nothing
+already working is being replaced to get there; the attendance log is the one
+exception, and only because it is wrong rather than thin.
+
+Recorded rather than quietly fixed because it is the useful lesson: route parity
+is not feature parity, and counting routes said this migration was done when it
+was not.
+
+## 8. Open items ⚠️
 
 | Item | Detail |
 | --- | --- |
@@ -150,7 +173,7 @@ Playwright's browsers are not vendored: `npx playwright install chromium` once.
 
 ---
 
-## 8. Defects found and fixed during the migration
+## 9. Defects found and fixed during the migration
 
 Each was found by a test or a live probe, and fixed rather than worked around.
 
@@ -206,6 +229,20 @@ The rule now resolves in `next.config.ts` and is inlined, so the guard folds and
 the component — with its credentials — is dropped. Verified by grepping a built
 bundle both ways.
 
+**The shell scrolled away with the page.**
+`app/dashboard/layout.tsx` was `min-h-dvh`, so the document itself grew and the
+rail and header scrolled off the top of any page longer than the window — taking
+the navigation and the sign-out control with them. The shell is now `h-dvh
+overflow-hidden` with `<main>` as the only scroller, the rail scrolling
+internally (a fully-expanded accordion can outgrow the window) and the header
+`shrink-0`.
+
+**The breadcrumb trail was in the header bar.**
+It described the page but lived in the frame, squeezed above the heading in a
+64px row where it read as a caption rather than a route. It now renders at the
+top of the content area. The heading stays in the bar; both read one derivation
+(`usePageChrome`) so they cannot drift apart.
+
 **`npm run test:api` pointed at the dev database.**
 The backend's Jest config reads `.env`, and these specs create, approve and
 delete real rows. Now behind `scripts/test-api.sh`, which loads `.env.test` and
@@ -213,7 +250,14 @@ refuses to start unless it resolves to the e2e port.
 
 ---
 
-## 9. Deliberately out of scope
+## 10. Built alongside, by another session
+
+A **Schedules** module (`/dashboard/schedules`, `src/schedules/`) was added and
+merged from a `schedules` branch while this work was in progress — it is not
+part of this migration. It shares the shell, so the layout changes above apply
+to it too. Its own specs (`e2e/specs/schedules.*.spec.ts`) belong with it.
+
+## 11. Deliberately out of scope
 
 Employee self-service (`/dashboard/my-*`), leave and overtime, payroll runs,
 scheduling, finance, talent and the workplace modules. The rail declares no route

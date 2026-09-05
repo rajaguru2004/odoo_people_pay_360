@@ -43,6 +43,12 @@ back to 3000/3001.
   and the accounts in the panel component: the sign-in page imports the former
   unconditionally.
 - **`hasHydrated` before any session decision.** See `store/authStore.ts`.
+- **The dashboard shell is `h-dvh overflow-hidden`; only `<main>` scrolls.**
+  A growing document takes the rail and the header off the top of a long page.
+  The rail scrolls internally, the header is `shrink-0`.
+- **The breadcrumb trail lives in the content area, not the header bar.** It
+  describes the page, not the frame. The heading stays in the bar; both come
+  from `usePageChrome` so they cannot drift.
 - **Money.** `Decimal(18, 3)` in Prisma, never `Float`. `formatCurrency` takes
   its decimal count from the currency (OMR/KWD/BHD are thousandths).
 - **Date-only values** (hire date, period start) go through `formatDateOnly`,

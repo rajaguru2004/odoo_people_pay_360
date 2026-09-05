@@ -226,6 +226,131 @@ export interface AttendanceSummary {
   }>;
 }
 
+/**
+ * `GET /attendances/monthly-report` — one calendar month of the workforce.
+ *
+ * The shape the attendance log grid draws: a row per employee, a cell per day,
+ * and the month's totals beside each row. Built from the EMPLOYEE list rather
+ * than from attendance rows, so somebody who produced no punch all month is
+ * still a row — which is the row the log is usually opened to find.
+ */
+export interface MonthlyReportQuery {
+  month?: number;
+  year?: number;
+  branchId?: string;
+  departmentId?: string;
+  /** Employee code, name, or department name. */
+  search?: string;
+}
+
+/**
+ * One column of the grid header.
+ *
+ * `isWeeklyOff` is true only when EVERY branch on screen rests that day —
+ * branches keep different weekends, and shading the column from one of them
+ * would contradict the cells below it. Each cell carries its own answer.
+ */
+export interface MonthlyCalendarDay {
+  date: string;
+  day: number;
+  /** ISO weekday, 1 = Monday … 7 = Sunday. */
+  weekday: number;
+  isWeeklyOff: boolean;
+  holiday: { id: string; name: string } | null;
+  isToday: boolean;
+  isFuture: boolean;
+}
+
+/** One employee on one day. */
+export interface MonthlyAttendanceCell {
+  date: string;
+  attendanceId: string | null;
+  hasRecord: boolean;
+  /**
+   * The day's verdict, or `null` where there is not one yet.
+   *
+   * A day that has not happened is not an absence, and neither is today before
+   * its shift closes — the person may still be on their way. Colouring a cell
+   * straight from this field is safe because of that null; had the server said
+   * ABSENT, most of a current month would read as a workforce-wide no-show.
+   */
+  status: AttendanceStatus | null;
+  checkIn: string | null;
+  checkOut: string | null;
+  workHours: number | null;
+  expectedHours: number;
+  source: AttendanceSource | null;
+  isLate: boolean;
+  lateMinutes: number;
+  isEarlyLeave: boolean;
+  /** Arrived before the shift the calendar set for that day. */
+  isEarlyIn: boolean;
+  /** Left after it. */
+  isLateOut: boolean;
+  isWorkingDay: boolean;
+  isWeeklyOff: boolean;
+  holiday: { id: string; name: string } | null;
+  isFuture: boolean;
+  /** False until the shift has closed — before that a missing punch is not an
+   *  absence, it is somebody still on their way. */
+  settled: boolean;
+  notes: string | null;
+  /** The zone `checkIn`/`checkOut` should be rendered in. */
+  zone: string;
+}
+
+export interface MonthlyAttendanceSummary {
+  present: number;
+  absent: number;
+  late: number;
+  earlyLeave: number;
+  /** The grid's single "Late/Early" column. */
+  lateOrEarly: number;
+  onLeave: number;
+  holiday: number;
+  weekend: number;
+  workingDays: number;
+  workHours: number;
+  expectedHours: number;
+  earlyIn: number;
+  lateOut: number;
+  lateMinutes: number;
+  /** null when nothing was expected — 0% would claim a total no-show. */
+  attendanceRate: number | null;
+}
+
+export interface MonthlyAttendanceEntry {
+  employee: EmployeeRef & {
+    status: string;
+    department?: { id: string; name: string } | null;
+    branch?: { id: string; code: string; name: string } | null;
+  };
+  zone: string;
+  days: MonthlyAttendanceCell[];
+  summary: MonthlyAttendanceSummary;
+}
+
+export interface MonthlyAttendanceReport {
+  month: number;
+  year: number;
+  range: { startDate: string; endDate: string };
+  generatedAt: string;
+  days: MonthlyCalendarDay[];
+  totals: {
+    employees: number;
+    present: number;
+    absent: number;
+    late: number;
+    earlyLeave: number;
+    onLeave: number;
+    earlyIn: number;
+    lateOut: number;
+    workHours: number;
+    attendanceRate: number | null;
+  };
+  entries: MonthlyAttendanceEntry[];
+}
+
 // ── Corrections ─────────────────────────────────────────────────────────────
 
 export interface AttendanceCorrection {

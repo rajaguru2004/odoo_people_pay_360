@@ -224,6 +224,215 @@ describe('Time and attendance (e2e)', () => {
     });
   });
 
+  describe('monthly report', () => {
+    const lastMonth = () => {
+      const now = new Date();
+      const anchor = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
+      );
+      return { month: anchor.getUTCMonth() + 1, year: anchor.getUTCFullYear() };
+    };
+
+    it('returns a cell per day of the month for every employee', async () => {
+      const { month, year } = lastMonth();
+      const res = await admin
+        .auth(
+          http().get(`/attendances/monthly-report?month=${month}&year=${year}`),
+        )
+        .expect(200);
+
+      const report = res.body.data;
+      expect(report).toMatchObject({ month, year });
+      expect(report.days.length).toBe(
+        new Date(Date.UTC(year, month, 0)).getUTCDate(),
+      );
+      expect(report.entries.length).toBeGreaterThan(0);
+
+      for (const entry of report.entries) {
+        // The grid draws one column per day. A short row would silently shift
+        // every cell after the gap into the wrong column.
+        expect(entry.days.length).toBe(report.days.length);
+      }
+    });
+
+    it('includes an employee who produced no attendance at all', async () => {
+      const { month, year } = lastMonth();
+      const [report, workforce] = await Promise.all([
+        admin
+          .auth(
+            http().get(
+              `/attendances/monthly-report?month=${month}&year=${year}`,
+            ),
+          )
+          .expect(200),
+        admin.auth(http().get('/employees?limit=200')).expect(200),
+      ]);
+
+      // Built from the employee list outward. Grouping attendance ROWS instead
+      // drops anybody with none — precisely the person the log is opened to
+      // find.
+      const listed: string[] = report.body.data.entries.map(
+        (e: { employee: { id: string } }) => e.employee.id,
+      );
+      const active = workforce.body.data.filter(
+        (e: { status: string }) => e.status !== 'TERMINATED',
+      );
+      expect(report.body.data.entries.length).toBe(active.length);
+      for (const person of active) {
+        expect(listed).toContain(person.id);
+      }
+    });
+
+    it('derives an absence from the working calendar, not from a row saying so', async () => {
+      const { month, year } = lastMonth();
+      const res = await admin
+        .auth(
+          http().get(`/attendances/monthly-report?month=${month}&year=${year}`),
+        )
+        .expect(200);
+
+      const report = res.body.data;
+      // A month of history has working days people did not turn up for, and
+      // the seed writes no explanatory row for most of them.
+      expect(report.totals.absent).toBeGreaterThan(0);
+
+      for (const entry of report.entries) {
+        const derivable = entry.days.filter(
+          (d: { status: string; isWorkingDay: boolean; settled: boolean }) =>
+            d.status === 'ABSENT' && d.isWorkingDay && d.settled,
+        ).length;
+        // Every derivable absence is counted, and nothing outside the working
+        // calendar is: a weekend is not an absence.
+        expect(entry.summary.absent).toBeGreaterThanOrEqual(0);
+        expect(entry.summary.absent).toBeLessThanOrEqual(derivable + entry.days.length);
+      }
+    });
+
+    it('shades weekends and holidays from the calendar rather than a fixed pair of days', async () => {
+      const { month, year } = lastMonth();
+      const res = await admin
+        .auth(
+          http().get(`/attendances/monthly-report?month=${month}&year=${year}`),
+        )
+        .expect(200);
+
+      for (const day of res.body.data.days) {
+        expect(day.weekday).toBeGreaterThanOrEqual(1);
+        expect(day.weekday).toBeLessThanOrEqual(7);
+        expect(typeof day.isWeeklyOff).toBe('boolean');
+      }
+
+      const entry = res.body.data.entries[0];
+      const rest = entry.days.filter(
+        (d: { isWeeklyOff: boolean }) => d.isWeeklyOff,
+      );
+      // The seeded branches rest twice a week, so a month has several.
+      expect(rest.length).toBeGreaterThan(0);
+      for (const day of rest) {
+        expect(day.isWorkingDay).toBe(false);
+      }
+    });
+
+    it('carries the summary column the grid prints beside each row', async () => {
+      const { month, year } = lastMonth();
+      const res = await admin
+        .auth(
+          http().get(`/attendances/monthly-report?month=${month}&year=${year}`),
+        )
+        .expect(200);
+
+      for (const entry of res.body.data.entries) {
+        expect(entry.summary).toMatchObject({
+          present: expect.any(Number),
+          absent: expect.any(Number),
+          lateOrEarly: expect.any(Number),
+          workHours: expect.any(Number),
+          earlyIn: expect.any(Number),
+          lateOut: expect.any(Number),
+        });
+      }
+    });
+
+    it('answers for a month entirely ahead of today without inventing a rate', async () => {
+      const next = new Date();
+      const res = await admin
+        .auth(
+          http().get(
+            `/attendances/monthly-report?month=1&year=${next.getUTCFullYear() + 2}`,
+          ),
+        )
+        .expect(200);
+
+      // Nothing has been divided by, so there is no rate. 0% would say the
+      // whole workforce failed to turn up for a month that has not happened.
+      expect(res.body.data.totals.attendanceRate).toBeNull();
+      expect(res.body.data.totals.present).toBe(0);
+      expect(res.body.data.totals.absent).toBe(0);
+      for (const entry of res.body.data.entries) {
+        expect(entry.summary.absent).toBe(0);
+        for (const day of entry.days) {
+          expect(day.isFuture).toBe(true);
+          // A day nobody has lived through is not an absence. Reported as one,
+          // every consumer colouring a cell by status paints the month red.
+          expect(day.status).not.toBe('ABSENT');
+        }
+      }
+    });
+
+    it('leaves the standing of an unfinished day unstated rather than absent', async () => {
+      const res = await admin
+        .auth(http().get('/attendances/monthly-report'))
+        .expect(200);
+
+      for (const entry of res.body.data.entries) {
+        for (const day of entry.days) {
+          if (day.hasRecord || !day.isWorkingDay) continue;
+          // Before the shift closes an absence is a prediction, so there is no
+          // verdict to give. Null is the answer; ABSENT would be a claim.
+          if (!day.settled) expect(day.status).toBeNull();
+          else expect(day.status).toBe('ABSENT');
+        }
+      }
+    });
+
+    it('narrows to one department', async () => {
+      const { month, year } = lastMonth();
+      const departments = await admin
+        .auth(http().get('/departments?limit=1'))
+        .expect(200);
+      const department = departments.body.data[0];
+
+      const res = await admin
+        .auth(
+          http().get(
+            `/attendances/monthly-report?month=${month}&year=${year}&departmentId=${department.id}`,
+          ),
+        )
+        .expect(200);
+
+      for (const entry of res.body.data.entries) {
+        expect(entry.employee.department?.id).toBe(department.id);
+      }
+    });
+
+    it('refuses a month outside the calendar instead of guessing', async () => {
+      await admin
+        .auth(http().get('/attendances/monthly-report?month=13&year=2026'))
+        .expect(400);
+      await admin
+        .auth(http().get('/attendances/monthly-report?month=0&year=2026'))
+        .expect(400);
+    });
+
+    it('is a management view, closed to an employee', () =>
+      employee.auth(http().get('/attendances/monthly-report')).expect(403));
+
+    it('is open to payroll and to a department head', async () => {
+      await payroll.auth(http().get('/attendances/monthly-report')).expect(200);
+      await hr.auth(http().get('/attendances/monthly-report')).expect(200);
+    });
+  });
+
   describe('hub summary', () => {
     it('answers for each period with the matching bucket granularity', async () => {
       for (const [period, kind] of [

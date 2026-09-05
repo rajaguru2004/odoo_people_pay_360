@@ -26,6 +26,50 @@ test.describe('Dashboard shell', () => {
     await expect(page.locator('[aria-current="page"]')).toHaveCount(1);
   });
 
+  test('the rail and the header stay put while the page scrolls', async ({ page }) => {
+    // A long form, so there is something to scroll.
+    await page.goto('/dashboard');
+
+    const rail = page.locator('aside').first();
+    const header = page.locator('header').first();
+    await expect(rail).toBeVisible();
+
+    const railBefore = await rail.boundingBox();
+    const headerBefore = await header.boundingBox();
+
+    await page.mouse.move(900, 600);
+    await page.mouse.wheel(0, 2000);
+    await page.waitForTimeout(300);
+
+    // The shell is one viewport tall and does not scroll; only the content
+    // does. When the document itself scrolled, the navigation went off the top
+    // of the screen and the way out of the page went with it.
+    expect((await rail.boundingBox())?.y).toBe(railBefore?.y);
+    expect((await header.boundingBox())?.y).toBe(headerBefore?.y);
+    await expect(page.getByRole('button', { name: /sign out/i })).toBeVisible();
+  });
+
+  test('the breadcrumb trail sits in the page, not in the header bar', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'employee' || testInfo.project.name === 'payroll',
+      'These roles have no nested module to produce a trail.',
+    );
+
+    await page.goto('/dashboard/employees');
+
+    const trail = page.getByRole('navigation', { name: 'Breadcrumb' });
+    await expect(trail).toBeVisible();
+
+    // The bar is fixed chrome shared by every screen; the trail describes the
+    // page under it and belongs below it.
+    const header = page.locator('header').first();
+    const headerBox = await header.boundingBox();
+    const trailBox = await trail.boundingBox();
+    expect(trailBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height);
+  });
+
   test('signing out returns to login', async ({ page }) => {
     await page.goto('/dashboard');
     await page.getByRole('button', { name: /sign out/i }).click();

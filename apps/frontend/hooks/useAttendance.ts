@@ -7,6 +7,7 @@ import type {
   BulkAttendancePayload,
   CheckInPayload,
   CreateAttendancePayload,
+  MonthlyReportQuery,
   UpdateAttendancePayload,
 } from '@/types/attendance';
 
@@ -18,6 +19,8 @@ export const attendanceKeys = {
   today: () => [...attendanceKeys.all, 'today'] as const,
   summary: (params: Record<string, unknown>) =>
     [...attendanceKeys.all, 'summary', params] as const,
+  monthly: (query: MonthlyReportQuery) =>
+    [...attendanceKeys.all, 'monthly', query] as const,
   employee: (employeeId: string, params: Record<string, unknown>) =>
     [...attendanceKeys.all, 'employee', employeeId, params] as const,
 };
@@ -34,6 +37,22 @@ export function useAttendance(id: string | undefined) {
     queryKey: attendanceKeys.detail(id!),
     queryFn: () => attendanceService.get(id!),
     enabled: !!id,
+  });
+}
+
+/**
+ * The month the attendance log grid draws.
+ *
+ * `placeholderData` keeps the previous month on screen while the next one
+ * loads. Without it the grid unmounts on every press of the stepper and the
+ * page jumps back to the top, which makes walking back through the year feel
+ * like six separate page loads.
+ */
+export function useMonthlyAttendance(query: MonthlyReportQuery) {
+  return useQuery({
+    queryKey: attendanceKeys.monthly(query),
+    queryFn: () => attendanceService.monthlyReport(query),
+    placeholderData: (previous) => previous,
   });
 }
 
