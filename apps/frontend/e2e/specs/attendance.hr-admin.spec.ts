@@ -105,16 +105,20 @@ test.describe('Attendance logs', () => {
   test('reports the month beside each employee', async ({ page }) => {
     await openLastFullMonth(page);
 
-    const summary = page
-      .getByTestId('attendance-row')
-      .first()
-      .getByText(/present/i);
+    // The trailing column is the point of the grid for anyone not reading it
+    // day by day: it is what a payroll question is actually asking.
+    const summary = page.getByTestId('attendance-summary').first();
     await expect(summary).toBeVisible();
 
-    for (const figure of ['Absent', 'Late/Early', 'Hours', 'Early in', 'Late out']) {
-      await expect(
-        page.getByTestId('attendance-row').first().getByText(figure, { exact: true }),
-      ).toBeVisible();
+    for (const figure of [
+      'Present',
+      'Absent',
+      'Late/Early',
+      'Hours',
+      'Early in',
+      'Late out',
+    ]) {
+      await expect(summary.getByText(figure, { exact: true })).toBeVisible();
     }
   });
 
