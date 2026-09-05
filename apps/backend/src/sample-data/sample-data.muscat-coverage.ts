@@ -191,249 +191,6 @@ async function seedPendingOvertime(
   return created;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. Loans: a policy, a pending request, an interest-bearing loan, a receivable
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function seedLoans(
-  prisma: PrismaLike,
-  branchId: string,
-  emps: Emp[],
-  period: { year: number; month: number },
-  actorId: string | null,
-): Promise<{ policy: number; requests: number; schedules: number; transactions: number }> {
-  const out = { policy: 0, requests: 0, schedules: 0, transactions: 0 };
-
-  // The affordability rules the loan engine reads. Without a row the products
-  // screen is blank and every check falls back to a global default.
-  const existingPolicy = await prisma.loanPolicy.findFirst({ where: { branchId } });
-  if (!existingPolicy) {
-    await prisma.loanPolicy.create({
-      data: {
-        branchId,
-        isActive: true,
-        minNetPayAmount: dec(150),
-        minNetPayPercent: dec(40),
-        maxTotalDeductionPercentOfNet: dec(50),
-        shortfallPolicy: 'PARTIAL',
-        deferralMode: 'CARRY_FORWARD',
-        unpaidLeavePolicy: 'PAUSE',
-        gracePeriodCycles: 1,
-        maxActivePerEmployee: 2,
-        minServiceMonths: 6,
-        maxAmountMultipleOfSalary: dec(6),
-        interestDefaultMethod: 'REDUCING_BALANCE',
-        roundingTolerance: dec(1),
-      },
-    });
-    out.policy = 1;
-  }
-
-  const active = emps.filter((e) => e.status === 'ACTIVE');
-  const leaver = emps.find((e) => e.status !== 'ACTIVE');
-  const loanType = await prisma.loanType.findFirst({ where: { isActive: true } });
-
-  // (a) One request waiting on a decision, so the approvals tab is not empty.
-  const applicant = active[0];
-  if (applicant) {
-    const ref = `${TAG}-LN-PENDING`;
-    const exists = await prisma.advanceLoanRequest.findFirst({ where: { referenceNo: ref } });
-    if (!exists) {
-      await prisma.advanceLoanRequest.create({
-        data: {
-          employeeId: applicant.id,
-          type: 'LOAN',
-          amount: dec(1200),
-          reason: 'Home repair after the spring storms.',
-          status: 'PENDING',
-          installments: 12,
-          installmentAmount: dec(100),
-          referenceNo: ref,
-          currency: 'OMR',
-          employeeCodeSnapshot: applicant.employeeCode,
-          employeeNameSnapshot: applicant.fullName,
-          loanTypeId: loanType?.id ?? null,
-          interestMethod: 'NONE',
-          effectiveDate: dU(period.year, period.month, 1),
-        },
-      });
-      out.requests += 1;
-    }
-  }
-
-  // (b) A disbursed loan that CARRIES INTEREST, with part of its schedule already
-  //     recovered. Three reports read this one loan: EMI due (the row falling in
-  //     the current cycle), interest earned (the PAID deductions' interest
-  //     component) and the employee statement (the transactions).
-  const borrower = active[1] ?? active[0];
-  if (borrower) {
-    const ref = `${TAG}-LN-ACTIVE`;
-    let loan = await prisma.advanceLoanRequest.findFirst({ where: { referenceNo: ref } });
-    if (!loan) {
-      const principal = 2400;
-      const months = 12;
-      const rate = 6; // % per annum, flat — the arithmetic below matches FLAT.
-      const interestTotal = n2((principal * rate) / 100);
-      const principalPart = n2(principal / months);
-      const interestPart = n2(interestTotal / months);
-      const emi = n2(principalPart + interestPart);
-      const start = shift(period, -3);
-
-      loan = await prisma.advanceLoanRequest.create({
-        data: {
-          employeeId: borrower.id,
-          type: 'LOAN',
-          amount: dec(principal),
-          reason: 'Vehicle purchase.',
-          status: 'ACTIVE',
-          installments: months,
-          installmentAmount: dec(emi),
-          amountRepaid: dec(principalPart * 3),
-          approverId: actorId,
-          approvedAt: dU(start.year, start.month, 2),
-          referenceNo: ref,
-          currency: 'OMR',
-          employeeCodeSnapshot: borrower.employeeCode,
-          employeeNameSnapshot: borrower.fullName,
-          loanTypeId: loanType?.id ?? null,
-          interestMethod: 'FLAT',
-          interestRate: new Prisma.Decimal(rate),
-          effectiveDate: dU(start.year, start.month, 1),
-          disbursementDate: dU(start.year, start.month, 2),
-          disbursedAmount: dec(principal),
-          firstDeductionDate: lastDay(start.year, start.month),
-          priority: 100,
-        },
-      });
-      out.requests += 1;
-
-      let opening = principal;
-      for (let i = 1; i <= months; i++) {
-        const due = shift(start, i - 1);
-        const closing = n2(Math.max(0, opening - principalPart));
-        // Everything before this cycle is settled; the current cycle is what the
-        // EMI-due report exists to list.
-        const dueKey = cycleKey(due.year, due.month);
-        const nowKey = cycleKey(period.year, period.month);
-        const settled = dueKey < nowKey;
-        // The MOST RECENT past instalment is left half-paid. Arrears is its own
-        // screen, and a loan book where every past row settled in full ages
-        // nothing into it.
-        const arrears = dueKey === nowKey - 1;
-        const schedule = await prisma.loanSchedule.create({
-          data: {
-            requestId: loan.id,
-            version: 1,
-            installmentNo: i,
-            dueDate: lastDay(due.year, due.month),
-            dueCycleKey: cycleKey(due.year, due.month),
-            dueMonth: due.month,
-            dueYear: due.year,
-            openingBalance: dec(opening),
-            principalComponent: dec(principalPart),
-            interestComponent: dec(interestPart),
-            feeComponent: dec(0),
-            emiAmount: dec(emi),
-            closingBalance: dec(closing),
-            status: settled ? (arrears ? 'PARTIAL' : 'PAID') : 'SCHEDULED',
-            paidAmount: settled ? dec(arrears ? n2(emi / 2) : emi) : dec(0),
-            paidPrincipal: settled ? dec(arrears ? n2(principalPart / 2) : principalPart) : dec(0),
-            paidInterest: settled ? dec(arrears ? n2(interestPart / 2) : interestPart) : dec(0),
-            carryForwardAmount: settled && arrears ? dec(n2(emi / 2)) : dec(0),
-            settledAt: settled && !arrears ? lastDay(due.year, due.month) : null,
-          },
-        });
-        out.schedules += 1;
-
-        if (settled) {
-          // The repayment LEDGER row. `interest-earned` sums this, not the
-          // schedule — a plan is not money that moved.
-          // A DB CHECK asserts principal + interest + fee = amount, so a partial
-          // recovery has to be split, not scaled after the fact.
-          const paidPrincipal = arrears ? n2(principalPart / 2) : principalPart;
-          const paidInterest = arrears ? n2(interestPart / 2) : interestPart;
-          await prisma.advanceLoanDeduction.create({
-            data: {
-              requestId: loan.id,
-              scheduleId: schedule.id,
-              amount: dec(n2(paidPrincipal + paidInterest)),
-              principalComponent: dec(paidPrincipal),
-              interestComponent: dec(paidInterest),
-              feeComponent: dec(0),
-              plannedAmount: dec(emi),
-              shortfallAmount: dec(arrears ? n2(emi - paidPrincipal - paidInterest) : 0),
-              month: due.month,
-              year: due.year,
-              status: 'PAID',
-            },
-          });
-          await prisma.loanTransaction.create({
-            data: {
-              requestId: loan.id,
-              type: 'EMI_RECOVERY',
-              status: 'POSTED',
-              transactionDate: lastDay(due.year, due.month),
-              amount: dec(n2(paidPrincipal + paidInterest)),
-              principalComponent: dec(paidPrincipal),
-              interestComponent: dec(paidInterest),
-              balanceAfter: dec(arrears ? n2(closing + principalPart / 2) : closing),
-              narration: `Installment ${i} of ${months} recovered through payroll.`,
-              sourceType: 'PAYROLL',
-            },
-          });
-          out.transactions += 1;
-        }
-        opening = closing;
-      }
-
-      await prisma.loanTransaction.create({
-        data: {
-          requestId: loan.id,
-          type: 'DISBURSEMENT',
-          status: 'POSTED',
-          transactionDate: dU(start.year, start.month, 2),
-          amount: dec(principal),
-          principalComponent: dec(principal),
-          balanceAfter: dec(principal),
-          narration: 'Loan disbursed to the employee account.',
-          sourceType: 'BANK',
-        },
-      });
-      out.transactions += 1;
-    }
-  }
-
-  // (c) A debt that outlived the employment. RECEIVABLE is a decision — the
-  //     money is still owed and nobody wrote it off — and it is the only thing
-  //     the exit-receivables screen lists.
-  if (leaver) {
-    const ref = `${TAG}-LN-RECEIVABLE`;
-    const exists = await prisma.advanceLoanRequest.findFirst({ where: { referenceNo: ref } });
-    if (!exists) {
-      await prisma.advanceLoanRequest.create({
-        data: {
-          employeeId: leaver.id,
-          type: 'ADVANCE',
-          amount: dec(600),
-          reason: 'Salary advance taken before the exit.',
-          status: 'RECEIVABLE',
-          installments: 6,
-          installmentAmount: dec(100),
-          amountRepaid: dec(200),
-          referenceNo: ref,
-          currency: 'OMR',
-          employeeCodeSnapshot: leaver.employeeCode,
-          employeeNameSnapshot: leaver.fullName,
-          interestMethod: 'NONE',
-          effectiveDate: shiftDate(period, -6),
-        },
-      });
-      out.requests += 1;
-    }
-  }
-  return out;
-}
-
 const shiftDate = (p: { year: number; month: number }, by: number) => {
   const s = shift(p, by);
   return dU(s.year, s.month, 1);
@@ -697,153 +454,6 @@ async function seedOutstandingClearance(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * A minimal but real chart of accounts, the loan-event mappings that use it, and
- * a posted entry per loan transaction.
- *
- * Accounts are company-wide (`branchId: null`) because a chart of accounts that
- * differs per branch is a different product decision; the mappings and entries
- * are branch-stamped so the Muscat view is not empty.
- */
-async function seedLedger(
-  prisma: PrismaLike,
-  branchId: string,
-  actorId: string | null,
-): Promise<{ accounts: number; mappings: number; entries: number }> {
-  const ACCOUNTS = [
-    { code: '1010', name: 'Bank — current account', type: 'ASSET' },
-    { code: '1310', name: 'Employee loans receivable', type: 'ASSET' },
-    { code: '2100', name: 'Payroll payable', type: 'LIABILITY' },
-    { code: '4100', name: 'Interest income — employee loans', type: 'INCOME' },
-    { code: '5100', name: 'Salaries and wages', type: 'EXPENSE' },
-  ];
-  const byCode = new Map<string, string>();
-  let accounts = 0;
-  for (const a of ACCOUNTS) {
-    const row = await prisma.ledgerAccount.upsert({
-      where: { code: a.code },
-      update: { name: a.name, type: a.type, isActive: true },
-      create: { code: a.code, name: a.name, type: a.type, isActive: true },
-    });
-    byCode.set(a.code, row.id);
-    accounts += 1;
-  }
-
-  // What each loan event posts to. An unmapped event is refused rather than
-  // guessed, so the demo needs these before anything can post.
-  const MAPPINGS = [
-    { event: 'DISBURSEMENT', component: 'TOTAL', debit: '1310', credit: '1010' },
-    { event: 'EMI_RECOVERY', component: 'PRINCIPAL', debit: '2100', credit: '1310' },
-    { event: 'EMI_RECOVERY', component: 'INTEREST', debit: '2100', credit: '4100' },
-    { event: 'WRITE_OFF', component: 'TOTAL', debit: '5100', credit: '1310' },
-  ];
-  let mappings = 0;
-  for (const m of MAPPINGS) {
-    const exists = await prisma.ledgerMapping.findFirst({
-      where: { event: m.event, component: m.component, branchId },
-    });
-    if (exists) continue;
-    await prisma.ledgerMapping.create({
-      data: {
-        event: m.event,
-        component: m.component,
-        branchId,
-        debitAccountId: byCode.get(m.debit)!,
-        creditAccountId: byCode.get(m.credit)!,
-        isActive: true,
-      },
-    });
-    mappings += 1;
-  }
-
-  // One entry per loan transaction that has not been posted yet. `journalRef` on
-  // the transaction is what makes this replayable — a second run finds the ref
-  // and skips.
-  const txns = await prisma.loanTransaction.findMany({
-    where: {
-      journalRef: null,
-      status: 'POSTED',
-      request: { employee: { branchId } },
-    },
-    orderBy: { transactionDate: 'asc' },
-    take: 40,
-  });
-
-  let entries = 0;
-  for (const t of txns) {
-    const mapEvent = t.type === 'DISBURSEMENT' ? 'DISBURSEMENT' : 'EMI_RECOVERY';
-    const reference = `JE-${t.transactionDate.toISOString().slice(0, 10).replace(/-/g, '')}-${t.id.slice(0, 6)}`;
-    const lines: Prisma.JournalLineCreateWithoutEntryInput[] = [];
-
-    const push = (component: string, amount: number) => {
-      if (amount <= 0) return;
-      const m = MAPPINGS.find(
-        (x) => x.event === mapEvent && x.component === (mapEvent === 'DISBURSEMENT' ? 'TOTAL' : component),
-      );
-      if (!m) return;
-      lines.push({
-        debitAccount: { connect: { id: byCode.get(m.debit)! } },
-        creditAccount: { connect: { id: byCode.get(m.credit)! } },
-        amount: dec(amount),
-        component: mapEvent === 'DISBURSEMENT' ? 'TOTAL' : component,
-        narration: t.narration,
-      });
-    };
-
-    if (mapEvent === 'DISBURSEMENT') {
-      push('TOTAL', Number(t.amount));
-    } else {
-      push('PRINCIPAL', Number(t.principalComponent));
-      push('INTEREST', Number(t.interestComponent));
-    }
-    if (!lines.length) continue;
-
-    const entry = await prisma.journalEntry.create({
-      data: {
-        reference,
-        entryDate: t.transactionDate,
-        narration: t.narration,
-        sourceType: 'LOAN_TRANSACTION',
-        sourceId: t.id,
-        branchId,
-        status: 'POSTED',
-        postedById: actorId ?? undefined,
-        lines: { create: lines },
-      },
-    });
-    await prisma.loanTransaction.update({
-      where: { id: t.id },
-      data: { journalRef: entry.reference },
-    });
-    entries += 1;
-  }
-  return { accounts, mappings, entries };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 10. The payroll extension switches
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Every payroll extension defaults to OFF, and a screen behind an off switch
- * answers 404 — "Payroll reports are not enabled" — which reads as a broken
- * demo rather than a disabled feature. The demo dataset turns them on, since it
- * exists to show the whole product.
- */
-const DEMO_FLAGS = [
-  'payroll_item_lines_enabled',
-  'payroll_eosb_enabled',
-  'payroll_eosb_settlement_enabled',
-  'payroll_eosb_accrual_enabled',
-  'payroll_calendar_enabled',
-  'payroll_preflight_enabled',
-  'payroll_employee_recovery_enabled',
-  'payroll_reports_enabled',
-  'leave_encashment_enabled',
-  'employee_transfer_enabled',
-  'employee_grade_enabled',
-];
-
-/**
  * The demo is an Oman company, and every instant in the UI is rendered in
  * `system_timezone` — leaving it at the `Asia/Kolkata` default made the Muscat
  * branch's 08:00 check-ins read as 09:30 on the attendance list. Pinned here
@@ -852,6 +462,9 @@ const DEMO_FLAGS = [
  * `companyTzCache` holds the resolved zone for 60 s, so the running process is
  * told to re-read rather than serving the old zone until the TTL lapses.
  */
+/** Feature switches the demo turns on so its screens are not empty. */
+const DEMO_FLAGS = ['payroll_item_lines_enabled'];
+
 const DEMO_TIMEZONE = 'Asia/Muscat';
 
 async function setDemoTimezone(prisma: PrismaLike): Promise<void> {
@@ -927,7 +540,6 @@ export async function seedMuscatCoverage(
   const flags = await enableDemoFeatures(prisma);
   const approvalRuns = await seedApprovalStates(prisma, branch.id, emps, period, actorId);
   const overtime = await seedPendingOvertime(prisma, emps, period);
-  const loans = await seedLoans(prisma, branch.id, emps, period, actorId);
   const joiner = await seedFutureJoiner(
     prisma,
     branch.id,
@@ -938,30 +550,22 @@ export async function seedMuscatCoverage(
   const carryForward = await seedCarryForwardRun(prisma, branch.id, emps, period.year, actorId);
   const expiringDoc = await seedExpiringDocument(prisma, emps);
   const clearance = await seedOutstandingClearance(prisma, branch.id, emps, period, actorId);
-  const ledger = await seedLedger(prisma, branch.id, actorId);
 
   info(
     `Muscat coverage: ${approvalRuns} approval-state run(s), ${overtime} pending overtime, ` +
-      `${loans.requests} loan(s) with ${loans.schedules} schedule row(s), ${joiner} future joiner, ` +
-      `${termination} decided termination, ${carryForward} carry-forward run, ${expiringDoc} expiring doc, ` +
-      `${clearance} outstanding asset, ${ledger.entries} journal entrie(s), ${flags} feature switch(es) enabled.`,
+      `${joiner} future joiner, ${termination} decided termination, ` +
+      `${carryForward} carry-forward run, ${expiringDoc} expiring doc, ` +
+      `${clearance} outstanding asset, ${flags} feature switch(es) enabled.`,
   );
 
   return {
     muscatApprovalRuns: approvalRuns,
     muscatPendingOvertime: overtime,
-    muscatLoanPolicies: loans.policy,
-    muscatLoans: loans.requests,
-    muscatLoanSchedules: loans.schedules,
-    muscatLoanTransactions: loans.transactions,
     muscatFutureJoiner: joiner,
     muscatTerminationHistory: termination,
     muscatCarryForwardRuns: carryForward,
     muscatExpiringDocs: expiringDoc,
     muscatOutstandingAssets: clearance,
-    muscatLedgerAccounts: ledger.accounts,
-    muscatLedgerMappings: ledger.mappings,
-    muscatJournalEntries: ledger.entries,
     muscatFeatureFlags: flags,
   };
 }

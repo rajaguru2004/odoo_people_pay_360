@@ -537,19 +537,6 @@ test('payroll', async ({ page }) => {
   test.setTimeout(480_000);
 
   await shot(page, {
-    name: 'payroll-overview',
-    caption: 'Payroll — the landing dashboard',
-    url: '/dashboard/payroll/overview',
-    height: 1600,
-    callouts: [
-      { selector: 'text=Run pipeline', label: 'Where each run has reached', pad: 10 },
-      { selector: 'text=Payment readiness', label: 'What still blocks payment', pad: 10 },
-      { selector: 'testid=oman-compliance', label: 'Oman compliance — WPS, PASI, overtime and end-of-service', pad: 8 },
-      { selector: 'text=Manage runs', label: 'Go to the runs themselves', badge: 'left' },
-    ],
-  });
-
-  await shot(page, {
     name: 'payroll-manage',
     caption: 'Payroll runs',
     url: '/dashboard/payroll/manage',
@@ -560,18 +547,6 @@ test('payroll', async ({ page }) => {
       { selector: 'text=Approved', label: 'A run that has been signed off', pad: 8 },
       { selector: 'testid=payroll-submit-approval', label: 'Send the draft for approval', badge: 'left' },
       { selector: 'testid=payroll-lock', label: 'Lock the run so it can no longer be changed', badge: 'left' },
-    ],
-  });
-
-  await shot(page, {
-    name: 'payroll-validate',
-    caption: 'Pre-flight validation',
-    url: '/dashboard/payroll/validate',
-    height: 1100,
-    fit: false,
-    callouts: [
-      { selector: 'testid=preflight-month', label: 'The period to check' },
-      { selector: 'testid=preflight-run', label: 'Runs the checks without generating anything', badge: 'left' },
     ],
   });
 
@@ -619,193 +594,10 @@ test('payroll', async ({ page }) => {
     ],
   });
 
-  await shot(page, {
-    name: 'grades',
-    caption: 'Salary grades',
-    url: '/dashboard/payroll/grades',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=grade-new', label: 'Create a band' },
-      // NOT "the components every employee in the band receives". The template
-      // is a suggestion an administrator applies by hand; payroll never reads
-      // it. A legend promising otherwise would have the manual describe an
-      // automation that does not exist.
-      { selector: 'testid=grade-template', label: 'The component template suggested for this band', badge: 'left', optional: true },
-      { selector: 'testid=grade-assign', label: 'Put an employee in this band', badge: 'left', optional: true },
-    ],
-  });
-
-  await shot(page, {
-    name: 'gratuity-rules',
-    caption: 'End-of-service rules',
-    url: '/dashboard/payroll/gratuity-rules',
-    height: 1300,
-    callouts: [
-      { selector: 'testid=rule-country', label: 'Which country’s law the band belongs to' },
-      { selector: 'testid=rule-class', label: 'Whom it applies to — national, GCC, expatriate or any' },
-      { selector: 'testid=rule-days', label: 'Days of pay accrued per year of service' },
-      { selector: 'testid=rule-create', label: 'Adds the band', badge: 'left' },
-    ],
-  });
-
-  await shot(page, {
-    name: 'encashment',
-    caption: 'Leave encashment',
-    url: '/dashboard/payroll/encashment',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=encash-tab-requests', label: 'Requests, policies and the year-end carry-forward' },
-      { selector: 'testid=encash-employee', label: 'Whose leave is being encashed' },
-      { selector: 'testid=encash-quote', label: 'Price it before committing', badge: 'left' },
-      { selector: 'testid=encash-submit', label: 'Raises the request', badge: 'left' },
-    ],
-  });
-
-  await shot(page, {
-    name: 'recoveries',
-    caption: 'Recoveries',
-    url: '/dashboard/payroll/recoveries',
-    height: 1100,
-    fit: false,
-    callouts: [
-      { selector: 'testid=recovery-employee', label: 'Who owes it' },
-      { selector: 'testid=recovery-kind', label: 'What kind of overpayment it is' },
-      { selector: 'testid=recovery-total', label: 'The total to recover' },
-      { selector: 'testid=recovery-create', label: 'Starts recovering it from payroll', badge: 'left' },
-    ],
-  });
-
-  await shot(page, {
-    name: 'payroll-calendar',
-    caption: 'The payroll calendar',
-    url: '/dashboard/payroll/calendar',
-    height: 1100,
-    fit: false,
-    callouts: [
-      { selector: 'testid=calendar-save', label: 'Saves the cut-off and pay days for the year', badge: 'left' },
-    ],
-  });
-
-  await shot(page, {
-    name: 'payroll-reports',
-    caption: 'Payroll reports',
-    url: '/dashboard/payroll/reports',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=report-tab-register', label: 'The full payroll register' },
-      { selector: 'testid=report-tab-cost', label: 'Cost by department' },
-      { selector: 'testid=report-tab-statutory', label: 'PASI and other statutory returns' },
-      { selector: 'testid=report-tab-gratuity', label: 'End-of-service liability' },
-      { selector: 'testid=report-tab-variance', label: 'What changed since last month' },
-    ],
-  });
-
-  await shot(page, {
-    name: 'banks',
-    caption: 'Banks',
-    url: '/dashboard/banks',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=bank-country-picker', label: 'Which country’s banks are listed' },
-      { selector: 'testid=bank-name', label: 'Bank name' },
-      { selector: 'testid=bank-swift', label: 'SWIFT / BIC — used by the WPS file' },
-      { selector: 'testid=bank-add', label: 'Adds the bank', badge: 'left' },
-      { selector: 'testid=bank-field-config', label: 'Which account fields staff must supply', badge: 'left' },
-    ],
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 9 · Finance
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('finance', async ({ page }) => {
-  test.setTimeout(360_000);
-
-  await shot(page, {
-    name: 'finance-hub',
-    caption: 'Finance — the landing dashboard',
-    url: '/dashboard/finance',
-    height: 1400,
-    callouts: [
-      { selector: 'text=Employee expense', label: 'What staff have claimed', pad: 10 },
-      { selector: 'text=Reimbursement health', label: 'How quickly claims are being settled', pad: 10 },
-      { selector: 'text=Loans & advances', label: 'What is outstanding', pad: 10 },
-      { selector: 'text=Budget health', label: 'Spend against budget', pad: 10 },
-    ],
-  });
-
-  await shot(page, {
-    name: 'reimbursements-admin',
-    caption: 'Reimbursement claims',
-    url: '/dashboard/reimbursements',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=reimb-tab-pending', label: 'Claims waiting for a decision' },
-      { selector: 'testid=reimb-tab-all', label: 'Every claim, whatever its state' },
-      { selector: 'testid=reimb-approve', label: 'Approves the claim for payment', badge: 'left', optional: true },
-      { selector: 'testid=reimb-reject', label: 'Sends it back with a reason', badge: 'left', optional: true },
-    ],
-  });
-
-  await shot(page, {
-    name: 'travel-admin',
-    caption: 'Travel requests',
-    url: '/dashboard/travel',
-    height: 1200,
-    callouts: [
-      // Same trap as `ot-new`: the New trip form has no employee picker and
-      // posts against the signed-in account, so a legend promising on-behalf
-      // filing would misdescribe the control it is drawn on.
-      { selector: 'testid=travel-new', label: 'Opens the trip request form' },
-      { selector: 'testid=travel-filter-status', label: 'Filter by state' },
-      { selector: 'testid=travel-approve', label: 'Approves the trip', badge: 'left', optional: true },
-    ],
-  });
-
-  await shot(page, {
-    name: 'loans-admin',
-    caption: 'Advances and loans',
-    url: '/dashboard/advance-loans',
-    height: 1300,
-    callouts: [
-      { selector: 'testid=loan-tab-pending', label: 'Requests waiting for a decision' },
-      { selector: 'testid=loan-products', label: 'The loan types and their rules' },
-      { selector: 'testid=loan-settlement', label: 'Settle a loan early' },
-      { selector: 'testid=loan-reports', label: 'Outstanding, overdue and portfolio reports' },
-      { selector: 'testid=loan-approve', label: 'Approves the request', badge: 'left', optional: true },
-    ],
-  });
-
-  await shot(page, {
-    name: 'loan-reports',
-    caption: 'Loan reports',
-    url: '/dashboard/advance-loans/reports',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=loan-report-tab-outstanding', label: 'What is still owed' },
-      { selector: 'testid=loan-report-tab-emiDue', label: 'Instalments due this cycle' },
-      { selector: 'testid=loan-report-tab-overdue', label: 'Instalments that were missed' },
-      { selector: 'testid=loan-report-asof', label: 'The date the report is drawn to' },
-      { selector: 'testid=loan-report-export', label: 'Export to CSV', badge: 'left' },
-    ],
-  });
-
-  await shot(page, {
-    name: 'budgets',
-    caption: 'Budgets',
-    url: '/dashboard/budgets',
-    height: 1100,
-    callouts: [
-      { selector: 'testid=budget-new', label: 'Create a budget for a fiscal year' },
-      { selector: 'testid=budget-variance-link', label: 'Spend against plan', badge: 'left', optional: true },
-      { selector: 'testid=budget-close', label: 'Closes the budget to further commitments', badge: 'left', optional: true },
-    ],
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 10 · Talent · 11 · Workplace
+// 9 · Talent · 10 · Workplace
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('talent and workplace', async ({ page }) => {
@@ -920,7 +712,7 @@ test('talent and workplace', async ({ page }) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 12 · System administration
+// 11 · System administration
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('system administration', async ({ page }) => {
@@ -947,7 +739,6 @@ test('system administration', async ({ page }) => {
       { selector: 'testid=settings-tab-holidays', label: 'The public holiday calendar' },
       { selector: 'testid=settings-tab-approvals', label: 'Who approves what, and in what order' },
       { selector: 'testid=settings-tab-payroll', label: 'Payroll rules and the country preset' },
-      { selector: 'testid=settings-tab-wps', label: 'Wage Protection System configuration' },
       { selector: 'testid=settings-save', label: 'Saves the tab you are on — and only that tab', badge: 'left' },
     ],
   });
@@ -970,8 +761,6 @@ test('system administration', async ({ page }) => {
       'Who decides each kind of request, and in what order'],
     ['settings-payroll', 'settings-tab-payroll', 'Settings — Payroll',
       'Currency, overtime multipliers and statutory rules'],
-    ['settings-wps', 'settings-tab-wps', 'Settings — Salary payment files',
-      'The employer profile the wage file is built from'],
   ];
 
   for (const [name, tab, caption, what] of TABS) {

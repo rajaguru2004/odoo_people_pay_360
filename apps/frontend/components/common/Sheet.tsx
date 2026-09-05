@@ -55,10 +55,10 @@ import { cn } from '@/utils/cn';
  *
  * ## DOM depth is load-bearing
  *
- * `e2e/pages/travel.ts` reaches the confirm panel by walking two ancestors up
- * from the confirm button (button → footer → panel). `ConfirmModal` is built on
- * this component, so **footer children must stay direct children of the footer
- * element**. Wrapping them in one more div silently breaks that page object.
+ * A spec reaches the confirm panel by walking two ancestors up from the confirm
+ * button (button → footer → panel). `ConfirmModal` is built on this component,
+ * so **footer children must stay direct children of the footer element**.
+ * Wrapping them in one more div silently breaks that walk.
  */
 
 export interface SheetProps {
@@ -239,8 +239,8 @@ export default function Sheet({
         <div className="flex-1 overflow-y-auto overscroll-contain p-4 md:p-6">{children}</div>
 
         {/*
-          Footer. Its children are the buttons themselves, with no wrapper —
-          `e2e/pages/travel.ts` walks button → footer → panel to find the dialog.
+          Footer. Its children are the buttons themselves, with no wrapper — a
+          spec walks button → footer → panel to find the dialog.
         */}
         {footer && (
           <div className="flex items-center justify-end gap-3 border-t border-surface-border bg-surface-page px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:rounded-b-2xl md:p-6">

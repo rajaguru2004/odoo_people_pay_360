@@ -20,8 +20,6 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { PayrollsService } from './payrolls.service';
-import { PayrollValidationService } from './payroll-validation.service';
-import { PayrollHubService } from './payroll-hub.service';
 import {
   CreatePayrollDto,
   UpdatePayrollItemDto,
@@ -50,8 +48,6 @@ export class PayrollsController {
   constructor(
     private readonly payrollsService: PayrollsService,
     private readonly prisma: PrismaService,
-    private readonly validation: PayrollValidationService,
-    private readonly hub: PayrollHubService,
   ) {}
 
   @Get()
@@ -77,31 +73,6 @@ export class PayrollsController {
   getYTDSummary(@CurrentUser() user: any, @Query('year') year?: number) {
     const currentYear = year || new Date().getFullYear();
     return this.payrollsService.getYTDSummary(user.employeeId, currentYear);
-  }
-
-  // Also before @Get(':id'), for the same reason: without this the literal
-  // "hub-summary" reaches ParseUUIDPipe and answers 400 instead of the hub.
-  @Get('hub-summary')
-  @Roles('ADMIN', 'HR_MANAGER')
-  @ApiOperation({
-    summary: 'Payroll module hub summary',
-    description:
-      'The payroll processing position in one payload: what is open, what is ' +
-      'waiting for approval, what has been paid for the reporting period, who ' +
-      'is not in a run, and whether the people in it can actually be paid. ' +
-      'Money is LOCKED runs only — the same rule every payroll report applies, ' +
-      'because a DRAFT total is money that has not moved.',
-  })
-  @ApiQuery({
-    name: 'months',
-    required: false,
-    enum: [6, 12],
-    description: 'Trend window. Anything else is refused rather than defaulted.',
-  })
-  @ApiResponse({ status: 200, description: 'Hub summary retrieved' })
-  @ApiResponse({ status: 400, description: 'months outside the offered window' })
-  async getHubSummary(@Query('months') months?: string) {
-    return { success: true, data: await this.hub.getSummary(months) };
   }
 
   @Get(':id')
@@ -158,22 +129,6 @@ export class PayrollsController {
     return this.payrollsService.getPayslip(employeeId, +month, +year, {
       onlyFinalized,
     });
-  }
-
-  @Post('preflight')
-  @Roles('ADMIN', 'HR_MANAGER')
-  @ApiOperation({
-    summary: 'Is this run safe to generate?',
-    description:
-      'Runs every check generation would run, plus the ones it cannot — pending ' +
-      'leave, missing contracts, post-cut-off inputs — BEFORE any payroll ' +
-      'exists. Writes nothing. Same finding shape as the WPS pre-flight, so one ' +
-      'screen renders both.',
-  })
-  preflight(@Body() dto: any) {
-    return this.validation
-      .preflight(dto)
-      .then((data) => ({ success: true, data }));
   }
 
   @Post()

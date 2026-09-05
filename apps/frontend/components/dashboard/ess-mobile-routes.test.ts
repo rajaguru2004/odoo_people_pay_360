@@ -8,9 +8,9 @@ import { join } from 'path';
  * This test has now caught the same defect twice, in two different files, which
  * is the whole argument for it being broad rather than component-shaped:
  *
- *  1. `MobileTabBar`'s Payslip tab pushed `/dashboard/my-payroll` — a segment
- *     holding only `[id]/` and `gratuity/`, with no `page.tsx` of its own. A
- *     quarter of the bottom bar answered 404 (D-01).
+ *  1. `MobileTabBar`'s Payslip tab pushed `/dashboard/my-payroll` — at the time
+ *     a segment holding only `[id]/` and `gratuity/`, with no `page.tsx` of its
+ *     own. A quarter of the bottom bar answered 404 (D-01).
  *  2. The dashboard's **Salary** quick action pushed the same dead route. The
  *     first version of this file only read `MobileTabBar.tsx`, so it passed
  *     while a tile on the home screen 404'd (D-17). A user found it.
@@ -47,10 +47,10 @@ const source = (rel: string) => readFileSync(join(FRONTEND, rel), 'utf8');
  */
 function staticRoutes(src: string): string[] {
   // `prefixes: [...]` is stripped first. Those strings are the segments a tab
-  // LIGHTS UP on, not places it navigates to, and they are deliberately allowed
-  // to be non-routable — `/dashboard/my-payroll` is only ever reached as
-  // `.../gratuity` or `.../[id]`. Reading them as destinations made this test
-  // fail on the very distinction it exists to draw.
+  // LIGHTS UP on, not places it navigates to — the Attendance tab lights on
+  // `/dashboard/attendance` while going to `/dashboard/my-attendance` — and a
+  // prefix is deliberately allowed to be non-routable. Reading them as
+  // destinations made this test fail on the very distinction it exists to draw.
   const withoutPrefixes = src.replace(/prefixes:\s*\[[^\]]*\]/g, 'prefixes: []');
   return [...withoutPrefixes.matchAll(/'(\/dashboard\/[a-z0-9/-]*)'/g)]
     .map((m) => m[1])
@@ -94,20 +94,13 @@ describe('the ESS phone UI points at routes that exist', () => {
       expect(hasDynamicChild(dirFor(parent)), `${parent} has no [param] segment`).toBe(true);
     },
   );
-
-  it('never points at /dashboard/my-payroll, which has no page of its own', () => {
-    // Named explicitly because it is the one that has now been shipped twice:
-    // it LOOKS right beside `my-leaves` and `my-attendance`, and it is not.
-    expect(allStatic).not.toContain('/dashboard/my-payroll');
-  });
 });
 
 /**
  * The tab bar's lit-up prefixes.
  *
- * A prefix need NOT be routable itself — `/dashboard/my-payroll` is only ever
- * reached as `.../gratuity` or `.../[id]` — but it must exist, or the tab
- * lights on nothing.
+ * A prefix need NOT be routable itself — a segment reached only as `.../[id]`
+ * would do — but it must exist, or the tab lights on nothing.
  */
 describe('the tab bar lights on segments that exist', () => {
   const bar = source('components/dashboard/MobileTabBar.tsx');
@@ -117,7 +110,7 @@ describe('the tab bar lights on segments that exist', () => {
   )].sort();
 
   it('declares prefixes', () => {
-    expect(prefixes.length).toBeGreaterThanOrEqual(6);
+    expect(prefixes.length).toBeGreaterThanOrEqual(5);
   });
 
   it.each(prefixes)('%s is a real segment', (prefix) => {

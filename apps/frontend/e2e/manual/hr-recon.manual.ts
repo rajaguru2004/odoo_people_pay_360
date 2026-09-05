@@ -13,10 +13,9 @@ import { resolve } from 'path';
  * bounced out of, and a chapter missing the one screen the reader has that the
  * administrator does not.
  *
- * `navConfig.ts` says HR_MANAGER is served the administrator menu with five
- * children withheld — gratuity rules, the payroll calendar, bank master, its
- * field config, and the audit log — and gains an Approvals inbox. It also drops
- * the Dashboard link. That is the CLIENT's view; what a route actually does
+ * `navConfig.ts` says HR_MANAGER is served the administrator menu with the
+ * audit log withheld, and gains an Approvals inbox. It also drops the Dashboard
+ * link. That is the CLIENT's view; what a route actually does
  * when it is opened is decided by `ProtectedRoute` and then by the server. So
  * this walks every path the administrator book covers, as her, and records
  * three outcomes per screen: rendered, redirected to `/403`, or a feature
@@ -68,33 +67,13 @@ const SCREENS: Array<{ name: string; path: string; group: string }> = [
   { group: 'Leave', name: '53-balances', path: '/dashboard/leaves/balances' },
   { group: 'Leave', name: '54-overtime', path: '/dashboard/overtime' },
 
-  // The five withheld from HR by `navConfig` are still walked, because a menu
-  // that hides a link is not the same as a route that refuses one — and the
+  // The children withheld from HR by `navConfig` are still walked, because a
+  // menu that hides a link is not the same as a route that refuses one — and the
   // manual has to say which of the two the reader is meeting.
-  { group: 'Payroll', name: '60-overview', path: '/dashboard/payroll/overview' },
   { group: 'Payroll', name: '61-manage', path: '/dashboard/payroll/manage' },
-  { group: 'Payroll', name: '62-validate', path: '/dashboard/payroll/validate' },
   { group: 'Payroll', name: '63-batches', path: '/dashboard/payroll/batches' },
   { group: 'Payroll', name: '64-approvals', path: '/dashboard/payroll/approvals' },
   { group: 'Payroll', name: '65-salary-structure', path: '/dashboard/payroll/salary-structure' },
-  { group: 'Payroll', name: '66-grades', path: '/dashboard/payroll/grades' },
-  { group: 'Payroll', name: '67-settlements', path: '/dashboard/payroll/settlements' },
-  { group: 'Payroll', name: '68-gratuity-rules  [ADMIN-ONLY?]', path: '/dashboard/payroll/gratuity-rules' },
-  { group: 'Payroll', name: '69-encashment', path: '/dashboard/payroll/encashment' },
-  { group: 'Payroll', name: '70-recoveries', path: '/dashboard/payroll/recoveries' },
-  { group: 'Payroll', name: '71-calendar  [ADMIN-ONLY?]', path: '/dashboard/payroll/calendar' },
-  { group: 'Payroll', name: '72-transfers', path: '/dashboard/payroll/transfers' },
-  { group: 'Payroll', name: '73-reports', path: '/dashboard/payroll/reports' },
-  { group: 'Payroll', name: '74-banks  [ADMIN-ONLY?]', path: '/dashboard/banks' },
-  { group: 'Payroll', name: '75-bank-config  [ADMIN-ONLY?]', path: '/dashboard/banks/config' },
-  { group: 'Payroll', name: '76-bank-countries', path: '/dashboard/banks/branch-countries' },
-
-  { group: 'Finance', name: '80-hub', path: '/dashboard/finance' },
-  { group: 'Finance', name: '81-reimbursements', path: '/dashboard/reimbursements' },
-  { group: 'Finance', name: '82-travel', path: '/dashboard/travel' },
-  { group: 'Finance', name: '83-loans', path: '/dashboard/advance-loans' },
-  { group: 'Finance', name: '84-loan-reports', path: '/dashboard/advance-loans/reports' },
-  { group: 'Finance', name: '85-budgets', path: '/dashboard/budgets' },
 
   { group: 'Talent', name: '90-hub', path: '/dashboard/talent' },
   { group: 'Talent', name: '91-appraisal', path: '/dashboard/appraisal' },

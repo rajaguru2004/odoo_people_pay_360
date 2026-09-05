@@ -30,26 +30,12 @@ const FEATURE_FLAG_KEYS = [
   'document_engine_enabled',
   'document_live_preview_enabled',
   'document_bulk_enabled',
-  'travel_enabled',
   'training_enabled',
   'pdf_enabled',
-  'clearance_blocking_enabled',
-  'advance_loan_enabled',
-  'reimbursement_enabled',
   'overtime_enabled',
   // ── Payroll extensions (gap-closure phase) ──────────────────────────────
   'payroll_item_lines_enabled',
-  'payroll_eosb_enabled',
-  'payroll_eosb_accrual_enabled',
-  'payroll_eosb_settlement_enabled',
-  'leave_encashment_enabled',
   'leave_carry_forward_enabled',
-  'payroll_calendar_enabled',
-  'payroll_preflight_enabled',
-  'payroll_employee_recovery_enabled',
-  'employee_transfer_enabled',
-  'employee_grade_enabled',
-  'payroll_reports_enabled',
   // Additive engine: a live customer must not have their letters change shape
   // on an upgrade nobody asked for.
   'document_engine_enabled',
@@ -64,11 +50,10 @@ const FEATURE_FLAG_KEYS = [
  * The payroll-extension flags, which MUST default OFF.
  *
  * Deliberately NOT every key in `FEATURE_FLAG_KEYS`: `overtime_enabled`,
- * `advance_loan_enabled`, `reimbursement_enabled`, `travel_enabled`,
- * `training_enabled`, `pdf_enabled` and `clearance_blocking_enabled` are
- * established features that ship ON, and for those the breaking change would be
- * turning them off. The default a flag must declare depends on whether the
- * feature is already part of the product, not on it being a flag.
+ * `training_enabled` and `pdf_enabled` are established features that ship ON,
+ * and for those the breaking change would be turning them off. The default a
+ * flag must declare depends on whether the feature is already part of the
+ * product, not on it being a flag.
  *
  * These are different. A customer is live on the base payroll and every one of
  * these is additive on top of it, so a key that shipped 'true' would change what
@@ -81,34 +66,16 @@ const FEATURE_FLAG_KEYS = [
  */
 const MUST_DEFAULT_OFF = [
   'payroll_item_lines_enabled',
-  'payroll_eosb_enabled',
-  'payroll_eosb_accrual_enabled',
-  'payroll_eosb_settlement_enabled',
-  'leave_encashment_enabled',
   'leave_carry_forward_enabled',
-  'payroll_calendar_enabled',
-  'payroll_preflight_enabled',
-  'payroll_employee_recovery_enabled',
-  'employee_transfer_enabled',
-  'employee_grade_enabled',
-  'payroll_reports_enabled',
 ];
 
 /**
  * Non-boolean settings introduced with the payroll extensions, and the default
  * each must declare. They are listed with their values because the value IS the
- * safe behaviour — `PERIOD_END` is what payroll does today, `WARN` leaves a
- * cut-off advisory, and `BLOCK` refuses to guess an employee's nationality.
+ * safe behaviour.
  */
 const PAYROLL_ENUM_DEFAULTS: Array<[string, string]> = [
   ['payroll_item_lines_strict_reconciliation', 'true'],
-  ['payroll_eosb_unknown_nationality_policy', 'BLOCK'],
-  ['payroll_eosb_service_year_days', '365'],
-  ['leave_encashment_taxable', 'true'],
-  ['payroll_cutoff_enforcement', 'WARN'],
-  ['payroll_recovery_ladder_position', 'AFTER_LOAN'],
-  ['payroll_recovery_respects_min_net', 'true'],
-  ['payroll_transfer_pay_basis', 'PERIOD_END'],
 ];
 
 /**
@@ -205,14 +172,6 @@ describe('system settings registry', () => {
    */
   const PUBLICLY_READ_FLAGS = [
     'payroll_item_lines_enabled',
-    'payroll_eosb_enabled',
-    'payroll_calendar_enabled',
-    'payroll_preflight_enabled',
-    'payroll_employee_recovery_enabled',
-    'leave_encashment_enabled',
-    'payroll_reports_enabled',
-    'employee_transfer_enabled',
-    'employee_grade_enabled',
     // The document engine. Added after exactly the failure this list guards
     // against: the flags were registered in the curated list only, so
     // /system-settings/public never carried them, the branding store fell

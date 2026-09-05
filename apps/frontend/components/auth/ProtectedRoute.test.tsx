@@ -100,9 +100,9 @@ describe('ProtectedRoute', () => {
   /**
    * The denial the app actually has to make.
    *
-   * `/dashboard/banks` and `/dashboard/banks/config` are the only two routes
-   * whose guard has to refuse an AUTHENTICATED non-admin — everywhere else the
-   * denial branch is never taken — so they are the only place a bug in it shows.
+   * The ADMIN/HR screens — `/dashboard/people`, the payroll runs — are the only
+   * routes whose guard has to refuse an AUTHENTICATED user; everywhere else the
+   * denial branch is never taken, so they are the only place a bug in it shows.
    */
   it('sends an authenticated role that is not on the list to /403', () => {
     renderWithProviders(

@@ -16,7 +16,6 @@ import {
   FolderKanban,
   Hourglass,
   Loader2,
-  Receipt,
   Search,
   ShieldCheck,
   Sparkles,
@@ -52,7 +51,6 @@ const TOOL_STEPS: Record<string, { key: string; label: string; icon: any }> = {
   project_contribution_get: { key: 'projects', label: 'Projects', icon: FolderKanban },
   worklog_employee_summary: { key: 'hours', label: 'Work hours', icon: Hourglass },
   timesheet_employee_summary: { key: 'timesheets', label: 'Timesheets', icon: FileText },
-  reimbursement_employee_summary: { key: 'claims', label: 'Claims', icon: Receipt },
   conduct_records_get: { key: 'conduct', label: 'Conduct', icon: ShieldCheck },
   team_membership_get: { key: 'team', label: 'Teamwork', icon: Users },
 };

@@ -38,11 +38,6 @@ describe('WhatsApp template registry', () => {
         'leave_rejected',
         'overtime_approved',
         'overtime_rejected',
-        'bank_change_approved',
-        'bank_change_rejected',
-        'loan_decision',
-        'loan_lifecycle',
-        'travel_decision',
         'training_nomination',
         'asset_assigned',
         'payroll_status',
@@ -103,9 +98,6 @@ describe('WhatsApp template registry', () => {
     it('maps the discriminating notification types', () => {
       expect(WHATSAPP_TEMPLATES_BY_TYPE.get('LEAVE_APPROVED')?.key).toBe('leave_approved');
       expect(WHATSAPP_TEMPLATES_BY_TYPE.get('APPROVAL_REQUESTED')?.key).toBe('approval_requested');
-      expect(WHATSAPP_TEMPLATES_BY_TYPE.get('BANK_CHANGE_REJECTED')?.key).toBe(
-        'bank_change_rejected',
-      );
     });
 
     it('does not claim the generic types', () => {
@@ -229,13 +221,11 @@ describe('WhatsApp template registry', () => {
       });
     });
 
-    it('bank_change_approved carries no account details and warns the employee', () => {
-      const body = WHATSAPP_TEMPLATES.get('bank_change_approved')!.render(
-        baseCtx({ data: { accountNumber: '1234567890', iban: 'OM12345678901234567890' } }),
+    it('payslip_ready carries no figures — salary over a consumer messenger is a separate decision', () => {
+      const body = WHATSAPP_TEMPLATES.get('payslip_ready')!.render(
+        baseCtx({ data: { netSalary: '1234567890' } }),
       );
       expect(body).not.toContain('1234567890');
-      expect(body).not.toContain('OM12345678901234567890');
-      expect(body).toMatch(/contact HR/i);
     });
   });
 });

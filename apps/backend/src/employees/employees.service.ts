@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { GarnishmentsService } from '../garnishments/garnishments.service';
+import { DeductionCarryForwardService } from '../payrolls/deduction-carry-forward.service';
 import { Workbook } from 'exceljs';
 import { existsSync, unlinkSync } from 'fs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -85,7 +85,7 @@ export class EmployeesService {
     private whatsappSettings: WhatsAppSettingsService,
     private templates: ProfileTemplateResolverService,
     private supervisors: SupervisorsService,
-    private readonly garnishments: GarnishmentsService,
+    private readonly carryForward: DeductionCarryForwardService,
   ) {}
 
   /**
@@ -902,9 +902,9 @@ export class EmployeesService {
       });
       // G29: leaving does NOT clear what is owed. An unrecovered carry-forward
       // balance becomes a RECEIVABLE — a debt on record — rather than being
-      // written off silently. `GarnishmentsService.waive` stays the only path
+      // written off silently. `GarnishmentsService.waive`waiving one stays a deliberate act
       // that erases one, and it demands a reason.
-      await this.garnishments.markOutstandingAsReceivable(id, tx);
+      await this.carryForward.markOutstandingAsReceivable(id, tx);
 
 
       // Deactivate linked user account if exists
@@ -950,19 +950,6 @@ export class EmployeesService {
     if (employee.status !== 'INACTIVE' && employee.status !== 'TERMINATED') {
       throw new BadRequestException(
         'Only terminated employees can be permanently deleted.',
-      );
-    }
-
-    // Loan/advance history must outlive the person for statutory audit, so the
-    // FK is onDelete: RESTRICT. Check explicitly, or this surfaces as a raw
-    // P2003 that nobody can act on.
-    const loanCount = await this.prisma.advanceLoanRequest.count({
-      where: { employeeId: id },
-    });
-    if (loanCount > 0) {
-      throw new BadRequestException(
-        `Cannot permanently delete: ${loanCount} advance/loan record(s) must be retained ` +
-          `for statutory audit. Keep the employee soft-deleted (INACTIVE) instead.`,
       );
     }
 

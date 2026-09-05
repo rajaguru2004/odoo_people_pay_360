@@ -1,4 +1,4 @@
-import { GarnishmentsModule } from '../garnishments/garnishments.module';
+import { DeductionCarryForwardModule } from '../payrolls/deduction-carry-forward.module';
 import { Module } from '@nestjs/common';
 import { ContractsController } from './contracts.controller';
 import { ContractsService } from './contracts.service';
@@ -13,7 +13,7 @@ import { AssetsModule } from '../assets/assets.module';
 import { TimezoneModule } from '../common/timezone/timezone.module';
 
 @Module({
-  imports: [GarnishmentsModule, 
+  imports: [DeductionCarryForwardModule, 
     PrismaModule,
     MailModule,
     NotificationsModule,

@@ -173,10 +173,7 @@ export function totalsFromItem(item: {
   overtimePay: unknown;
   foodAllowance: unknown;
   siteAllowance: unknown;
-  reimbursement: unknown;
   deduction: unknown;
-  advanceLoanDeduction: unknown;
-  garnishment: unknown;
   insurance: unknown;
   tax: unknown;
 }): ItemTotals {
@@ -188,10 +185,7 @@ export function totalsFromItem(item: {
     overtimePay: n(item.overtimePay),
     foodAllowance: n(item.foodAllowance),
     siteAllowance: n(item.siteAllowance),
-    reimbursement: n(item.reimbursement),
     deduction: n(item.deduction),
-    advanceLoanDeduction: n(item.advanceLoanDeduction),
-    garnishment: n(item.garnishment),
     insurance: n(item.insurance),
     tax: n(item.tax),
   };

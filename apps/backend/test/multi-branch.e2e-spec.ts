@@ -277,51 +277,6 @@ describe('Multi-branch (e2e)', () => {
     });
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
-  describe('Advance & Loans scoping (relation rule)', () => {
-    let loanAId: string;
-    let loanBId: string;
-
-    beforeAll(async () => {
-      const la = await ctx.prisma.advanceLoanRequest.create({
-        data: { employeeId: fx.empAId, type: 'ADVANCE', amount: 1000, reason: `LOAN-${fx.runId}-A` },
-      });
-      const lb = await ctx.prisma.advanceLoanRequest.create({
-        data: { employeeId: fx.empBId, type: 'ADVANCE', amount: 2000, reason: `LOAN-${fx.runId}-B` },
-      });
-      loanAId = la.id;
-      loanBId = lb.id;
-    });
-
-    // The advance-loans list returns a raw array (no response envelope).
-    const loanIds = (res: any): string[] =>
-      (Array.isArray(res.body) ? res.body : rowsOf(res)).map((r: any) => r.id);
-
-    it('global admin scoped to A lists only branch-A loans', async () => {
-      const res = await ctx.http().get('/advance-loans').set(bearer(fx.globalAdmin.token)).set('X-Branch-Id', fx.branchA);
-      expect(res.status).toBe(200);
-      const ids = loanIds(res);
-      expect(ids).toContain(loanAId);
-      expect(ids).not.toContain(loanBId);
-    });
-
-    it('scoped to B lists only branch-B loans', async () => {
-      const res = await ctx.http().get('/advance-loans').set(bearer(fx.globalAdmin.token)).set('X-Branch-Id', fx.branchB);
-      const ids = loanIds(res);
-      expect(ids).toContain(loanBId);
-      expect(ids).not.toContain(loanAId);
-    });
-
-    it('cross-branch findOne returns 404 (IDOR guard)', async () => {
-      const res = await ctx.http().get(`/advance-loans/${loanBId}`).set(bearer(fx.globalAdmin.token)).set('X-Branch-Id', fx.branchA);
-      expect(res.status).toBe(404);
-    });
-
-    it('scoped HR (A) cannot read a branch-B loan by id (404)', async () => {
-      const res = await ctx.http().get(`/advance-loans/${loanBId}`).set(bearer(fx.scopedHr.token));
-      expect(res.status).toBe(404);
-    });
-  });
 
   // ─────────────────────────────────────────────────────────────────────────
   describe('Contract Terminations scoping (contract→employee path rule)', () => {

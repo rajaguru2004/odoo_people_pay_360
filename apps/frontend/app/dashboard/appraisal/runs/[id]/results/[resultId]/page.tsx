@@ -266,16 +266,6 @@ function ResultPageInner() {
             );
           })}
         </div>
-        {evidence.extras.length > 0 && (
-          <div className="mt-4 border-t border-slate-100 pt-3">
-            <div className="mb-1.5 text-xs font-semibold text-slate-500">Also on record</div>
-            <ul className="space-y-1">
-              {evidence.extras.map((f, i) => (
-                <FactRow key={i} fact={f} />
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
     </div>
   );

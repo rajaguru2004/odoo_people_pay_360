@@ -51,7 +51,6 @@
     "prisma:seed:daily-wage-policy": "ts-node --transpile-only prisma/seed-daily-wage-policy.ts",
     "prisma:report:daily-wage": "ts-node --transpile-only prisma/report-daily-wage-converged.ts",
     "prisma:report:salary-component-types": "ts-node --transpile-only prisma/report-salary-component-types.ts",
-    "prisma:seed:oman-banks": "ts-node --transpile-only prisma/seed-oman-banks.ts",
     "prisma:seed:banking-config": "ts-node --transpile-only prisma/seed-banking-config.ts",
     "prisma:backfill:payroll-branches": "ts-node --transpile-only prisma/backfill-payroll-branches.ts",
     "prisma:backfill:whatsapp": "ts-node --transpile-only prisma/backfill-whatsapp-identities.ts",

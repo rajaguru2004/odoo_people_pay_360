@@ -44,29 +44,11 @@ describe('branch-scope.map', () => {
 
   describe('registry coverage', () => {
     it('scopes the previously-leaking models', () => {
-      expect(BRANCH_SCOPE.AdvanceLoanRequest).toBe('relation');
       expect(BRANCH_SCOPE.TerminationRequest).toEqual({
         path: ['contract', 'employee'],
       });
-      expect(BRANCH_SCOPE.AdvanceLoanDeduction).toEqual({
-        path: ['request', 'employee'],
-      });
       expect(BRANCH_SCOPE.Payroll).toBe('direct');
       expect(BRANCH_SCOPE.PayrollBatch).toBe('direct');
-    });
-
-    it('scopes the payment-critical bank models', () => {
-      // Previously absent from the registry entirely, so a branch-scoped HR
-      // manager could list every pending bank change company-wide.
-      expect(BRANCH_SCOPE.EmployeeBankDetail).toBe('relation');
-      expect(BRANCH_SCOPE.BankChangeRequest).toBe('relation');
-    });
-
-    it('leaves bank reference data unscoped', () => {
-      // Bank and CountryBankingField are global reference lists, not per-branch
-      // records — scoping them would hide the bank picker from every branch.
-      expect(BRANCH_SCOPE.Bank).toBeUndefined();
-      expect(BRANCH_SCOPE.CountryBankingField).toBeUndefined();
     });
 
     it('keeps read and bulk-write action sets disjoint', () => {

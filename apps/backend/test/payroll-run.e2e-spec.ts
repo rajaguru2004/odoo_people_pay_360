@@ -533,21 +533,6 @@ describe('Payroll run — generation and reads (e2e)', () => {
       expect(res.status).toBe(403);
     });
 
-    it('PR-API-47: an edit preserves reimbursement and loan figures verbatim', async () => {
-      // These two are settled by the LOCK, not by the editor. An edit that
-      // recomputed them from scratch would silently unpick a settlement.
-      await ctx.prisma.payrollItem.update({
-        where: { id: itemId },
-        data: { reimbursement: 321, advanceLoanDeduction: 654 },
-      });
-      const res = await patchItem({ bonus: 999 });
-      expect(res.status).toBe(200);
-      const item = await ctx.prisma.payrollItem.findUnique({
-        where: { id: itemId },
-      });
-      expect(Number(item!.reimbursement)).toBe(321);
-      expect(Number(item!.advanceLoanDeduction)).toBe(654);
-    });
   });
 
   // ── PR-API-53..58  Delete and export ─────────────────────────────────────

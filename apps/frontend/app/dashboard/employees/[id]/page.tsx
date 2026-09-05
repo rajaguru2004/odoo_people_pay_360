@@ -26,7 +26,6 @@ import DocumentList from '@/components/employees/DocumentList';
 import ActivityTimeline from '@/components/employees/ActivityTimeline';
 import AvatarUpload from '@/components/employees/AvatarUpload';
 import EmployeeProfileForm from '@/components/employees/EmployeeProfileForm';
-import PaymentInformationSection from '@/components/profile/PaymentInformationSection';
 import EmployeeRewardsAndDisciplines from '@/components/employees/EmployeeRewardsAndDisciplines';
 import VisaSection from '@/components/employees/VisaSection';
 import SupervisorSection from '@/components/employees/SupervisorSection';
@@ -994,10 +993,10 @@ export default function EmployeeDetailPage({ params }: { params: Promise<{ id: s
                                             )}
 
 
-                                            {/* Bank Information Tab — Bank Master + approval-backed change requests */}
+                                            {/* Insurance & tax identifiers, held on the employee
+                                                profile rather than the template. */}
                                             {activeProfileTab === 'bank' && (
                                                 <div className="space-y-4">
-                                                    <PaymentInformationSection employeeId={id} />
                                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                         <div className="p-4 bg-slate-50 rounded-xl">
                                                             <p className="text-xs text-slate-500 mb-1">{t('bankTabTaxId')}</p>

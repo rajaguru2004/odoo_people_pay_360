@@ -50,8 +50,6 @@ const GOVERNED = [
   'app/dashboard/my-training/page.tsx',
   'app/dashboard/my-grievances/page.tsx',
   'app/dashboard/my-team/page.tsx',
-  'app/dashboard/my-travel/page.tsx',
-  'app/dashboard/my-payroll/gratuity/page.tsx',
   'app/dashboard/my-calendar/page.tsx',
 ];
 

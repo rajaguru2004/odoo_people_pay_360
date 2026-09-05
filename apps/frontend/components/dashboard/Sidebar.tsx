@@ -220,7 +220,7 @@ export default function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarP
     };
   }, [user?.id, user?.role]);
 
-  // Every payroll-extension route, and the flag that reveals it.
+  // Every feature-flagged route, and the flag that reveals it.
   //
   // A table rather than a chain of `if`s so that adding the next feature is one
   // line here and one line in the menu, and so the dependency key below can be
@@ -246,7 +246,6 @@ export default function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarP
     [
       user?.role,
       branding?.overtime_enabled,
-      branding?.reimbursement_enabled,
       // One derived scalar rather than one entry per flag.
       //
       // Enumerating them individually is the trap: adding a flag and forgetting
@@ -293,10 +292,6 @@ export default function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarP
         return true;
       }
       if (href === '/dashboard/projects' && pathname.startsWith('/dashboard/projects/')) {
-        return true;
-      }
-      // Keep Finance ▸ HR Budgets lit on the variance detail page.
-      if (href === '/dashboard/budgets' && pathname.startsWith('/dashboard/budgets/')) {
         return true;
       }
       // Keep Talent ▸ Appraisals lit on a run's detail and results pages.

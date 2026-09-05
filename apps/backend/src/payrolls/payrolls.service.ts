@@ -6,22 +6,9 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { BudgetCommitmentService } from '../budgets/budget-commitment.service';
 import { getBranchContext } from '../common/branch/branch-context';
 import { assertInBranch } from '../common/branch/branch-scope.util';
 import { roundMoney } from '../common/utils/money.util';
-import {
-  LoanPolicyService,
-  DEFAULT_LOAN_POLICY,
-} from '../advance-loans/loan-policy.service';
-import {
-  LoanRecoveryService,
-  type LoanCandidate,
-  type RecoveryPlan,
-} from '../advance-loans/loan-recovery.service';
-import { LoanNotificationService } from '../advance-loans/loan-notification.service';
-import { LoanScheduleService } from '../advance-loans/loan-schedule.service';
-import type { LeaveLoanPolicy } from '../advance-loans/loan.types';
 import { CreatePayrollDto, UpdatePayrollItemDto } from './dto/payroll.dto';
 import { HolidaysService } from '../holidays/holidays.service';
 import { OvertimeService } from '../overtime/overtime.service';
@@ -57,17 +44,9 @@ import {
   LeaveRequest,
 } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
-import { GarnishmentsService } from '../garnishments/garnishments.service';
 import { PayrollFeaturesService } from './payroll-features.service';
 import { PayrollItemLinesService } from './payroll-item-lines.service';
-import { GratuityService } from '../gratuity/gratuity.service';
-import { LeaveEncashmentService } from '../leave-encashment/leave-encashment.service';
-import { EmployeeRecoveriesService } from '../employee-recoveries/employee-recoveries.service';
-import {
-  allocateRecoveries,
-  type RecoveryAllocation,
-  type RecoveryOrder,
-} from '../employee-recoveries/recovery-allocator';
+import { DeductionCarryForwardService } from './deduction-carry-forward.service';
 import type {
   BuildLinesInput,
   FigureInput,
@@ -77,10 +56,6 @@ import type {
 // The same 2dp rounding the payslip lines and the reports use, so a YTD total
 // cannot disagree with the payslips it adds up.
 import { round2 } from './payroll-item-lines.util';
-import {
-  allocateGarnishments,
-  type GarnishmentAllocation,
-} from '../garnishments/garnishment-allocator';
 
 type EmployeeWithRelations = Employee & {
   contracts?: Contract[];
@@ -135,12 +110,6 @@ interface PayrollLineDetail {
   disciplineDeduction: number;
   lopDeduction: number;
   carriedDeduction: number;
-  garnishmentLines: Array<{
-    reference: string;
-    amount: number;
-    id: string | null;
-  }>;
-  loanLines: Array<{ requestId: string; amount: number }>;
 }
 
 /**
@@ -150,10 +119,9 @@ interface PayrollLineDetail {
  * what the lines have to reconcile against — a breakdown that adds up to a
  * figure the payslip does not show is worse than no breakdown at all.
  *
- * Where a bucket has a total but no detail (a loan restated by a concurrent
- * run, a garnishment plan that produced no named lines), one summary line is
- * emitted for the whole column rather than none: an unexplained column would
- * fail reconciliation and refuse the run.
+ * Where a bucket has a total but no detail, one summary line is emitted for the
+ * whole column rather than none: an unexplained column would fail
+ * reconciliation and refuse the run.
  */
 function buildLineInputFromDetail(
   d: PayrollLineDetail,
@@ -164,10 +132,7 @@ function buildLineInputFromDetail(
     overtimePay: unknown;
     foodAllowance: unknown;
     siteAllowance: unknown;
-    reimbursement: unknown;
     deduction: unknown;
-    advanceLoanDeduction: unknown;
-    garnishment: unknown;
     insurance: unknown;
     tax: unknown;
   },
@@ -180,10 +145,7 @@ function buildLineInputFromDetail(
     overtimePay: n(item.overtimePay),
     foodAllowance: n(item.foodAllowance),
     siteAllowance: n(item.siteAllowance),
-    reimbursement: n(item.reimbursement),
     deduction: n(item.deduction),
-    advanceLoanDeduction: n(item.advanceLoanDeduction),
-    garnishment: n(item.garnishment),
     insurance: n(item.insurance),
     tax: n(item.tax),
   };
@@ -215,30 +177,6 @@ function buildLineInputFromDetail(
         'CARRY_FORWARD',
       ),
   ].filter(Boolean) as FigureInput[];
-
-  const garnishmentFigures: FigureInput[] = d.garnishmentLines
-    .filter((g) => g.amount > 0)
-    .map((g) =>
-      one(
-        'GARNISHMENT',
-        `Court order ${g.reference}`,
-        g.amount,
-        'GARNISHMENT',
-        g.id,
-      ),
-    );
-
-  const loanFigures: FigureInput[] = d.loanLines
-    .filter((l) => l.amount > 0)
-    .map((l) =>
-      one(
-        'LOAN_EMI',
-        'Loan / advance instalment',
-        l.amount,
-        'LOAN',
-        l.requestId,
-      ),
-    );
 
   const sum = (f: FigureInput[]) =>
     roundMoney(f.reduce((a, x) => a + x.amount, 0));
@@ -292,38 +230,8 @@ function buildLineInputFromDetail(
               ),
             ]
           : [],
-      reimbursement:
-        totals.reimbursement > 0
-          ? [
-              one(
-                'REIMBURSEMENT',
-                'Reimbursement',
-                totals.reimbursement,
-                'REIMBURSEMENT',
-              ),
-            ]
-          : [],
       deduction: reconciled(deductionFigures, totals.deduction, () =>
         one('DEDUCTION', 'Deduction', totals.deduction, 'MANUAL'),
-      ),
-      advanceLoanDeduction: reconciled(
-        loanFigures,
-        totals.advanceLoanDeduction,
-        () =>
-          one(
-            'LOAN_EMI',
-            'Loan / advance instalment',
-            totals.advanceLoanDeduction,
-            'LOAN',
-          ),
-      ),
-      garnishment: reconciled(garnishmentFigures, totals.garnishment, () =>
-        one(
-          'GARNISHMENT',
-          'Court-ordered deduction',
-          totals.garnishment,
-          'GARNISHMENT',
-        ),
       ),
       // PF and ESI finally split: the column sums them and cannot say which is
       // which, and until now that breakdown lived only in the free-text note.
@@ -365,12 +273,7 @@ function buildLineInputFromDetail(
  * Buckets `updateItem` does not recompute, whose generated lines therefore stay
  * accurate and are carried across the rewrite.
  */
-const UPDATE_ITEM_UNTOUCHED_BUCKETS: LineBucket[] = [
-  'baseSalary',
-  'reimbursement',
-  'advanceLoanDeduction',
-  'garnishment',
-];
+const UPDATE_ITEM_UNTOUCHED_BUCKETS: LineBucket[] = ['baseSalary'];
 
 /** Re-use the surviving lines of an untouched bucket, or summarise the column. */
 function figuresFromKept(
@@ -416,25 +319,12 @@ export class PayrollsService {
     private systemSettingsService: SystemSettingsService,
     private notifications: NotificationsService,
     private overtimePolicyService: OvertimePolicyService,
-    private budgetCommitments: BudgetCommitmentService,
-    private loanPolicy: LoanPolicyService,
-    private loanRecovery: LoanRecoveryService,
-    private loanNotifications: LoanNotificationService,
-    private loanSchedules: LoanScheduleService,
     private dispatcher: NotificationDispatcher,
     private audit: AuditService,
-    private garnishments: GarnishmentsService,
     private features: PayrollFeaturesService,
     private itemLines: PayrollItemLinesService,
-    // End-of-service provisions are written when a run locks and reversed when
-    // it is unlocked or deleted. One-way: GratuityModule never imports this one.
-    private gratuity: GratuityService,
-    // Approved encashment requests are paid by the next run, exactly as
-    // reimbursements are. One-way: LeaveEncashmentModule never imports this one.
-    private encashment: LeaveEncashmentService,
-    // Employer recoveries sit after the loan ladder. One-way:
-    // EmployeeRecoveriesModule never imports this one.
-    private recoveries: EmployeeRecoveriesService,
+    // Deduction balances an earlier run could not take, collected by the next.
+    private carryForward: DeductionCarryForwardService,
   ) {}
 
   private readonly logger = new Logger(PayrollsService.name);
@@ -719,21 +609,13 @@ export class PayrollsService {
     // With payroll_daily_wage_pay_leave on, this decides real cash: a custom
     // type like "Leave Without Pay" would otherwise be paid out.
     const unpaidLeaveTypes = new Set<string>(['UNPAID']);
-    // Per-leave-type loan behaviour ('CONTINUE' | 'PAUSE' | 'EXTEND' | null).
-    // Maternity / sabbatical / suspension / long medical each get their own
-    // rule by setting the column on their LEAVE_TYPE library row — no new code.
-    const leaveLoanPolicyByType = new Map<string, LeaveLoanPolicy>();
     try {
       const leaveTypeRows = await this.prisma.libraryItem.findMany({
         where: { libraryType: 'LEAVE_TYPE' },
-        select: { label: true, isPaid: true, loanDeductionPolicy: true },
+        select: { label: true, isPaid: true },
       });
       for (const row of leaveTypeRows) {
         if (row.isPaid === false) unpaidLeaveTypes.add(row.label);
-        const p = (row.loanDeductionPolicy ?? '').toUpperCase();
-        if (p === 'CONTINUE' || p === 'PAUSE' || p === 'EXTEND') {
-          leaveLoanPolicyByType.set(row.label, p);
-        }
       }
     } catch {
       // Library unavailable — fall back to the literal check alone.
@@ -849,192 +731,23 @@ export class PayrollsService {
       console.warn('Failed to load overtime data', err);
     }
 
-    // Batch load approved reimbursements not yet included in any payroll.
-    // Selection is "APPROVED and unlinked" (not a date window) so requests
-    // approved after a month was locked ride the next payroll run.
-    const reimbursementMap = new Map<string, number>();
-    const reimbursementIdsMap = new Map<string, string[]>();
-    try {
-      const pendingReimbursements = await this.prisma.reimbursement.findMany({
-        where: {
-          employeeId: { in: employees.map((e) => e.id) },
-          status: 'APPROVED',
-          payrollItemId: null,
-        },
-        select: { id: true, employeeId: true, amount: true },
-      });
-      for (const r of pendingReimbursements) {
-        reimbursementMap.set(
-          r.employeeId,
-          (reimbursementMap.get(r.employeeId) || 0) + Number(r.amount),
-        );
-        const ids = reimbursementIdsMap.get(r.employeeId) || [];
-        ids.push(r.id);
-        reimbursementIdsMap.set(r.employeeId, ids);
-      }
-    } catch (err) {
-      console.warn('Failed to load reimbursement data', err);
-    }
-
     // Resolved BEFORE any transaction opens, and before the loaders below: with
     // a switch off the run issues no extra statements at all, rather than
     // issuing one that finds nothing.
     const features = await this.features.resolve();
 
-    // ── End-of-service paid through this run ──────────────────────────────
-    //
-    // Only on a FINAL_SETTLEMENT run, and only when the installation says the
-    // exit payout must reach the wage file. Everywhere else gratuity stays a
-    // provision that never touches a payslip, which is what keeps it out of
-    // every tax and insurance base.
-    const gratuityPayoutMap = new Map<string, number>();
-    if (
-      features.eosbEnabled &&
-      features.eosbPayThroughFinalRun &&
-      (dto.runType ?? 'REGULAR') === 'FINAL_SETTLEMENT'
-    ) {
-      const asOf = new Date(Date.UTC(dto.year, dto.month, 0));
-      for (const emp of employees) {
-        try {
-          const res = await this.gratuity.entitlementFor(
-            emp.id,
-            { role: 'ADMIN' },
-            asOf,
-          );
-          const amount = Number((res as { data?: { amount?: number } })?.data?.amount ?? 0);
-          if (amount > 0) gratuityPayoutMap.set(emp.id, roundMoney(amount));
-        } catch (err) {
-          // One employee's missing nationality class must not fail the run for
-          // everybody else; the entitlement service already refuses in words.
-          this.logger.warn(
-            `Gratuity payout skipped for ${emp.id}: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-        }
-      }
-    }
-
-    // ── Employer recoveries ───────────────────────────────────────────────
-    //
-    // Asset damage, training bonds, notice shortfalls. Loaded like garnishments
-    // and allocated AFTER the loan ladder — a loan is money the employee asked
-    // for on an agreed schedule, a recovery is a claim the employer asserted, so
-    // when pay is short the schedule is honoured and the claim waits. A recovery
-    // is never exempt from the take-home floor.
-    let recoveryInputs = new Map<string, RecoveryOrder[]>();
-    if (features.employeeRecoveryEnabled) {
-      try {
-        recoveryInputs = await this.recoveries.loadForPayroll(
-          employees.map((e) => e.id),
-          new Date(Date.UTC(dto.year, dto.month - 1, 1)),
-          new Date(Date.UTC(dto.year, dto.month, 0)),
-        );
-      } catch (err) {
-        console.warn('Failed to load employee recovery data', err);
-      }
-    }
-
-    // ── Leave encashment ──────────────────────────────────────────────────
-    //
-    // Approved requests not yet carried by any run, loaded exactly as
-    // reimbursements are: `payrollItemId: null` is the double-inclusion guard,
-    // so a request one run already paid is invisible to the next.
-    let encashmentMap = new Map<string, { total: number; ids: string[] }>();
-    if (features.leaveEncashmentEnabled && runBranchId) {
-      try {
-        encashmentMap = await this.encashment.loadForPayroll(
-          employees.map((e) => e.id),
-          runBranchId,
-        );
-      } catch (err) {
-        console.warn('Failed to load leave encashment data', err);
-      }
-    }
-
-    // ── Advance/loan recovery: candidate load ──────────────────────────────
-    //
-    // Only the CANDIDATES are loaded here. How much of each is actually taken
-    // cannot be decided yet, because affordability depends on net pay and net
-    // pay is not known until calculateSalaryOptimized has run. Recovery is
-    // therefore applied per employee INSIDE the loop below (see applyRecovery),
-    // which is what makes partial salary, LWP and multi-loan competition for a
-    // limited net expressible at all.
-    //
-    // Selection is date-based and in-flight guarded: everything due this cycle
-    // OR EARLIER (so arrears sweep forward) with no PENDING ledger row (so an
-    // instalment already carried by an unlocked draft is not taken twice).
-    // Balances still only move at lock time.
     const runType = dto.runType ?? 'REGULAR';
-    let loanPolicy = DEFAULT_LOAN_POLICY;
-    try {
-      loanPolicy = await this.loanPolicy.resolve(runBranchId ?? null);
-    } catch (err) {
-      this.logger.error(
-        `Loan policy resolution failed, falling back to defaults: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
-    const advanceLoanPlanMap = new Map<string, RecoveryPlan>();
 
-    // Court orders outrank every voluntary recovery, so they are resolved for
-    // the whole population BEFORE the loan ladder runs and the figure is fed
-    // into it — `LoanRecoveryService.allocateForEmployee` already subtracts
-    // `garnishment` from the pool a loan may reach. Until this existed the
-    // engine passed a literal 0 and the ladder's first rung was unreachable.
-    const garnishPeriodStart = new Date(Date.UTC(dto.year, dto.month - 1, 1));
-    const garnishPeriodEnd = new Date(Date.UTC(dto.year, dto.month, 0));
-    const garnishmentInputs = await this.garnishments.loadForPayroll(
-      employees.map((e) => e.id),
-      garnishPeriodStart,
-      garnishPeriodEnd,
-    );
-    // Keyed by employee; the branch is carried alongside because the
-    // carry-forward ledger is branch-scoped and `Payroll.branchId` is nullable
-    // in the schema even though every real run has one.
-    const garnishmentPlanMap = new Map<
-      string,
-      { allocation: GarnishmentAllocation; branchId: string }
-    >();
-
-    // Deduction balances an EARLIER run could not take. Collected last of all,
-    // after the court order and the loan ladder, because a manual payslip
-    // deduction is the weakest claim on the pay of the three.
-    const deductionCarry = await this.garnishments.loadDeductionCarryForwards(
+    // Deduction balances an EARLIER run could not take. `updateItem` stores the
+    // largest deduction the pay could bear and opens a carry-forward row for the
+    // rest; this is where the rest is finally collected.
+    const deductionCarry = await this.carryForward.loadForEmployees(
       employees.map((e) => e.id),
     );
     const deductionSettlementMap = new Map<
       string,
       Array<{ id: string; amount: number }>
     >();
-
-    let loanCandidates = new Map<string, LoanCandidate[]>();
-    try {
-      loanCandidates = await this.loanRecovery.loadCandidates(
-        employees.map((e) => e.id),
-        dto.month,
-        dto.year,
-        runType,
-        loanPolicy,
-      );
-    } catch (err) {
-      // Legacy behaviour was an unconditional swallow, which silently produced
-      // a payroll with ZERO loan recovery and no trace. With v2 ON this becomes
-      // a policy decision — FAIL (the default) refuses to produce a payroll
-      // that under-deducts. With v2 OFF the old soft-dependency is preserved
-      // exactly, because the kill-switch must mean "behave as before".
-      const message = err instanceof Error ? err.message : String(err);
-      if (
-        loanPolicy.moduleV2Enabled &&
-        loanPolicy.recoveryFailurePolicy === 'FAIL'
-      ) {
-        throw new BadRequestException(
-          `Loan recovery planning failed: ${message}`,
-        );
-      }
-      this.logger.error(`Failed to load advance/loan data: ${message}`);
-    }
 
     // Create payroll. The findFirst above is a friendly pre-check; this is the
     // authoritative one. uniq_payroll_period_branch_batch_version rejects the
@@ -1071,11 +784,6 @@ export class PayrollsService {
     // could disagree with the sum of its own items.
     /** employeeId -> the parts behind the columns, for itemisation. */
     const lineDetailMap = new Map<string, PayrollLineDetail>();
-    /** employeeId -> what the employer recoveries took, for persistence. */
-    const recoveryPlanMap = new Map<
-      string,
-      { allocation: RecoveryAllocation; branchId: string }
-    >();
 
     let totalAmount = new Prisma.Decimal(0);
     const payrollItems: Prisma.PayrollItemCreateManyInput[] = [];
@@ -1092,7 +800,6 @@ export class PayrollsService {
       const overtimePay = overtimePayMap.get(emp.id) || 0;
       const foodAllowance = foodAllowanceMap.get(emp.id) || 0;
       const siteAllowance = siteAllowanceMap.get(emp.id) || 0;
-      const reimbursement = reimbursementMap.get(emp.id) || 0;
 
       // Apply per-employee payroll config overrides (stored as PAYROLL_CONFIG component note JSON)
       const payrollConfigComponent = salaryComponents.find(
@@ -1221,15 +928,8 @@ export class PayrollsService {
         ).length;
       }
 
-      // Pass 1: net pay with ZERO loan recovery. Affordability is a function of
-      // this figure, so recovery cannot be an input to it.
-      // Encashment is looked up BEFORE the engine runs, because whether it
-      // belongs inside the statutory base decides how it is passed in.
-      const encashmentEntry = encashmentMap.get(emp.id);
-      const encashmentPay = roundMoney(encashmentEntry?.total ?? 0);
-      const encashmentIsTaxable =
-        features.leaveEncashmentEnabled && features.leaveEncashmentTaxable;
-
+      // Net pay before the carried-deduction sweep. The sweep is bounded by
+      // this figure, so it cannot be an input to it.
       const preRecovery = this.calculateSalaryOptimized(
         emp,
         dto.month,
@@ -1242,120 +942,16 @@ export class PayrollsService {
         presentDays,
         effectiveWorkDays,
         foodAllowance,
-        reimbursement,
-        0,
         { leave: dailyPaidLeaveDays, holiday: dailyPaidHolidayDays },
-        encashmentIsTaxable ? encashmentPay : 0,
         siteAllowance,
       );
 
-      // Unpaid-leave days actually falling in this cycle, plus the loan policy
-      // of every leave type involved — the inputs the allocator needs for the
-      // CONTINUE / PAUSE / EXTEND decision.
-      const cycleStart = new Date(Date.UTC(dto.year, dto.month - 1, 1));
-      const cycleEnd = new Date(Date.UTC(dto.year, dto.month, 0));
-      let unpaidLeaveDays = 0;
-      const leavePolicies: (LeaveLoanPolicy | null)[] = [];
-      for (const lv of approvedLeaves) {
-        if (isPaidLeaveType(lv.leaveType)) continue;
-        const from = new Date(
-          Math.max(new Date(lv.startDate).getTime(), cycleStart.getTime()),
-        );
-        const to = new Date(
-          Math.min(new Date(lv.endDate).getTime(), cycleEnd.getTime()),
-        );
-        if (to < from) continue;
-        unpaidLeaveDays +=
-          Math.floor((to.getTime() - from.getTime()) / 86400000) + 1;
-        leavePolicies.push(leaveLoanPolicyByType.get(lv.leaveType) ?? null);
-      }
-
-      // Pass 2a: court orders, which come off the top. Their own shortfall is
-      // carried to the next run rather than lapsing, so a period that cannot
-      // satisfy an order under-recovers ONCE instead of silently forgiving a
-      // legally binding instruction.
-      const gInputs = garnishmentInputs.get(emp.id) ?? {
-        orders: [],
-        carried: [],
-      };
-      const garnishPlan = allocateGarnishments(
-        {
-          employeeId: emp.id,
-          netPreRecovery: preRecovery.netSalary,
-          periodStart: garnishPeriodStart,
-          periodEnd: garnishPeriodEnd,
-        },
-        gInputs.orders,
-        gInputs.carried,
-      );
-      if (garnishPlan.lines.length > 0) {
-        const gBranchId = payroll.branchId ?? emp.branchId ?? runBranchId;
-        if (gBranchId) {
-          garnishmentPlanMap.set(emp.id, {
-            allocation: garnishPlan,
-            branchId: gBranchId,
-          });
-        }
-      }
-
-      // Pass 2b: decide the recovery against the now-known net, then apply it.
-      const plan = LoanRecoveryService.allocateForEmployee(
-        {
-          employeeId: emp.id,
-          netPreRecovery: preRecovery.netSalary,
-          garnishment: garnishPlan.totalTaken,
-          unpaidLeaveDays,
-          leavePolicies,
-          // Lets the allocator ask how far into a loan's life this cycle is,
-          // which is what the grace rule needs.
-          cycleKey: dto.year * 12 + dto.month,
-        },
-        loanCandidates.get(emp.id) ?? [],
-        loanPolicy,
-        runType,
-      );
-      if (plan.lines.length > 0) advanceLoanPlanMap.set(emp.id, plan);
-
-      // Arithmetically identical to subtracting the recovery inside
-      // calculateSalaryOptimized, which is why the existing net/tax/PF
-      // assertions still hold.
-      const netAfterRecovery = Math.max(
-        0,
-        preRecovery.netSalary - garnishPlan.totalTaken - plan.totalRecovered,
-      );
-
-      // Pass 2c: whatever an earlier payslip could not deduct. Bounded by what
-      // is left after the court order and the loan ladder, so collecting arrears
-      // can never drive net below zero and open a fresh shortfall in its place.
-      // Pass 2b-2: employer recoveries, from what the loan ladder left.
-      const recoveryPlan = features.employeeRecoveryEnabled
-        ? allocateRecoveries(
-            {
-              employeeId: emp.id,
-              available: netAfterRecovery,
-              periodStart: garnishPeriodStart,
-              periodEnd: garnishPeriodEnd,
-            },
-            recoveryInputs.get(emp.id) ?? [],
-          )
-        : { totalTaken: 0, lines: [], noteLines: [] };
-      if (recoveryPlan.lines.length > 0) {
-        const rBranchId = payroll.branchId ?? emp.branchId ?? runBranchId;
-        if (rBranchId) {
-          recoveryPlanMap.set(emp.id, {
-            allocation: recoveryPlan,
-            branchId: rBranchId,
-          });
-        }
-      }
-      const netAfterEmployerRecovery = Math.max(
-        0,
-        netAfterRecovery - recoveryPlan.totalTaken,
-      );
-
-      const carriedDeduction = GarnishmentsService.allocateCarriedDeductions(
+      // Whatever an earlier payslip could not deduct, collected from the pay
+      // this one produced. Bounded by that net, so collecting arrears can never
+      // drive net below zero and open a fresh shortfall in its place.
+      const carriedDeduction = DeductionCarryForwardService.allocate(
         deductionCarry.get(emp.id) ?? [],
-        netAfterEmployerRecovery,
+        preRecovery.netSalary,
       );
       if (carriedDeduction.settled.length > 0) {
         deductionSettlementMap.set(emp.id, carriedDeduction.settled);
@@ -1363,40 +959,23 @@ export class PayrollsService {
 
       const item = {
         ...preRecovery,
-        // Added AFTER the statutory pipeline, like `reimbursement`. Whether
-        // encashment belongs in the taxable base is a legal question, not an
-        // engineering one — `leave_encashment_taxable` exists to answer it, and
-        // it is on the open-questions list for the advisor.
-        leaveEncashment: encashmentPay,
-        // Post-tax, like a reimbursement: an end-of-service benefit is not
-        // ordinary earnings, and putting it through the statutory pipeline
-        // would tax a payment most jurisdictions exempt.
-        gratuityPayout: gratuityPayoutMap.get(emp.id) ?? 0,
-        otherRecovery: roundMoney(recoveryPlan.totalTaken),
-        garnishment: roundMoney(garnishPlan.totalTaken),
-        advanceLoanDeduction: roundMoney(plan.totalRecovered),
         deduction: roundMoney(
           Number(preRecovery.deduction ?? 0) + carriedDeduction.taken,
         ),
         netSalary: roundMoney(
-          Math.max(0, netAfterEmployerRecovery - carriedDeduction.taken) +
-            // Added here ONLY when it was not already inside gross. Doing both
-            // would pay the encashment twice; doing neither would pay it never.
-            (encashmentIsTaxable ? 0 : encashmentPay) +
-            (gratuityPayoutMap.get(emp.id) ?? 0),
+          Math.max(0, preRecovery.netSalary - carriedDeduction.taken),
         ),
       };
+      const carryNotes: string[] = [];
       if (carriedDeduction.taken > 0) {
-        garnishPlan.noteLines.push(
+        carryNotes.push(
           `Deduction carried forward from an earlier payroll: ` +
             `${carriedDeduction.taken} recovered.`,
         );
       }
 
       // Itemisation detail for this employee, captured while the uncombined
-      // parts are still in scope. Nothing is written yet: the loan reconciler
-      // further down can restate `advanceLoanDeduction`, and a breakdown built
-      // before that would disagree with the payslip it explains.
+      // parts are still in scope.
       if (features.itemLinesEnabled) {
         lineDetailMap.set(emp.id, {
           components: (preRecovery.earningComponents ?? []).map((c) => ({
@@ -1414,23 +993,10 @@ export class PayrollsService {
           disciplineDeduction: preRecovery.disciplineDeduction ?? 0,
           lopDeduction: preRecovery.lopDeduction ?? 0,
           carriedDeduction: carriedDeduction.taken,
-          garnishmentLines: garnishPlan.lines.map((l: any) => ({
-            reference: String(l.courtReference ?? l.reference ?? 'Court order'),
-            amount: Number(l.amount ?? l.taken ?? 0),
-            id: l.garnishmentId ?? l.id ?? null,
-          })),
-          loanLines: plan.lines.map((l: any) => ({
-            requestId: String(l.requestId ?? ''),
-            amount: Number(l.amount ?? 0),
-          })),
         });
       }
 
-      const noteParts: string[] = [
-        ...garnishPlan.noteLines,
-        ...plan.noteLines,
-        ...recoveryPlan.noteLines,
-      ];
+      const noteParts: string[] = [...carryNotes];
       if (isDailyWage(item.salaryType)) {
         // Only spell out the breakdown when something beyond worked days was
         // paid, so the common note stays short.
@@ -1498,15 +1064,6 @@ export class PayrollsService {
         overtimePay: item.overtimePay,
         foodAllowance: item.foodAllowance,
         siteAllowance: item.siteAllowance,
-        reimbursement: item.reimbursement,
-        advanceLoanDeduction: item.advanceLoanDeduction,
-        // The column that had been zero on every payslip ever produced. The
-        // field list here is explicit, so a value computed above reaches the
-        // database only if it is named — which is why this was missed once.
-        garnishment: item.garnishment,
-        leaveEncashment: item.leaveEncashment,
-        gratuityPayout: item.gratuityPayout,
-        otherRecovery: item.otherRecovery,
         insurance: item.insurance,
         tax: item.tax,
         netSalary: item.netSalary,
@@ -1515,166 +1072,20 @@ export class PayrollsService {
       totalAmount = totalAmount.add(new Prisma.Decimal(item.netSalary));
     }
 
-    // Create payroll items in batch, then link the included reimbursements to
-    // their payroll items (double-inclusion guard: linked rows are skipped by
-    // future runs; deleting a DRAFT payroll SetNulls the link and re-releases them).
     await this.prisma.$transaction(async (tx) => {
       await tx.payrollItem.createMany({ data: payrollItems });
 
-      // Court orders settle inside the same transaction as the items they were
-      // priced against, so a run that fails part-way never leaves an order
-      // believing it collected money no payslip carries.
+      // Carried balances settle inside the same transaction as the items they
+      // were priced against, so a run that fails part-way never leaves a
+      // balance believing it was collected by a payslip that does not exist.
       for (const [, settled] of deductionSettlementMap) {
-        await this.garnishments.persistDeductionRecovery(
-          tx,
-          payroll.id,
-          settled,
-        );
-      }
-
-      for (const [employeeId, entry] of recoveryPlanMap) {
-        await this.recoveries.persistAllocation(tx, {
-          employeeId,
-          branchId: entry.branchId,
-          payrollId: payroll.id,
-          allocation: entry.allocation,
-        });
-      }
-
-      if (garnishmentPlanMap.size > 0) {
-        // `createMany` does not return ids, and `garnishment_deductions` is
-        // keyed to the payslip line it came off — which is what lets an unlock
-        // reverse each order by exactly what it took rather than by splitting
-        // one summed column back out across however many orders an employee is
-        // under. One query, after the insert.
-        const itemIds = new Map(
-          (
-            await tx.payrollItem.findMany({
-              where: { payrollId: payroll.id },
-              select: { id: true, employeeId: true },
-            })
-          ).map((i) => [i.employeeId, i.id]),
-        );
-        for (const [employeeId, entry] of garnishmentPlanMap) {
-          await this.garnishments.persistAllocation(tx, {
-            employeeId,
-            branchId: entry.branchId,
-            payrollId: payroll.id,
-            payrollItemId: itemIds.get(employeeId) ?? null,
-            month: dto.month,
-            year: dto.year,
-            allocation: entry.allocation,
-          });
-        }
-      }
-
-      if (
-        reimbursementIdsMap.size > 0 ||
-        advanceLoanPlanMap.size > 0 ||
-        encashmentMap.size > 0
-      ) {
-        const createdItems = await tx.payrollItem.findMany({
-          where: { payrollId: payroll.id },
-          select: { id: true, employeeId: true },
-        });
-        for (const created of createdItems) {
-          // Approved encashment requests, linked exactly as reimbursements are:
-          // the link is what makes them invisible to the next run.
-          const encashIds = encashmentMap.get(created.employeeId)?.ids ?? [];
-          if (encashIds.length > 0) {
-            await this.encashment.linkToItem(tx, created.id, encashIds);
-          }
-
-          const ids = reimbursementIdsMap.get(created.employeeId);
-          if (ids && ids.length > 0) {
-            await tx.reimbursement.updateMany({
-              where: {
-                id: { in: ids },
-                status: 'APPROVED',
-                payrollItemId: null,
-              },
-              data: { payrollItemId: created.id },
-            });
-          }
-
-          // Record advance/loan instalments as ledger rows linked to this
-          // payroll item. Rows with an amount flip to PAID (and move balances)
-          // at lock. Zero-amount rows are written as SKIPPED so "why was
-          // nothing recovered in June?" is answerable from the ledger alone —
-          // SKIPPED sits outside the live partial unique index, so it never
-          // blocks a genuine recovery in a later cycle.
-          const plan = advanceLoanPlanMap.get(created.employeeId);
-          if (plan && plan.lines.length > 0) {
-            await tx.advanceLoanDeduction.createMany({
-              data: plan.lines.map((l) => ({
-                requestId: l.requestId,
-                scheduleId: l.scheduleId,
-                payrollItemId: created.id,
-                amount: l.amount,
-                principalComponent: l.principalComponent,
-                interestComponent: l.interestComponent,
-                feeComponent: l.feeComponent,
-                plannedAmount: l.plannedAmount,
-                shortfallAmount: l.shortfallAmount,
-                outcome: l.outcome,
-                reason: l.reason,
-                month: dto.month,
-                year: dto.year,
-                status: l.amount > 0 ? 'PENDING' : 'SKIPPED',
-              })),
-              // A concurrent run that already claimed this instalment loses at
-              // the unique index; degrade to "recovers nothing twice" rather
-              // than throwing away the whole payroll.
-              skipDuplicates: true,
-            });
-
-            // ── Reconcile the payslip to what was ACTUALLY inserted ────────
-            //
-            // skipDuplicates silently drops a row a concurrent run already
-            // claimed. Without this, the item would still show the full
-            // deduction and the employee's net would be reduced by money that
-            // has no ledger row — so nothing flips at lock and the loan is
-            // never credited. Withheld but not credited is the worst possible
-            // outcome, so trust the ledger and restate the item.
-            const written = await tx.advanceLoanDeduction.aggregate({
-              where: { payrollItemId: created.id, status: 'PENDING' },
-              _sum: { amount: true },
-            });
-            const actual = roundMoney(Number(written._sum.amount ?? 0));
-            const planned = roundMoney(plan.totalRecovered);
-            if (Math.abs(actual - planned) > 0.005) {
-              const item = await tx.payrollItem.findUnique({
-                where: { id: created.id },
-                select: { netSalary: true, advanceLoanDeduction: true },
-              });
-              if (item) {
-                // Give back exactly what was not actually claimed.
-                const refund = roundMoney(
-                  Number(item.advanceLoanDeduction) - actual,
-                );
-                await tx.payrollItem.update({
-                  where: { id: created.id },
-                  data: {
-                    advanceLoanDeduction: actual,
-                    netSalary: roundMoney(Number(item.netSalary) + refund),
-                  },
-                });
-                this.logger.warn(
-                  `Loan recovery for payroll item ${created.id} restated from ${planned} to ${actual}: ` +
-                    `another run had already claimed the instalment(s).`,
-                );
-              }
-            }
-          }
-        }
+        await this.carryForward.persistRecovery(tx, payroll.id, settled);
       }
 
       // ── Itemisation ───────────────────────────────────────────────────
       //
-      // Last, and deliberately so: the loan reconciler above can restate an
-      // item's `advanceLoanDeduction` and `netSalary` when a concurrent run
-      // already claimed an instalment. Lines are built from what is ACTUALLY
-      // stored, so a restated payslip and its breakdown cannot disagree.
+      // Last, and deliberately so: lines are built from what is ACTUALLY
+      // stored, so a payslip and its breakdown cannot disagree.
       if (features.itemLinesEnabled) {
         const finalItems = await tx.payrollItem.findMany({
           where: { payrollId: payroll.id },
@@ -1687,10 +1098,7 @@ export class PayrollsService {
             overtimePay: true,
             foodAllowance: true,
             siteAllowance: true,
-            reimbursement: true,
             deduction: true,
-            advanceLoanDeduction: true,
-            garnishment: true,
             insurance: true,
             tax: true,
           },
@@ -1907,13 +1315,6 @@ export class PayrollsService {
       siteAllowance = calculatedOt.siteAllowance;
     }
 
-    // Non-taxable: mirrors linked approved reimbursements, never part of gross
-    // or any statutory base; added to net after deductions.
-    const reimbursement = Number(item.reimbursement || 0);
-    // Advance/loan recovery already computed at generation; preserve it so a
-    // manual item edit keeps net consistent (post-tax deduction).
-    const advanceLoanDeduction = Number(item.advanceLoanDeduction || 0);
-
     // Normalize to the stored precision before computing anything from these, so
     // the statutory bases and net all derive from exactly what gets persisted —
     // same rule as the create path.
@@ -1924,8 +1325,6 @@ export class PayrollsService {
     const otPay = roundMoney(overtimePay);
     const foodPay = roundMoney(foodAllowance);
     const sitePay = roundMoney(siteAllowance);
-    const reimbPay = roundMoney(reimbursement);
-    const loanDeduction = roundMoney(advanceLoanDeduction);
 
     const grossSalary =
       basePay +
@@ -1969,13 +1368,6 @@ export class PayrollsService {
     void tax;
     void professionalTax;
 
-    // A court order already claimed part of this pay at generation time. It is
-    // NOT recomputed here — the order was priced against the run's own figures
-    // and settling it twice would double-count — but it must still come off the
-    // net, or an item edit silently hands the employee money the court has
-    // attached.
-    const garnishmentTaken = roundMoney(Number(item.garnishment || 0));
-
     // ── The shortfall, made honest ──────────────────────────────────────────
     //
     // Net floors at 0: money is not recovered through a payslip, and in a
@@ -2007,14 +1399,7 @@ export class PayrollsService {
           ? this.calculateProfessionalTax(g, cfg)
           : 0;
       const it = applyStatutory ? this.calculateIncomeTax(g, ins, pt, cfg) : 0;
-      return (
-        g -
-        roundMoney(ins + e) -
-        roundMoney(it + pt) +
-        reimbPay -
-        loanDeduction -
-        garnishmentTaken
-      );
+      return g - roundMoney(ins + e) - roundMoney(it + pt);
     };
 
     let appliedDeduction = deductionAmt;
@@ -2069,15 +1454,7 @@ export class PayrollsService {
         ? this.calculateIncomeTax(finalGross, finalPF, finalPT, cfg)
         : 0) + finalPT,
     );
-    const netSalary = Math.max(
-      0,
-      finalGross -
-        finalInsurance -
-        finalTax +
-        reimbPay -
-        loanDeduction -
-        garnishmentTaken,
-    );
+    const netSalary = Math.max(0, finalGross - finalInsurance - finalTax);
 
     // Resolved before the transaction opens, same rule as create(): a switch
     // that is off must cost the edit no statements.
@@ -2147,9 +1524,8 @@ export class PayrollsService {
       // allocation nobody asked for. The rewritten line says it was set by hand,
       // which is the truth and is more useful than a plausible fiction.
       //
-      // Untouched buckets keep their generated detail: `baseSalary`,
-      // `reimbursement`, `advanceLoanDeduction` and `garnishment` are not
-      // recomputed here, so their lines still describe the run that produced
+      // Untouched buckets keep their generated detail: `baseSalary` is not
+      // recomputed here, so its lines still describe the run that produced
       // them.
       if (features.itemLinesEnabled) {
         const existing = await tx.payrollItemLine.findMany({
@@ -2184,10 +1560,7 @@ export class PayrollsService {
               overtimePay: otPay,
               foodAllowance: foodPay,
               siteAllowance: sitePay,
-              reimbursement: reimbPay,
               deduction: appliedDeduction,
-              advanceLoanDeduction: loanDeduction,
-              garnishment: garnishmentTaken,
               insurance: finalInsurance,
               tax: finalTax,
             },
@@ -2247,17 +1620,6 @@ export class PayrollsService {
                       },
                     ]
                   : [],
-              reimbursement: figuresFromKept(kept, 'reimbursement', reimbPay),
-              advanceLoanDeduction: figuresFromKept(
-                kept,
-                'advanceLoanDeduction',
-                loanDeduction,
-              ),
-              garnishment: figuresFromKept(
-                kept,
-                'garnishment',
-                garnishmentTaken,
-              ),
               // The clamp keys on the APPLIED deduction, not on the DTO: the
               // solver can fire when `deduction` was never supplied, because
               // recomputed overtime moved the pay underneath it.
@@ -2511,8 +1873,6 @@ export class PayrollsService {
     actualWorkDays: number,
     effectiveWorkDays: number,
     foodAllowance: number = 0,
-    reimbursement: number = 0,
-    advanceLoanDeduction: number = 0,
     /**
      * DAILY only: extra days to pay at the day rate beyond days worked, already
      * gated on their settings and de-duplicated by the caller. An options
@@ -2523,17 +1883,6 @@ export class PayrollsService {
       leave: 0,
       holiday: 0,
     },
-    /**
-     * Leave encashment that belongs INSIDE the statutory base.
-     *
-     * Whether encashment is taxable is a jurisdiction question, not an
-     * engineering one, so `leave_encashment_taxable` decides it and the caller
-     * passes the amount here only when the answer is yes. When it is no the
-     * caller adds the same figure to net afterwards, exactly as it does for a
-     * reimbursement — the money reaches the employee either way, and only the
-     * tax and insurance bases differ.
-     */
-    taxableEncashment: number = 0,
     /**
      * Site allowance summed from the period's approved overtime. Treated
      * exactly like `foodAllowance` — a flat, OT-sourced earning inside gross
@@ -2615,7 +1964,6 @@ export class PayrollsService {
     const sitePay = roundMoney(Number(siteAllowance));
     const totalDeduction = roundMoney(disciplineDeduction + lopDeduction);
 
-    const encashInGross = roundMoney(Number(taxableEncashment) || 0);
     const grossSalary =
       baseSalary +
       allowances +
@@ -2623,8 +1971,7 @@ export class PayrollsService {
       totalDeduction +
       otPay +
       foodPay +
-      sitePay +
-      encashInGross;
+      sitePay;
 
     // Daily-wage staff may be exempted from the whole statutory pipeline by an
     // admin setting (payroll_daily_wage_statutory_deductions). Monthly staff are
@@ -2680,10 +2027,6 @@ export class PayrollsService {
       ? this.calculateIncomeTax(grossSalary, insurance, professionalTax, cfg)
       : 0;
 
-    // Reimbursements are expense repayments, not income: excluded from gross
-    // and every statutory base (PF/PT/TDS), added to net after deductions.
-    // Advance/loan recovery is a post-tax deduction (symmetric to reimbursement):
-    // it never affects gross or any statutory base, only the final net.
     // Floor net pay at 0: when deductions/recoveries exceed earnings (e.g. an
     // employee absent all month whose salary is fully wiped by LOP), net pay
     // cannot go negative — you don't collect money back through a payslip.
@@ -2692,17 +2035,11 @@ export class PayrollsService {
     // the split is surfaced in the payslip note.
     const totalInsurance = roundMoney(insurance + esi);
     const totalTax = roundMoney(tax + professionalTax);
-    const reimbPay = roundMoney(Number(reimbursement));
-    const loanDeduction = roundMoney(Number(advanceLoanDeduction));
 
     // Derived from the SAME rounded values that get persisted, and from the two
     // combined columns (insurance, tax) rather than their four uncombined parts,
-    // so `gross - insurance - tax + reimbursement - loan == net` holds exactly on
-    // the stored row.
-    const netSalary = Math.max(
-      0,
-      grossSalary - totalInsurance - totalTax + reimbPay - loanDeduction,
-    );
+    // so `gross - insurance - tax == net` holds exactly on the stored row.
+    const netSalary = Math.max(0, grossSalary - totalInsurance - totalTax);
 
     return {
       baseSalary,
@@ -2721,8 +2058,6 @@ export class PayrollsService {
       overtimePay: otPay,
       foodAllowance: foodPay,
       siteAllowance: sitePay,
-      reimbursement: reimbPay,
-      advanceLoanDeduction: loanDeduction,
       insurance: totalInsurance,
       esi: roundMoney(esi),
       insuranceExempt,
@@ -2734,8 +2069,6 @@ export class PayrollsService {
       // `tax` is income tax + professional tax; the columns cannot say which is
       // which, and until now the split survived only inside the free-text note.
       // None of these is persisted as a column — they exist to build lines.
-      /** Encashment already inside `grossSalary`; the caller must not add it twice. */
-      taxableEncashment: encashInGross,
       pf: roundMoney(insurance),
       incomeTax: roundMoney(tax),
       professionalTax: roundMoney(professionalTax),
@@ -3567,24 +2900,9 @@ export class PayrollsService {
       );
     }
 
-    // Capture which travel/training requests this run pays out, BEFORE the
-    // reimbursements flip to PAID and stop matching `status: 'APPROVED'`.
-    const sourcedClaims = await this.prisma.reimbursement.findMany({
-      where: {
-        status: 'APPROVED',
-        payrollItem: { payrollId },
-        sourceType: { not: null },
-        sourceId: { not: null },
-      },
-      select: { sourceType: true, sourceId: true },
-    });
-
     const now = new Date();
-    // Resolved before the transaction opens: a switch that is off must cost
-    // the lock no statements at all.
-    const lockFeatures = await this.features.resolve();
 
-    const { updated, completed } = await this.prisma.$transaction(
+    const { updated } = await this.prisma.$transaction(
       async (tx) => {
         // Serialize concurrent lock/finalize attempts on the same run. Two
         // admins clicking Finalize at once must not both flip the ledger.
@@ -3615,408 +2933,11 @@ export class PayrollsService {
           );
         }
 
-        await tx.reimbursement.updateMany({
-          where: { status: 'APPROVED', payrollItem: { payrollId } },
-          data: { status: 'PAID', paidAt: now },
-        });
-
-        // Advance/loan installments recovered in this payroll: sum the PENDING
-        // ledger rows per request so each request's repaid balance moves
-        // atomically with the lock. Revision copies carry no ledger rows, so
-        // locking a revision moves nothing twice.
-        const ledgerRows = await tx.advanceLoanDeduction.findMany({
-          where: { status: 'PENDING', payrollItem: { payrollId } },
-          select: {
-            id: true,
-            requestId: true,
-            scheduleId: true,
-            amount: true,
-            principalComponent: true,
-            interestComponent: true,
-            feeComponent: true,
-          },
-        });
-        // amountRepaid means PRINCIPAL repaid, not cash. With interest, cash
-        // exceeds principal, and a cash-based counter would auto-complete a
-        // loan early — so interest and fees get their own counters.
-        const paidByRequest = new Map<
-          string,
-          { cash: number; principal: number; interest: number; fee: number }
-        >();
-        // A missing/NaN component must never reach an `increment` — Prisma
-        // would write NaN and the balance would be destroyed. Coerce
-        // explicitly, and when a row carries NO split at all treat it as pure
-        // principal, which is exactly the pre-v2 shape.
-        const money = (v: unknown): number => {
-          const n = Number(v);
-          return Number.isFinite(n) ? n : NaN;
-        };
-        for (const row of ledgerRows) {
-          const acc = paidByRequest.get(row.requestId) ?? {
-            cash: 0,
-            principal: 0,
-            interest: 0,
-            fee: 0,
-          };
-          const cash = money(row.amount) || 0;
-          let principal = money(row.principalComponent);
-          let interest = money(row.interestComponent);
-          let fee = money(row.feeComponent);
-          const noSplit =
-            !Number.isFinite(principal) &&
-            !Number.isFinite(interest) &&
-            !Number.isFinite(fee);
-          if (noSplit) {
-            principal = cash;
-            interest = 0;
-            fee = 0;
-          } else {
-            principal = Number.isFinite(principal) ? principal : 0;
-            interest = Number.isFinite(interest) ? interest : 0;
-            fee = Number.isFinite(fee) ? fee : 0;
-          }
-          acc.cash += cash;
-          acc.principal += principal;
-          acc.interest += interest;
-          acc.fee += fee;
-          paidByRequest.set(row.requestId, acc);
-        }
-
-        const completedReqs: Array<{
-          id: string;
-          employeeId: string;
-          type: string;
-          amount: number;
-        }> = [];
-
-        if (paidByRequest.size > 0) {
-          // Row-lock the affected requests in a stable id order so two runs
-          // touching overlapping employees queue instead of deadlocking.
-          const ids = [...paidByRequest.keys()].sort();
-          await tx.$executeRaw`SELECT id FROM advance_loan_requests WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
-
-          await tx.advanceLoanDeduction.updateMany({
-            where: { status: 'PENDING', payrollItem: { payrollId } },
-            data: { status: 'PAID' },
-          });
-
-          // The balances as they stand, read under the lock taken above. Needed
-          // because the new `outstandingPrincipal` is written as an absolute
-          // value — the only way to floor it at zero, since Prisma cannot clamp
-          // a `decrement`.
-          const balancesBefore = new Map<string, number>(
-            (
-              await tx.advanceLoanRequest.findMany({
-                where: { id: { in: ids } },
-                select: { id: true, outstandingPrincipal: true },
-              })
-            ).map((r) => [r.id, Number(r.outstandingPrincipal ?? 0)]),
-          );
-
-          for (const [requestId, sum] of paidByRequest) {
-            const outstandingBefore = balancesBefore.get(requestId) ?? 0;
-
-            await tx.advanceLoanRequest.update({
-              where: { id: requestId },
-              data: {
-                // Principal ONLY — see the comment on paidByRequest.
-                //
-                // Do NOT fall back to the cash total when principal is 0: a
-                // cycle whose whole instalment went to interest would then
-                // credit principal with the interest as well, repaying the loan
-                // twice as fast as the employee actually paid it. The
-                // advance_loan_deductions_split_chk constraint guarantees the
-                // three components reconcile to `amount`, and the v2 migration
-                // backfilled legacy rows to principal = amount, so there is
-                // nothing left for a fallback to rescue.
-                amountRepaid: { increment: sum.principal },
-                interestPaid: { increment: sum.interest },
-                feesPaid: { increment: sum.fee },
-                // The denormalised balance has to move with the ledger it
-                // caches. It was previously left untouched here, so a loan that
-                // payroll had recovered from still advertised its ORIGINAL
-                // principal as outstanding — on the loan detail screen and in
-                // `statement`, both of which read the column rather than
-                // deriving. `LoanLifecycleService` derives and so was unaffected,
-                // which is exactly why this went unnoticed: the money was right
-                // everywhere it was recomputed and wrong everywhere it was read.
-                //
-                // Clamped at zero rather than allowed to go negative: the final
-                // instalment can overshoot by a rounding unit, and a negative
-                // balance would read as the company owing the employee.
-                outstandingPrincipal: Math.max(
-                  0,
-                  outstandingBefore - sum.principal,
-                ),
-                version: { increment: 1 },
-              },
-            });
-          }
-
-          // Project the PLAN from the ledger. This is the ONLY place schedule
-          // rows learn that money moved: payroll generation never writes here,
-          // which is what makes deleting a draft payroll a no-op for the plan.
-          for (const row of ledgerRows) {
-            if (!row.scheduleId) continue;
-            const sched = await tx.loanSchedule.findUnique({
-              where: { id: row.scheduleId },
-              select: {
-                emiAmount: true,
-                paidAmount: true,
-                paidPrincipal: true,
-                paidInterest: true,
-              },
-            });
-            if (!sched) continue;
-            const paidAmount = Number(sched.paidAmount) + Number(row.amount);
-            const settled = paidAmount >= Number(sched.emiAmount) - 0.005;
-            await tx.loanSchedule.update({
-              where: { id: row.scheduleId },
-              data: {
-                paidAmount,
-                paidPrincipal:
-                  Number(sched.paidPrincipal) + Number(row.principalComponent),
-                paidInterest:
-                  Number(sched.paidInterest) + Number(row.interestComponent),
-                carryForwardAmount: Math.max(
-                  0,
-                  Number(sched.emiAmount) - paidAmount,
-                ),
-                status: settled ? 'PAID' : 'PARTIAL',
-                settledAt: settled ? now : null,
-              },
-            });
-          }
-
-          // Mirror each recovery into the money ledger so the employee
-          // statement and the accounting journal read one continuous stream.
-          if (ledgerRows.length > 0) {
-            await tx.loanTransaction.createMany({
-              data: ledgerRows
-                .filter((r) => Number(r.amount) > 0)
-                .map((r) => ({
-                  requestId: r.requestId,
-                  type: 'EMI_RECOVERY' as const,
-                  transactionDate: now,
-                  amount: r.amount,
-                  principalComponent: r.principalComponent,
-                  interestComponent: r.interestComponent,
-                  feeComponent: r.feeComponent,
-                  deductionId: r.id,
-                  narration: `Recovered in payroll ${payrollId}`,
-                })),
-              skipDuplicates: true,
-            });
-          }
-
-          // Fully-recovered sweep, INSIDE the transaction (see method doc).
-          //
-          // Gated on `autoCloseOnFullRecovery`, which was resolved into the
-          // policy and branched on nowhere: the sweep closed every fully
-          // recovered loan unconditionally, so a deployment that wanted a human
-          // to confirm closure — because a final fee or an interest adjustment
-          // may still be coming — could set the flag, see it saved, and watch
-          // loans close anyway.
-          const lockPolicy = await this.loanPolicy
-            .resolve(payroll.branchId ?? null)
-            .catch(() => DEFAULT_LOAN_POLICY);
-
-          const affected = await tx.advanceLoanRequest.findMany({
-            where: { id: { in: ids } },
-          });
-          for (const req of affected) {
-            if (req.status === 'COMPLETED') continue;
-            if (!lockPolicy.autoCloseOnFullRecovery) continue;
-            if (Number(req.amountRepaid) >= Number(req.amount)) {
-              await tx.advanceLoanRequest.update({
-                where: { id: req.id },
-                data: { status: 'COMPLETED', completedAt: now },
-              });
-              completedReqs.push({
-                id: req.id,
-                employeeId: req.employeeId,
-                type: req.type,
-                amount: Number(req.amount),
-              });
-            }
-          }
-        }
-
-        // ── The end-of-service provision ──────────────────────────────────
-        //
-        // Written in the SAME transaction as the loan ledger above, so the
-        // provision moves in the same commit as the money it accompanies. It is
-        // a provision and not a payslip line: nothing here touches an item, a
-        // net, a tax base or the wage file.
-        // Encashment: mark the requests paid and CONSUME the days. Without the
-        // second half an employee is paid for a day and still holds it, and the
-        // year-end then carries a day that has already become money.
-        if (lockFeatures.leaveEncashmentEnabled) {
-          await this.encashment.settleForPayroll(tx, payrollId);
-        }
-
-        if (lockFeatures.eosbEnabled && lockFeatures.eosbAccrualEnabled) {
-          const { accrued, skipped } = await this.gratuity.accrueForPayroll(
-            tx,
-            payrollId,
-            lockFeatures.eosbServiceYearDays,
-          );
-          if (skipped > 0) {
-            // Usually an unrecorded nationality class, which the calculator
-            // refuses to guess at. Worth saying out loud: a liability report
-            // that quietly omits people reads as a smaller liability.
-            this.logger.warn(
-              `Gratuity: ${accrued} accrual(s) written for payroll ${payrollId}, ` +
-                `${skipped} employee(s) skipped — most often because no ` +
-                `nationality class is recorded for them.`,
-            );
-          }
-        }
-
         const row = await tx.payroll.findUnique({ where: { id: payrollId } });
-        return { updated: row, completed: completedReqs };
+        return { updated: row };
       },
       { timeout: 30000 },
     );
-
-    // ── Post-transaction, best-effort side effects ────────────────────────
-    // The money is now actually paid, so it appears in budget ACTUALS. Move its
-    // commitments OPEN -> REALIZED: not released (that would make it count
-    // nowhere) but realized, so it stops counting as committed at exactly the
-    // moment it starts counting as actual. Without this the same spend is
-    // subtracted from Remaining twice.
-    if (sourcedClaims.length > 0) {
-      await this.budgetCommitments
-        .realizeMany(
-          sourcedClaims.map((c) => ({
-            sourceType: c.sourceType as 'TRAVEL' | 'TRAINING',
-            sourceId: c.sourceId as string,
-          })),
-          `Paid in payroll ${payrollId}`,
-        )
-        .catch((e) =>
-          this.logger.error(
-            `Budget realize on payroll lock failed: ${e.message}`,
-          ),
-        );
-    }
-
-    // Notify requesters whose advance/loan just completed. Batched: this used
-    // to run a user.findFirst inside the loop.
-    if (completed.length > 0) {
-      try {
-        const users = await this.prisma.user.findMany({
-          where: { employeeId: { in: completed.map((c) => c.employeeId) } },
-          select: { id: true, employeeId: true },
-        });
-        const userByEmployee = new Map(
-          users.map((u) => [u.employeeId as string, u.id]),
-        );
-        for (const req of completed) {
-          const userId2 = userByEmployee.get(req.employeeId);
-          if (!userId2) continue;
-          const label = req.type === 'LOAN' ? 'Loan' : 'Salary advance';
-          // Deduped on the payroll CYCLE. Unlocking and re-locking a run is an
-          // ordinary correction, and it used to re-announce every completed
-          // loan each time — the borrower was told twice that the same loan
-          // had been repaid. The link now names the loan rather than the list,
-          // so somebody with several can tell which one this is about.
-          await this.loanNotifications.notifyOnce({
-            requestId: req.id,
-            event: 'LOAN_COMPLETED',
-            periodKey: `${payroll.year}-${String(payroll.month).padStart(2, '0')}`,
-            recipientUserId: userId2,
-            title: `${label} fully repaid`,
-            message: `Your ${label.toLowerCase()} of ${req.amount} has been fully recovered and is now marked completed.`,
-            link: `/dashboard/advance-loans/${req.id}`,
-          });
-        }
-      } catch {
-        // Completion notification is best-effort.
-      }
-    }
-
-    // Deferral mode: EXTEND_TENURE.
-    //
-    // `deferralMode` was resolved into the policy and branched on nowhere, so
-    // both values behaved as CARRY_FORWARD — a missed instalment stayed due and
-    // the NEXT cycle owed two, which is the opposite of what a company setting
-    // EXTEND_TENURE is asking for. Under EXTEND_TENURE the plan gains a cycle
-    // instead, so the deduction stays the size the borrower agreed to.
-    //
-    // Applied at lock, once the deferral is final, and only for loans this run
-    // actually deferred. Best-effort: a regeneration failure must not undo a
-    // lock, and the carry-forward sweep still collects the instalment either
-    // way.
-    try {
-      const lockPolicy = await this.loanPolicy
-        .resolve(payroll.branchId ?? null)
-        .catch(() => DEFAULT_LOAN_POLICY);
-
-      if (lockPolicy.moduleV2Enabled && lockPolicy.deferralMode === 'EXTEND_TENURE') {
-        const deferred = await this.prisma.advanceLoanDeduction.findMany({
-          where: {
-            payrollItem: { payrollId },
-            outcome: 'DEFER',
-          },
-          select: { requestId: true },
-          distinct: ['requestId'],
-        });
-        for (const row of deferred) {
-          await this.loanSchedules
-            .regenerate(row.requestId, { extendBy: 1, actorId: userId })
-            .catch((err) =>
-              this.logger.error(
-                `Payroll ${payrollId} deferred loan ${row.requestId} but the tenure could not be extended: ${
-                  err instanceof Error ? err.message : String(err)
-                }`,
-              ),
-            );
-        }
-      }
-    } catch (err) {
-      this.logger.error(
-        `Payroll ${payrollId} locked, but deferral handling failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
-
-    // Record what court orders actually took, now that the money is final.
-    //
-    // At LOCK, not at generation: a draft run can be deleted, and money that
-    // never moved must not count against an order's cap. Recomputed from the
-    // payslip rather than carried from generation, because the payslip is what
-    // was actually paid — and the unique (order, month, year) makes a re-lock
-    // after an unlock a no-op instead of a second collection.
-    try {
-      const items = await this.prisma.payrollItem.findMany({
-        where: { payrollId, garnishment: { gt: 0 } },
-        select: { id: true, employeeId: true, garnishment: true },
-      });
-      if (items.length > 0) {
-        const orders = await this.garnishments.loadActiveOrders(
-          items.map((i) => i.employeeId),
-          { month: payroll.month, year: payroll.year },
-        );
-        for (const item of items) {
-          const split = GarnishmentsService.takeFor(
-            orders.get(item.employeeId) ?? [],
-            Number(item.garnishment),
-          );
-          await this.garnishments.recordCollected(
-            split.orders.map((o) => ({ ...o, payrollItemId: item.id })),
-            { month: payroll.month, year: payroll.year },
-          );
-        }
-      }
-    } catch (err) {
-      this.logger.error(
-        `Payroll ${payrollId} locked, but garnishment collections could not all be recorded: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
 
     // Tell employees their payslip is available.
     //
@@ -4130,12 +3051,6 @@ export class PayrollsService {
       overtimePay: item.overtimePay,
       foodAllowance: item.foodAllowance,
       siteAllowance: item.siteAllowance,
-      // Copy the amount only; reimbursement rows stay linked to the LOCKED
-      // original so a revision can never pay them out twice.
-      reimbursement: item.reimbursement,
-      // Same rule for advance/loan recovery: copy the figure but create no
-      // ledger rows, so a revision never double-charges an installment.
-      advanceLoanDeduction: item.advanceLoanDeduction,
       insurance: item.insurance,
       tax: item.tax,
       netSalary: item.netSalary,
@@ -4323,36 +3238,11 @@ export class PayrollsService {
       throw new BadRequestException('Cannot delete a locked payroll');
     }
 
-    const removeFeatures = await this.features.resolve();
-
     await this.prisma.$transaction(async (tx) => {
-      // The loan ledger's payroll_item FK is SetNull (so REVERSED history
-      // survives a run being deleted), which means deleting the payroll no
-      // longer cascades the in-flight rows away. Delete the PENDING and
-      // explanatory SKIPPED rows explicitly to keep the behaviour that made
-      // deleting a draft re-release its instalments — while leaving PAID and
-      // REVERSED rows untouched as history.
-      await tx.advanceLoanDeduction.deleteMany({
-        where: {
-          payrollItem: { payrollId: id },
-          status: { in: ['PENDING', 'SKIPPED'] },
-        },
-      });
-
-      // Court orders do not cascade: `garnishments.amountRecovered` lives on a
-      // row the payroll does not own, and the carry-forward ledger is
-      // deliberately not FK'd to the run. Roll both back explicitly, BEFORE the
-      // delete, or generate -> delete -> regenerate double-counts against a
-      // finite order and closes it early.
-      await this.garnishments.reverseForPayroll(tx, id);
-      // The provision follows the run it belonged to. A deleted run that left a
-      // liability behind would overstate what the company owes.
-      if (removeFeatures.eosbAccrualEnabled) {
-        await this.gratuity.reverseForPayroll(tx, id);
-      }
-      if (removeFeatures.employeeRecoveryEnabled) {
-        await this.recoveries.reverseForPayroll(tx, id);
-      }
+      // The carry-forward ledger is deliberately not FK'd to the run, so it
+      // does not cascade. Roll it back explicitly, BEFORE the delete, or
+      // generate -> delete -> regenerate double-counts against a finite balance.
+      await this.carryForward.reverseForPayroll(tx, id);
 
       await tx.payroll.delete({ where: { id } });
     });
@@ -4386,42 +3276,6 @@ export class PayrollsService {
       throw new BadRequestException('Only a LOCKED payroll can be unlocked');
     }
 
-    const paidRows = await this.prisma.advanceLoanDeduction.findMany({
-      where: { status: 'PAID', payrollItem: { payrollId } },
-      select: {
-        id: true,
-        requestId: true,
-        scheduleId: true,
-        amount: true,
-        principalComponent: true,
-        interestComponent: true,
-        feeComponent: true,
-        shortfallAmount: true,
-      },
-    });
-
-    if (paidRows.length > 0) {
-      // Reversing out of order would corrupt the carry-forward state of every
-      // later cycle, so the most recent recovery must be reversed first.
-      const later = await this.prisma.advanceLoanDeduction.findFirst({
-        where: {
-          status: 'PAID',
-          requestId: { in: paidRows.map((r) => r.requestId) },
-          payrollItem: { payrollId: { not: payrollId } },
-          OR: [
-            { year: { gt: payroll.year } },
-            { year: payroll.year, month: { gt: payroll.month } },
-          ],
-        },
-        select: { month: true, year: true },
-      });
-      if (later) {
-        throw new ConflictException(
-          `A later payroll run (${later.month}/${later.year}) has already recovered against these loans. Reverse that run first.`,
-        );
-      }
-    }
-
     const lockedRevision = await this.prisma.payroll.findFirst({
       where: { previousVersionId: payrollId, status: PayrollStatus.LOCKED },
       select: { id: true, version: true },
@@ -4433,25 +3287,6 @@ export class PayrollsService {
     }
 
     const now = new Date();
-    const unlockFeatures = await this.features.resolve();
-
-    // A settlement has already been paid against this run's provision.
-    //
-    // Reversing it now would leave the settlement standing on an accrual that
-    // says it never happened. Refused BEFORE the transaction, and for the same
-    // reason as the "a later run already recovered against these loans" guard
-    // above: a reversal must never make an earlier, already-honoured decision
-    // unexplainable.
-    if (unlockFeatures.eosbAccrualEnabled) {
-      const settled = await this.gratuity.settledAccrualCount(payrollId);
-      if (settled > 0) {
-        throw new ConflictException(
-          `This payroll cannot be unlocked: ${settled} end-of-service ` +
-            `provision(s) from it have already been paid out in a final ` +
-            `settlement. Reverse the settlement first.`,
-        );
-      }
-    }
 
     const updated = await this.prisma.$transaction(
       async (tx) => {
@@ -4488,138 +3323,9 @@ export class PayrollsService {
           );
         }
 
-        await tx.reimbursement.updateMany({
-          where: { status: 'PAID', payrollItem: { payrollId } },
-          data: { status: 'APPROVED', paidAt: null },
-        });
-
-        // The same reversal the loan ledger gets below, for court orders: put
-        // `amountRecovered` back, delete the shortfalls this run opened, and
-        // re-open the balances it cleared. Without it a revision re-prices the
-        // orders against a total the reversed run had already advanced, and a
-        // finite order closes for money the employee was handed back.
-        await this.garnishments.reverseForPayroll(tx, payrollId);
-        if (unlockFeatures.eosbAccrualEnabled) {
-          await this.gratuity.reverseForPayroll(tx, payrollId);
-        }
-        if (unlockFeatures.employeeRecoveryEnabled) {
-          await this.recoveries.reverseForPayroll(tx, payrollId);
-        }
-        if (unlockFeatures.leaveEncashmentEnabled) {
-          // Put the requests back to APPROVED and release the days, so the next
-          // run can pay them once and only once.
-          await this.encashment.reverseForPayroll(tx, payrollId);
-        }
-
-        if (paidRows.length > 0) {
-          const ids = [...new Set(paidRows.map((r) => r.requestId))].sort();
-          await tx.$executeRaw`SELECT id FROM advance_loan_requests WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
-
-          for (const row of paidRows) {
-            await tx.advanceLoanDeduction.update({
-              where: { id: row.id },
-              data: { status: 'REVERSED', reversedAt: now, reversedBy: userId },
-            });
-
-            await tx.loanTransaction.create({
-              data: {
-                requestId: row.requestId,
-                type: 'REVERSAL',
-                transactionDate: now,
-                amount: row.amount,
-                principalComponent: row.principalComponent,
-                interestComponent: row.interestComponent,
-                feeComponent: row.feeComponent,
-                createdById: userId,
-                narration: `Reversal of payroll ${payroll.month}/${payroll.year}: ${dto.reason}`,
-              },
-            });
-
-            await tx.advanceLoanRequest.update({
-              where: { id: row.requestId },
-              data: {
-                amountRepaid: { decrement: Number(row.principalComponent) },
-                interestPaid: { decrement: Number(row.interestComponent) },
-                feesPaid: { decrement: Number(row.feeComponent) },
-                // The mirror of the lock: the recovery put this principal back
-                // on the books, so reversing it owes that principal again. Left
-                // out, an unlock would understate the balance by exactly what it
-                // had just handed back to the employee.
-                outstandingPrincipal: {
-                  increment: Number(row.principalComponent),
-                },
-                version: { increment: 1 },
-              },
-            });
-
-            if (row.scheduleId) {
-              const sched = await tx.loanSchedule.findUnique({
-                where: { id: row.scheduleId },
-                select: {
-                  emiAmount: true,
-                  paidAmount: true,
-                  paidPrincipal: true,
-                  paidInterest: true,
-                },
-              });
-              if (sched) {
-                const paidAmount = Math.max(
-                  0,
-                  Number(sched.paidAmount) - Number(row.amount),
-                );
-                await tx.loanSchedule.update({
-                  where: { id: row.scheduleId },
-                  data: {
-                    paidAmount,
-                    paidPrincipal: Math.max(
-                      0,
-                      Number(sched.paidPrincipal) -
-                        Number(row.principalComponent),
-                    ),
-                    paidInterest: Math.max(
-                      0,
-                      Number(sched.paidInterest) -
-                        Number(row.interestComponent),
-                    ),
-                    carryForwardAmount: Math.max(
-                      0,
-                      Number(sched.emiAmount) - paidAmount,
-                    ),
-                    status: paidAmount > 0 ? 'PARTIAL' : 'SCHEDULED',
-                    settledAt: null,
-                  },
-                });
-              }
-            }
-          }
-
-          // Reopen anything this run auto-closed, but only where a balance is
-          // genuinely outstanding again.
-          const affected = await tx.advanceLoanRequest.findMany({
-            where: { id: { in: ids } },
-            select: {
-              id: true,
-              status: true,
-              amount: true,
-              amountRepaid: true,
-            },
-          });
-          for (const req of affected) {
-            const stillOwed =
-              Number(req.amount) - Number(req.amountRepaid) > 0.005;
-            if (stillOwed && ['COMPLETED', 'CLOSED'].includes(req.status)) {
-              await tx.advanceLoanRequest.update({
-                where: { id: req.id },
-                data: {
-                  status: 'ACTIVE',
-                  completedAt: null,
-                  closedAt: null,
-                  closureType: null,
-                },
-              });
-            }
-          }
-        }
+        // Put back what this run collected against carried balances, so a
+        // revision re-prices them against a total the reversed run never took.
+        await this.carryForward.reverseForPayroll(tx, payrollId);
 
         return tx.payroll.findUnique({ where: { id: payrollId } });
       },
@@ -4631,15 +3337,12 @@ export class PayrollsService {
       payroll,
       userId,
       'APPROVED',
-      {
-        unlockReason: dto.reason,
-        reversedLoanRows: paidRows.length,
-      },
+      { unlockReason: dto.reason },
     );
 
     return {
       success: true,
-      message: `Payroll for ${payroll.month}/${payroll.year} unlocked; ${paidRows.length} loan recovery row(s) reversed`,
+      message: `Payroll for ${payroll.month}/${payroll.year} unlocked`,
       data: updated,
     };
   }

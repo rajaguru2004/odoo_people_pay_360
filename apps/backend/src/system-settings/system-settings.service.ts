@@ -104,52 +104,12 @@ const NON_NEGATIVE_INT: SettingValueRule = {
  */
 export const SETTING_VALUE_RULES: Readonly<Record<string, SettingValueRule>> = {
   // ── Enumerations (the `oneOf()` readers) ────────────────────────────────
-  loan_shortfall_policy: { kind: 'enum', values: ['PARTIAL', 'DEFER', 'SKIP'] },
-  loan_deferral_mode: {
-    kind: 'enum',
-    values: ['CARRY_FORWARD', 'EXTEND_TENURE'],
-  },
-  loan_zero_salary_policy: { kind: 'enum', values: ['DEFER', 'SKIP'] },
-  loan_unpaid_leave_policy: {
-    kind: 'enum',
-    values: ['CONTINUE', 'PAUSE', 'EXTEND'],
-  },
-  loan_priority_tiebreak: {
-    kind: 'enum',
-    values: ['OLDEST_FIRST', 'SMALLEST_BALANCE_FIRST'],
-  },
-  loan_payment_allocation_order: {
-    kind: 'enum',
-    values: ['INTEREST_FIRST', 'PRINCIPAL_FIRST'],
-  },
-  loan_recovery_failure_policy: { kind: 'enum', values: ['FAIL', 'WARN'] },
-  loan_prepayment_mode: {
-    kind: 'enum',
-    values: ['REDUCE_TENURE', 'REDUCE_EMI'],
-  },
   // Mirrors the LoanInterestMethod enum the column is typed with, so a default
   // that could never be persisted on a loan cannot be configured either.
-  loan_default_interest_method: {
-    kind: 'enum',
-    values: ['NONE', 'FLAT', 'REDUCING_BALANCE'],
-  },
-  loan_flat_prepayment_interest: {
-    kind: 'enum',
-    values: ['FULL', 'PRORATA', 'NONE'],
-  },
-  loan_topup_mode: { kind: 'enum', values: ['NEW_LOAN', 'IN_PLACE'] },
   // Mirrors LoanDeductionFrequency. BIWEEKLY is not in it: the amortisation
   // engine has no periods-per-year for it, so offering it here would build a
   // schedule against a frequency nothing can price.
-  loan_default_frequency: {
-    kind: 'enum',
-    values: ['MONTHLY', 'WEEKLY', 'QUARTERLY'],
-  },
   // Mirrors LoanGraceMode.
-  loan_grace_mode: {
-    kind: 'enum',
-    values: ['NONE', 'MORATORIUM_FULL', 'MORATORIUM_INTEREST_ONLY'],
-  },
 
   // ── Kill switches and flags ─────────────────────────────────────────────
   // Document engine. Every one of these defaults OFF: a customer already live
@@ -165,107 +125,35 @@ export const SETTING_VALUE_RULES: Readonly<Record<string, SettingValueRule>> = {
   document_render_concurrency: { kind: 'number', min: 1, max: 8, integer: true },
   document_browser_recycle_renders: { kind: 'number', min: 10, max: 5000, integer: true },
   document_batch_stale_minutes: { kind: 'number', min: 5, max: 240, integer: true },
-  advance_loan_enabled: { kind: 'boolean' },
-  loan_module_v2_enabled: { kind: 'boolean' },
-  loan_interest_enabled: { kind: 'boolean' },
-  loan_final_settlement_ignores_min_net: { kind: 'boolean' },
-  loan_auto_close_on_full_recovery: { kind: 'boolean' },
-  loan_clearance_blocking_enabled: { kind: 'boolean' },
-  loan_restructure_requires_approval: { kind: 'boolean' },
-  loan_topup_enabled: { kind: 'boolean' },
-  loan_employee_self_prepay: { kind: 'boolean' },
 
   // ── Percentages of pay ──────────────────────────────────────────────────
   // A floor below 0% is no floor; a cap above 100% is no cap. Both read back
   // as "protection configured" while protecting nothing.
-  loan_min_net_pay_percent: PERCENT,
-  loan_security_deposit_percent: PERCENT,
-  loan_max_total_deduction_percent_of_net: PERCENT,
-  loan_max_emi_percent_of_net: PERCENT,
 
   // ── Money and counters ──────────────────────────────────────────────────
-  loan_min_net_pay_amount: NON_NEGATIVE,
-  loan_min_partial_recovery_amount: NON_NEGATIVE,
-  loan_rounding_tolerance: NON_NEGATIVE,
-  loan_min_emi_amount: NON_NEGATIVE,
-  loan_max_amount_multiple_of_salary: NON_NEGATIVE, // 0 = unlimited
   // An annual rate is uncapped on purpose: jurisdictions differ and there is no
   // read-time fallback that a high rate would silently trigger.
-  loan_default_interest_rate: NON_NEGATIVE,
   // `roundingUnit()` rejects <= 0 at read time and uses 0.01, so 0 must not be
   // storable — it would look like "no rounding" and behave like cents.
-  loan_rounding_unit: { kind: 'number', min: 0, exclusiveMin: true },
-  loan_grace_period_cycles: NON_NEGATIVE_INT,
-  loan_unpaid_leave_min_days: NON_NEGATIVE_INT,
-  loan_max_active_per_employee: NON_NEGATIVE_INT, // 0 = nobody may borrow
-  loan_min_service_months: NON_NEGATIVE_INT,
-  loan_overdue_after_cycles: NON_NEGATIVE_INT,
-  advance_loan_allow_backdated_days: NON_NEGATIVE_INT,
   // A ceiling of zero instalments would make every loan unapprovable.
-  advance_loan_max_installments: { kind: 'number', min: 1, integer: true },
   // Not capped at 100: an advance of more than one month's pay is a policy
   // choice, not a discarded value.
   advance_max_percent_of_salary: NON_NEGATIVE,
 
   // ── Ordering lists ──────────────────────────────────────────────────────
-  loan_recovery_priority_order: {
-    kind: 'enumList',
-    values: ['ADVANCE', 'LOAN'],
-  },
-  loan_recover_on_run_types: {
-    kind: 'enumList',
-    values: ['REGULAR', 'OFF_CYCLE', 'BONUS', 'ADJUSTMENT', 'FINAL_SETTLEMENT'],
-  },
 
   // ── Access lists ────────────────────────────────────────────────────────
-  advance_loan_approver_roles: { kind: 'roles' },
-  advance_loan_finance_roles: { kind: 'roles' },
-  advance_loan_auditor_roles: { kind: 'roles' },
-  advance_loan_writeoff_roles: { kind: 'roles' },
-  loan_waiver_roles: { kind: 'roles' },
-  advance_loan_auditor_user_ids: { kind: 'uuidList' },
 
   // ── Payroll extensions ──────────────────────────────────────────────────
   //
   // NEW keys only. Adding a rule to an EXISTING key changes its write path —
   // a `boolean` rule turns a blank write from "store ''" into "clear the row" —
-  // so `payroll_gratuity_enabled` and friends are deliberately absent here.
+  // so the older payroll keys are deliberately absent here.
   payroll_item_lines_enabled: { kind: 'boolean' },
   payroll_item_lines_strict_reconciliation: { kind: 'boolean' },
-  payroll_eosb_enabled: { kind: 'boolean' },
-  payroll_eosb_accrual_enabled: { kind: 'boolean' },
-  payroll_eosb_settlement_enabled: { kind: 'boolean' },
-  payroll_eosb_unknown_nationality_policy: {
-    kind: 'enum',
-    values: ['BLOCK', 'SKIP'],
-  },
-  payroll_eosb_service_year_days: {
-    kind: 'number',
-    min: 1,
-    integer: true,
-  },
-  leave_encashment_enabled: { kind: 'boolean' },
-  leave_encashment_taxable: { kind: 'boolean' },
-  payroll_eosb_pay_through_final_run: { kind: 'boolean' },
   leave_carry_forward_enabled: { kind: 'boolean' },
-  payroll_calendar_enabled: { kind: 'boolean' },
-  payroll_cutoff_enforcement: { kind: 'enum', values: ['WARN', 'BLOCK'] },
-  payroll_preflight_enabled: { kind: 'boolean' },
-  payroll_employee_recovery_enabled: { kind: 'boolean' },
-  payroll_recovery_ladder_position: {
-    kind: 'enum',
-    values: ['AFTER_LOAN', 'BEFORE_LOAN'],
-  },
-  payroll_recovery_respects_min_net: { kind: 'boolean' },
-  employee_transfer_enabled: { kind: 'boolean' },
-  payroll_transfer_pay_basis: {
-    kind: 'enum',
-    values: ['PERIOD_END', 'CUT_OFF'],
-  },
-  employee_grade_enabled: { kind: 'boolean' },
   demo_autoseed_enabled: { kind: 'boolean' },
   demo_autoseed_include_offdays: { kind: 'boolean' },
-  payroll_reports_enabled: { kind: 'boolean' },
 
   // ── Overtime approver review & edit ─────────────────────────────────────
   overtime_approver_edit_enabled: { kind: 'boolean' },
@@ -326,7 +214,7 @@ const UUID_RE =
  * that every reader would coerce back to that default anyway.
  *
  * Blank keeps its existing meaning on the access lists, where it already means
- * "nobody" rather than "the default": clearing `advance_loan_approver_roles`
+ * "nobody" rather than "the default": clearing an access list
  * has to mean no role may approve, not the shipped HR_MANAGER,ADMIN.
  */
 export type SettingWriteAction =
@@ -481,8 +369,6 @@ export const COUNTRY_PRESETS: Record<string, Record<string, string>> = {
     payroll_esi_employer_rate: '0.0325',
     payroll_esi_salary_cap: '21000',
     // Gratuity
-    payroll_gratuity_enabled: 'false',
-    payroll_gratuity_rate: '0.0481',
   },
 
   // ── United States ────────────────────────────────────────────────────
@@ -527,8 +413,6 @@ export const COUNTRY_PRESETS: Record<string, Record<string, string>> = {
     payroll_esi_employer_rate: '0',
     payroll_esi_salary_cap: '0',
     // No statutory gratuity
-    payroll_gratuity_enabled: 'false',
-    payroll_gratuity_rate: '0',
   },
 
   // ── United Kingdom ───────────────────────────────────────────────────
@@ -568,8 +452,6 @@ export const COUNTRY_PRESETS: Record<string, Record<string, string>> = {
     payroll_esi_employee_rate: '0',
     payroll_esi_employer_rate: '0',
     payroll_esi_salary_cap: '0',
-    payroll_gratuity_enabled: 'false',
-    payroll_gratuity_rate: '0',
   },
 
   // ── UAE ──────────────────────────────────────────────────────────────
@@ -605,8 +487,6 @@ export const COUNTRY_PRESETS: Record<string, Record<string, string>> = {
     payroll_esi_employer_rate: '0',
     payroll_esi_salary_cap: '0',
     // UAE Gratuity — mandatory under labour law (21 days × years for first 5 yrs)
-    payroll_gratuity_enabled: 'true',
-    payroll_gratuity_rate: '0.0577', // 21/365 ≈ 5.77% of annual basic per year
   },
 
   // ── Oman ─────────────────────────────────────────────────────────────
@@ -644,8 +524,6 @@ export const COUNTRY_PRESETS: Record<string, Record<string, string>> = {
     payroll_esi_employer_rate: '0',
     payroll_esi_salary_cap: '0',
     // Oman End-of-Service Gratuity — mandatory for expats (1 month basic × year)
-    payroll_gratuity_enabled: 'true',
-    payroll_gratuity_rate: '0.0822', // 30/365 ≈ 8.22% of annual basic per year
   },
 
   // ── Singapore ────────────────────────────────────────────────────────
@@ -692,8 +570,6 @@ export const COUNTRY_PRESETS: Record<string, Record<string, string>> = {
     payroll_esi_employee_rate: '0',
     payroll_esi_employer_rate: '0',
     payroll_esi_salary_cap: '0',
-    payroll_gratuity_enabled: 'false',
-    payroll_gratuity_rate: '0',
   },
 
   // ── Germany ──────────────────────────────────────────────────────────
@@ -735,8 +611,6 @@ export const COUNTRY_PRESETS: Record<string, Record<string, string>> = {
     payroll_esi_employee_rate: '0',
     payroll_esi_employer_rate: '0',
     payroll_esi_salary_cap: '0',
-    payroll_gratuity_enabled: 'false',
-    payroll_gratuity_rate: '0',
   },
 
   // ── Custom (blank slate) ─────────────────────────────────────────────
@@ -768,8 +642,6 @@ export const COUNTRY_PRESETS: Record<string, Record<string, string>> = {
     payroll_esi_employee_rate: '0',
     payroll_esi_employer_rate: '0',
     payroll_esi_salary_cap: '0',
-    payroll_gratuity_enabled: 'false',
-    payroll_gratuity_rate: '0',
   },
 };
 
@@ -1071,7 +943,6 @@ export class SystemSettingsService {
         reminder_days_legal_document: '90,60,30,7',
         reminder_days_contract: '90,60,30,7',
         reminder_days_asset_warranty: '60,30,7',
-        clearance_blocking_enabled: 'true',
 
         // ── Payroll extensions ────────────────────────────────────────────
         // Present here as well as in getSettingsList() because
@@ -1081,19 +952,10 @@ export class SystemSettingsService {
         // toggle reads OFF no matter what was saved — the same failure the
         // registry guard spec was written about, through a second door.
         payroll_item_lines_enabled: 'false',
-        payroll_eosb_enabled: 'false',
         // Registered HERE as well as in the curated list, per the comment
         // above: a flag the public map does not carry is invisible to
         // /system-settings/public, so the client falls through to its own
         // default and can never see that the settlement routes are shut.
-        payroll_eosb_accrual_enabled: 'false',
-        payroll_eosb_settlement_enabled: 'false',
-        payroll_eosb_pay_through_final_run: 'false',
-        payroll_calendar_enabled: 'false',
-        payroll_preflight_enabled: 'false',
-        payroll_employee_recovery_enabled: 'false',
-        leave_encashment_enabled: 'false',
-        payroll_reports_enabled: 'false',
         // Same door as the comment above: without an entry HERE the key never
         // reaches /system-settings/public, the branding store falls through to
         // its own `false`, and the Document Templates nav entry stays hidden
@@ -1103,12 +965,8 @@ export class SystemSettingsService {
         document_visual_editor_enabled: 'false',
         document_live_preview_enabled: 'false',
         document_bulk_enabled: 'false',
-        employee_transfer_enabled: 'false',
-        employee_grade_enabled: 'false',
         demo_autoseed_enabled: 'false',
         demo_autoseed_include_offdays: 'false',
-        travel_approver_roles: 'HR_MANAGER,ADMIN',
-        travel_enabled: 'true',
         training_approver_roles: 'HR_MANAGER,ADMIN',
         training_enabled: 'true',
         training_paid_by: 'COMPANY',
@@ -1167,71 +1025,10 @@ export class SystemSettingsService {
         // path regardless of any configured ApprovalWorkflow.
         supervisor_approval_enabled: 'false',
         allow_hard_delete_terminated: 'false',
-        reimbursement_enabled: 'true',
-        reimbursement_approver_roles: 'HR_MANAGER,ADMIN',
-        reimbursement_types:
-          'Travel,Per Diem,Training,Medical,Food,Office Supplies,Other',
-        advance_loan_enabled: 'true',
-        advance_loan_approver_roles: 'HR_MANAGER,ADMIN',
-        advance_loan_max_installments: '12',
-        advance_max_percent_of_salary: '100',
-
-        // ── Loans & Advances v2 ─────────────────────────────────────────
-        // Master kill-switch, mirroring supervisor_approval_enabled. OFF ships
-        // the legacy installmentAmount recovery path unchanged, so an existing
-        // install sees no behaviour change until it is deliberately turned on.
-        loan_module_v2_enabled: 'false',
-        // Recovery / affordability
-        loan_min_net_pay_amount: '0',
-        loan_min_net_pay_percent: '0',
-        loan_max_total_deduction_percent_of_net: '50',
-        loan_shortfall_policy: 'PARTIAL', // PARTIAL | DEFER | SKIP
-        loan_deferral_mode: 'CARRY_FORWARD', // CARRY_FORWARD | EXTEND_TENURE
-        loan_zero_salary_policy: 'DEFER', // DEFER | SKIP
-        loan_min_partial_recovery_amount: '1',
-        loan_unpaid_leave_policy: 'PAUSE', // CONTINUE | PAUSE | EXTEND
-        loan_unpaid_leave_min_days: '1',
-        loan_recovery_priority_order: 'ADVANCE,LOAN',
-        loan_priority_tiebreak: 'OLDEST_FIRST', // OLDEST_FIRST | SMALLEST_BALANCE_FIRST
-        loan_payment_allocation_order: 'INTEREST_FIRST',
-        loan_rounding_tolerance: '1.00',
-        loan_recover_on_run_types: 'REGULAR,FINAL_SETTLEMENT',
-        loan_recovery_failure_policy: 'FAIL', // FAIL | WARN
-        loan_final_settlement_ignores_min_net: 'true',
-        loan_auto_close_on_full_recovery: 'true',
-        // Interest & schedule
-        loan_interest_enabled: 'false',
-        loan_default_interest_method: 'NONE',
-        loan_default_interest_rate: '0',
-        loan_default_frequency: 'MONTHLY',
-        loan_grace_period_cycles: '0',
-        loan_grace_mode: 'MORATORIUM_FULL',
-        loan_rounding_unit: '0.01',
-        loan_min_emi_amount: '0',
-        loan_max_emi_percent_of_net: '50',
-        loan_flat_prepayment_interest: 'PRORATA', // FULL | PRORATA | NONE
-        loan_prepayment_mode: 'REDUCE_TENURE', // REDUCE_TENURE | REDUCE_EMI
-        // Eligibility
-        loan_max_active_per_employee: '2',
-        loan_min_service_months: '0',
-        loan_max_amount_multiple_of_salary: '0', // 0 = unlimited
-        loan_reference_prefix: 'LN',
-        advance_loan_allow_backdated_days: '30',
         // Operations & access
         // OFF by default: this key existed with no reader at all, so no
         // deployment has ever enforced it. Turning it on is now a deliberate
         // choice that enables the two-person rule on restructures.
-        loan_restructure_requires_approval: 'false',
-        loan_clearance_blocking_enabled: 'true',
-        loan_overdue_after_cycles: '2',
-        loan_topup_enabled: 'false',
-        loan_topup_mode: 'NEW_LOAN', // NEW_LOAN | IN_PLACE
-        loan_security_deposit_percent: '0',
-        loan_employee_self_prepay: 'false',
-        advance_loan_finance_roles: 'ADMIN',
-        advance_loan_auditor_roles: '',
-        advance_loan_auditor_user_ids: '',
-        advance_loan_writeoff_roles: 'ADMIN',
 
         dashboard_layout: 'v2',
       } as Record<string, string>,
@@ -1339,17 +1136,6 @@ export class SystemSettingsService {
           'Comma-separated days-before-expiry tiers for asset warranty reminders (default: 60,30,7).',
       },
       {
-        key: 'travel_approver_roles',
-        value: v('travel_approver_roles', 'HR_MANAGER,ADMIN'),
-        description:
-          'Roles allowed to approve travel requests on the legacy single-approver path (used when no TRAVEL approval chain is configured).',
-      },
-      {
-        key: 'travel_enabled',
-        value: v('travel_enabled', 'true'),
-        description: 'Enable the travel management module.',
-      },
-      {
         // Absent from this list, the WRITE path still worked — updateSettings
         // upserts arbitrary keys — but the admin toggle reads its state from
         // GET /system-settings, found nothing, and rendered OFF permanently.
@@ -1443,12 +1229,6 @@ export class SystemSettingsService {
         value: v('reminder_days_training_certificate', '90,60,30,7'),
         description:
           'Comma-separated days-before-expiry tiers for training certificate reminders (default: 90,60,30,7).',
-      },
-      {
-        key: 'clearance_blocking_enabled',
-        value: v('clearance_blocking_enabled', 'true'),
-        description:
-          'Block offboarding while an employee still holds company assets. Turn off for sites that do not track assets.',
       },
       {
         key: 'pdf_enabled',
@@ -1838,18 +1618,6 @@ export class SystemSettingsService {
           'Maximum gross monthly salary eligible for ESI (India: ₹21,000). Above this limit, ESI is not applicable.',
       },
 
-      // ── Gratuity ────────────────────────────────────────────────────────
-      {
-        key: 'payroll_gratuity_enabled',
-        value: v('payroll_gratuity_enabled', 'false'),
-        description: 'Show gratuity provision on payslip (informational)',
-      },
-      {
-        key: 'payroll_gratuity_rate',
-        value: v('payroll_gratuity_rate', '0.0481'),
-        description:
-          'Monthly gratuity provision rate (India: 4.81 % of basic = 15/26 ÷ 12)',
-      },
 
       // ── Daily Wage ──────────────────────────────────────────────────────
       // These affect ONLY employees whose pay basis is DAILY (baseSalary is a
@@ -1907,11 +1675,6 @@ export class SystemSettingsService {
       // the base payroll and must keep running it byte-for-byte until someone
       // deliberately turns a feature on.
       //
-      // NOTE on `payroll_eosb_enabled`: it deliberately does NOT reuse
-      // `payroll_gratuity_enabled`, which `applyCountryPreset` already sets to
-      // 'true' for AE and OM. Any instance that ever applied the Oman preset has
-      // that key set, so gating end-of-service on it would switch the feature on
-      // at deploy time for exactly the customers who must not be surprised by it.
       {
         key: 'payroll_item_lines_enabled',
         value: v('payroll_item_lines_enabled', 'false'),
@@ -1927,140 +1690,11 @@ export class SystemSettingsService {
           'Off → the mismatch is logged and audited and the run proceeds.',
       },
       {
-        key: 'payroll_eosb_enabled',
-        value: v('payroll_eosb_enabled', 'false'),
-        description:
-          'Master switch for end-of-service benefits. Off (default) → no gratuity is accrued, ' +
-          'no settlement can be prepared, and payroll behaves exactly as before. Deliberately ' +
-          'separate from payroll_gratuity_enabled, which the AE and OM presets already set true.',
-      },
-      {
-        key: 'payroll_eosb_accrual_enabled',
-        value: v('payroll_eosb_accrual_enabled', 'false'),
-        description:
-          'Write a monthly gratuity accrual when a payroll locks. ' +
-          'Off (default) → no liability ledger is built.',
-      },
-      {
-        key: 'payroll_eosb_settlement_enabled',
-        value: v('payroll_eosb_settlement_enabled', 'false'),
-        description:
-          'Allow final-settlement documents to be prepared on exit. ' +
-          'Off (default) → the settlement routes answer 404 and an exit is unchanged.',
-      },
-      {
-        key: 'payroll_eosb_unknown_nationality_policy',
-        value: v('payroll_eosb_unknown_nationality_policy', 'BLOCK'),
-        description:
-          "What to do when an employee's nationality class is unrecorded: BLOCK (default — " +
-          'refuse to accrue and report it) or SKIP (accrue nothing, warn). Never a silent default class.',
-      },
-      {
-        key: 'payroll_eosb_service_year_days',
-        value: v('payroll_eosb_service_year_days', '365'),
-        description:
-          'Days in a service year for the fractional years-of-service calculation.',
-      },
-      {
-        key: 'payroll_eosb_pay_through_final_run',
-        value: v('payroll_eosb_pay_through_final_run', 'false'),
-        description:
-          'Pay the end-of-service benefit through the FINAL_SETTLEMENT payroll run, ' +
-          'so it reaches the payslip and the wage file the bank receives. ' +
-          'Off (default) → gratuity stays a provision settled outside payroll and ' +
-          'the run carries pending salary only. Which is correct is a local legal ' +
-          'question and differs by client.',
-      },
-      {
-        key: 'leave_encashment_enabled',
-        value: v('leave_encashment_enabled', 'false'),
-        description:
-          'Allow in-service leave encashment requests and pay them through payroll. ' +
-          'Off (default) → the routes answer 404 and payroll pays no encashment.',
-      },
-      {
-        key: 'leave_encashment_taxable',
-        value: v('leave_encashment_taxable', 'true'),
-        description:
-          'Include leave encashment in the taxable and statutory base. ' +
-          'Off → it is paid post-tax, like a reimbursement.',
-      },
-      {
         key: 'leave_carry_forward_enabled',
         value: v('leave_carry_forward_enabled', 'false'),
         description:
           'Allow the year-end carry-forward operation to write carriedOver balances. ' +
           'Off (default) → no leave balance is ever moved automatically.',
-      },
-      {
-        key: 'payroll_calendar_enabled',
-        value: v('payroll_calendar_enabled', 'false'),
-        description:
-          'Record per-branch payroll periods with cut-off and payment dates. ' +
-          'Off (default) → a period stays the calendar month and no cut-off is checked.',
-      },
-      {
-        key: 'payroll_cutoff_enforcement',
-        value: v('payroll_cutoff_enforcement', 'WARN'),
-        description:
-          'What a post-cut-off input does: WARN (default — the pre-run check reports it) ' +
-          'or BLOCK (generation is refused).',
-      },
-      {
-        key: 'payroll_preflight_enabled',
-        value: v('payroll_preflight_enabled', 'false'),
-        description:
-          'Enable the pre-run validation checklist. ' +
-          "Off (default) → the route answers 404 and the run's own guards are the only checks.",
-      },
-      {
-        key: 'payroll_employee_recovery_enabled',
-        value: v('payroll_employee_recovery_enabled', 'false'),
-        description:
-          'Recover asset damage, training bonds and notice shortfalls through payroll. ' +
-          'Off (default) → no recovery is taken and no recovery ledger is read.',
-      },
-      {
-        key: 'payroll_recovery_ladder_position',
-        value: v('payroll_recovery_ladder_position', 'AFTER_LOAN'),
-        description:
-          'Where an employee recovery sits in the recovery ladder: AFTER_LOAN (default) or ' +
-          'BEFORE_LOAN. A recovery never ignores the minimum-take-home floor either way.',
-      },
-      {
-        key: 'payroll_recovery_respects_min_net',
-        value: v('payroll_recovery_respects_min_net', 'true'),
-        description:
-          'Bound an employee recovery by the same minimum-take-home floor loan instalments ' +
-          'respect. Off → it is bounded only by the pay available.',
-      },
-      {
-        key: 'employee_transfer_enabled',
-        value: v('employee_transfer_enabled', 'false'),
-        description:
-          'Enable the reviewed branch-transfer flow. Off (default) → PATCH /employees/:id ' +
-          '{ branchId } stays refused and no transfer route accepts a request.',
-      },
-      {
-        key: 'payroll_transfer_pay_basis',
-        value: v('payroll_transfer_pay_basis', 'PERIOD_END'),
-        description:
-          'Which date decides the paying branch: PERIOD_END (default — current behaviour) or ' +
-          'CUT_OFF (requires the payroll calendar).',
-      },
-      {
-        key: 'employee_grade_enabled',
-        value: v('employee_grade_enabled', 'false'),
-        description:
-          'Enable employee grades and grade-based salary structures. ' +
-          'Off (default) → no grade is assigned and no eligibility check runs.',
-      },
-      {
-        key: 'payroll_reports_enabled',
-        value: v('payroll_reports_enabled', 'false'),
-        description:
-          'Enable the payroll reporting suite. ' +
-          'Off (default) → the XLSX export is the only payroll reporting.',
       },
       {
         key: 'demo_autoseed_enabled',
@@ -2351,357 +1985,8 @@ export class SystemSettingsService {
           'Master switch for the configurable Supervisor approval hierarchy. When off, leave/overtime use the legacy single-approver flow regardless of configured workflows.',
       },
 
-      // ── Reimbursement ──────────────────────────────────────────────────
-      {
-        key: 'reimbursement_enabled',
-        value: v('reimbursement_enabled', 'true'),
-        description:
-          'Enable the reimbursement module (employee expense claims)',
-      },
-      {
-        key: 'reimbursement_approver_roles',
-        value: v('reimbursement_approver_roles', 'HR_MANAGER,ADMIN'),
-        description:
-          'Comma-separated roles allowed to approve reimbursement requests (MANAGER, HR_MANAGER, ADMIN). Any one enabled approver can approve.',
-      },
-      {
-        key: 'reimbursement_types',
-        value: v(
-          'reimbursement_types',
-          'Travel,Per Diem,Training,Medical,Food,Office Supplies,Other',
-        ),
-        description:
-          'Comma-separated list of reimbursement types employees can choose from',
-      },
 
-      // ── Salary Advance & Loan ──────────────────────────────────────────
-      {
-        key: 'advance_loan_enabled',
-        value: v('advance_loan_enabled', 'true'),
-        description:
-          'Enable the salary advance & loan module (employee advances and loans repaid via payroll)',
-      },
-      {
-        key: 'advance_loan_approver_roles',
-        value: v('advance_loan_approver_roles', 'HR_MANAGER,ADMIN'),
-        description:
-          'Comma-separated roles allowed to approve advance/loan requests (MANAGER, HR_MANAGER, ADMIN). Any one enabled approver can approve.',
-      },
-      {
-        key: 'advance_loan_max_installments',
-        value: v('advance_loan_max_installments', '12'),
-        description:
-          'Maximum number of repayment installments an approver may set for a loan',
-      },
-      {
-        key: 'advance_max_percent_of_salary',
-        value: v('advance_max_percent_of_salary', '100'),
-        description:
-          "Maximum salary advance as a percentage of the employee's monthly pay; larger requests are blocked at approval and must use a loan",
-      },
 
-      // ── Loans & Advances v2 ────────────────────────────────────────────
-      {
-        key: 'loan_module_v2_enabled',
-        value: v('loan_module_v2_enabled', 'false'),
-        description:
-          'MASTER SWITCH. Off = the legacy behaviour exactly: the full instalment is recovered with no affordability cap, no minimum take-home floor and no leave pause. Turn on to enable schedule-driven recovery.',
-      },
-      {
-        key: 'loan_interest_enabled',
-        value: v('loan_interest_enabled', 'false'),
-        description:
-          'Allow interest-bearing loans. Off forces every schedule to zero interest regardless of the rate on the request.',
-      },
-      {
-        key: 'loan_default_interest_method',
-        value: v('loan_default_interest_method', 'NONE'),
-        description:
-          'Default interest method for new loans: NONE, FLAT or REDUCING_BALANCE',
-      },
-      {
-        key: 'loan_default_interest_rate',
-        value: v('loan_default_interest_rate', '0'),
-        description: 'Default annual interest rate (percent) for new loans',
-      },
-      {
-        key: 'loan_min_net_pay_amount',
-        value: v('loan_min_net_pay_amount', '0'),
-        description:
-          'Protected minimum take-home. Loan recovery never drives net pay below this figure.',
-      },
-      {
-        key: 'loan_min_net_pay_percent',
-        value: v('loan_min_net_pay_percent', '0'),
-        description:
-          'Protected minimum take-home as a percentage of net pay; the higher of this and the absolute amount applies.',
-      },
-      {
-        key: 'loan_max_total_deduction_percent_of_net',
-        value: v('loan_max_total_deduction_percent_of_net', '50'),
-        description:
-          'Ceiling on total loan recovery in one cycle, as a percentage of net pay',
-      },
-      {
-        key: 'loan_shortfall_policy',
-        value: v('loan_shortfall_policy', 'PARTIAL'),
-        description:
-          'When net pay cannot cover the instalment: PARTIAL (take what is available), DEFER (take nothing, carry forward) or SKIP',
-      },
-      // The nine entries marked below were WRITABLE and UNREADABLE: the engine
-      // reads them, `updateSettings()` upserts them, and this list — the only
-      // thing GET /system-settings returns — did not name them. An admin could
-      // not see what they had set, and nothing (not the UI, not a test harness)
-      // could restore a previous value, because there was no previous value to
-      // read. Every default here is the one the engine falls back to, taken from
-      // DEFAULT_LOAN_POLICY / the getSetting() call site, not invented.
-      {
-        // Unreadable until now. Fallback: LoanPolicyService.resolve().
-        key: 'loan_min_partial_recovery_amount',
-        value: v('loan_min_partial_recovery_amount', '1'),
-        description:
-          'Smallest instalment worth collecting under PARTIAL recovery. A shortfall below this is deferred instead, so payroll never raises a token deduction line.',
-      },
-      {
-        // Unreadable until now. Fallback: LoanPolicyService.resolve().
-        key: 'loan_deferral_mode',
-        value: v('loan_deferral_mode', 'CARRY_FORWARD'),
-        description:
-          'What a deferred instalment does to the schedule: CARRY_FORWARD adds it to the next cycle and keeps the end date; EXTEND_TENURE pushes the remaining instalments out by one cycle each.',
-      },
-      {
-        // Unreadable until now. Fallback: LoanPolicyService.resolve().
-        key: 'loan_priority_tiebreak',
-        value: v('loan_priority_tiebreak', 'OLDEST_FIRST'),
-        description:
-          'Which debt is recovered first when two share a priority: OLDEST_FIRST or SMALLEST_BALANCE_FIRST.',
-      },
-      {
-        // Unreadable until now. Fallback: LoanPolicyService.resolve().
-        key: 'loan_payment_allocation_order',
-        value: v('loan_payment_allocation_order', 'INTEREST_FIRST'),
-        description:
-          'How one payment is split on an interest-bearing loan: INTEREST_FIRST (interest, then principal) or PRINCIPAL_FIRST.',
-      },
-      {
-        // Unreadable until now. Fallback: LoanPolicyService.resolve().
-        key: 'loan_final_settlement_ignores_min_net',
-        value: v('loan_final_settlement_ignores_min_net', 'true'),
-        description:
-          'On a FINAL_SETTLEMENT run, recover the whole outstanding balance even where that breaks the minimum take-home floor — there is no later cycle to recover it in.',
-      },
-      {
-        // Unreadable until now. Fallback: LoanPolicyService.resolve().
-        key: 'loan_auto_close_on_full_recovery',
-        value: v('loan_auto_close_on_full_recovery', 'true'),
-        description:
-          'Close a loan automatically the moment its balance reaches zero. Off leaves it ACTIVE for a human to close.',
-      },
-      {
-        // Unreadable until now. Fallback: LoanPolicyService.resolve().
-        key: 'loan_grace_period_cycles',
-        value: v('loan_grace_period_cycles', '0'),
-        description:
-          'Payroll cycles after disbursement before the first instalment is recovered (0 = recover from the next cycle).',
-      },
-      {
-        // Unreadable until now. Fallback: LoanScheduleService.roundingUnit().
-        key: 'loan_rounding_unit',
-        value: v('loan_rounding_unit', '0.01'),
-        description:
-          'Unit each scheduled instalment is rounded to when a schedule is built (0.01 = to the minor unit, 1 = to whole currency). The residual is reconciled into the final instalment.',
-      },
-      // The ten below were the SECOND generation of the same defect. Each was
-      // seeded, documented and read by nothing; the gap-closure work gave every
-      // one of them a reader, which is exactly what turns an inert key into an
-      // unreadable one. A key the engine obeys and this list does not name
-      // cannot be seen, cannot be restored, and cannot be flipped by a test
-      // harness that has to put it back. Defaults are the reader's own
-      // fallback, quoted from the call site.
-      {
-        // Reader: AdvanceLoansService.resolveTerms().
-        key: 'loan_default_frequency',
-        value: v('loan_default_frequency', 'MONTHLY'),
-        description:
-          'Deduction frequency for a new loan when neither the request nor its product names one: MONTHLY, WEEKLY or QUARTERLY.',
-      },
-      {
-        // Reader: AdvanceLoansService.resolveTerms(), when gracePeriods > 0.
-        key: 'loan_grace_mode',
-        value: v('loan_grace_mode', 'MORATORIUM_FULL'),
-        description:
-          'What a grace period defers: MORATORIUM_FULL (nothing is collected and interest capitalises), INTEREST_ONLY (interest is collected, principal waits) or NONE.',
-      },
-      {
-        // Reader: LoanEligibilityService, via validateAffordability().
-        key: 'loan_min_emi_amount',
-        value: v('loan_min_emi_amount', '0'),
-        description:
-          'Smallest instalment a loan may be spread into. A request whose EMI falls below this is refused rather than accepted as a decades-long trickle.',
-      },
-      {
-        // Reader: AdvanceLoansService.mintReference().
-        key: 'loan_reference_prefix',
-        value: v('loan_reference_prefix', 'LN'),
-        description:
-          'Prefix of the human reference minted for every loan (LN-202608-0001). Changing it does not renumber loans already filed.',
-      },
-      {
-        // Reader: AdvanceLoansService.resolveEffectiveDate().
-        key: 'advance_loan_allow_backdated_days',
-        value: v('advance_loan_allow_backdated_days', '30'),
-        description:
-          'How far back a loan may be dated when it is filed. 0 forbids backdating entirely; the joining date is always the hard floor.',
-      },
-      {
-        // Reader: LoanOverdueService.sweep().
-        key: 'loan_overdue_after_cycles',
-        value: v('loan_overdue_after_cycles', '2'),
-        description:
-          'Missed instalments before a loan is marked OVERDUE and the borrower is told.',
-      },
-      {
-        // Reader: LoanLifecycleService.assertRestructureAuthorised().
-        key: 'loan_restructure_requires_approval',
-        value: v('loan_restructure_requires_approval', 'false'),
-        description:
-          'Require a second approver for any restructure of a live loan — a skipped instalment, a rate change, a top-up. On, the person performing it may not also be the one authorising it.',
-      },
-      {
-        // Reader: LoanLifecycleService.prepay().
-        key: 'loan_employee_self_prepay',
-        value: v('loan_employee_self_prepay', 'false'),
-        description:
-          'Let an employee record a payment against their own loan. Off, only finance may — the money still has to be reconciled by someone.',
-      },
-      {
-        // Reader: LoanLifecycleService.payoffQuote().
-        key: 'loan_flat_prepayment_interest',
-        value: v('loan_flat_prepayment_interest', 'PRORATA'),
-        description:
-          'Interest owed when a FLAT loan is settled early: PRORATA rebates the unearned portion, FULL charges the whole contracted interest anyway.',
-      },
-      {
-        // Reader: AdvanceLoansService.resolveTerms(), for products whose
-        // `requiresSecurity` is set.
-        key: 'loan_security_deposit_percent',
-        value: v('loan_security_deposit_percent', '0'),
-        description:
-          'Security deposit taken on a loan product that requires one, as a percentage of the principal. A product that requires security while this is 0 refuses the filing rather than recording a deposit of nothing.',
-      },
-      {
-        // Reader: LoanLifecycleService.topup().
-        key: 'loan_topup_enabled',
-        value: v('loan_topup_enabled', 'false'),
-        description:
-          'Allow a running loan to be replaced by a larger one that settles it, so a borrower who needs more does not carry two instalments out of one salary.',
-      },
-      {
-        key: 'loan_zero_salary_policy',
-        value: v('loan_zero_salary_policy', 'DEFER'),
-        description: 'What happens in a zero-pay cycle: DEFER or SKIP',
-      },
-      {
-        key: 'loan_unpaid_leave_policy',
-        value: v('loan_unpaid_leave_policy', 'PAUSE'),
-        description:
-          'Default behaviour during unpaid leave: CONTINUE, PAUSE or EXTEND. A LEAVE_TYPE library row can override this per leave type; the strictest wins.',
-      },
-      {
-        key: 'loan_unpaid_leave_min_days',
-        value: v('loan_unpaid_leave_min_days', '1'),
-        description:
-          'Unpaid leave days in a cycle before the leave policy applies, so a single day does not pause an instalment',
-      },
-      {
-        key: 'loan_recovery_priority_order',
-        value: v('loan_recovery_priority_order', 'ADVANCE,LOAN'),
-        description:
-          'Recovery order when several debts compete for a limited net pay. Advances first by default: that cash is already out the door.',
-      },
-      {
-        key: 'loan_recover_on_run_types',
-        value: v('loan_recover_on_run_types', 'REGULAR,FINAL_SETTLEMENT'),
-        description:
-          'Payroll run types that recover instalments. Excluding BONUS and ADJUSTMENT is what stops a retro or arrears run charging an EMI twice.',
-      },
-      {
-        key: 'loan_recovery_failure_policy',
-        value: v('loan_recovery_failure_policy', 'FAIL'),
-        description:
-          'If recovery planning fails: FAIL refuses to generate a payroll that would under-deduct; WARN generates it and logs.',
-      },
-      {
-        key: 'loan_rounding_tolerance',
-        value: v('loan_rounding_tolerance', '1.00'),
-        description:
-          'Residual that may be written off on a manual close — the small leftover after a final instalment',
-      },
-      {
-        key: 'loan_prepayment_mode',
-        value: v('loan_prepayment_mode', 'REDUCE_TENURE'),
-        description:
-          'After a prepayment: REDUCE_TENURE keeps the instalment and shortens the loan; REDUCE_EMI keeps the count and lowers each instalment.',
-      },
-      {
-        key: 'loan_max_active_per_employee',
-        value: v('loan_max_active_per_employee', '2'),
-        description: 'Maximum concurrent advances/loans per employee',
-      },
-      {
-        key: 'loan_min_service_months',
-        value: v('loan_min_service_months', '0'),
-        description:
-          'Minimum completed months of service before an employee may borrow',
-      },
-      {
-        key: 'loan_max_emi_percent_of_net',
-        value: v('loan_max_emi_percent_of_net', '50'),
-        description:
-          'Eligibility ceiling: combined instalments may not exceed this share of monthly pay',
-      },
-      {
-        key: 'loan_max_amount_multiple_of_salary',
-        value: v('loan_max_amount_multiple_of_salary', '0'),
-        description:
-          'Maximum loan as a multiple of monthly pay. 0 = no ceiling.',
-      },
-      {
-        key: 'loan_clearance_blocking_enabled',
-        value: v('loan_clearance_blocking_enabled', 'true'),
-        description:
-          'Block offboarding clearance while an employee still owes a balance. ADMIN/HR can override with a reason, which is audited.',
-      },
-      {
-        key: 'advance_loan_writeoff_roles',
-        value: v('advance_loan_writeoff_roles', 'ADMIN'),
-        description:
-          'Roles permitted to write off loan balances (forgiving company money)',
-      },
-      {
-        key: 'loan_waiver_roles',
-        value: v('loan_waiver_roles', 'ADMIN,HR_MANAGER'),
-        description: 'Roles permitted to waive loan interest or principal',
-      },
-      {
-        key: 'advance_loan_finance_roles',
-        value: v('advance_loan_finance_roles', 'ADMIN'),
-        description:
-          'Extra roles treated as finance for loan visibility, without adding a new system role',
-      },
-      {
-        key: 'advance_loan_auditor_roles',
-        value: v('advance_loan_auditor_roles', ''),
-        description:
-          'Roles granted READ-ONLY access to every loan. Blank disables auditor access.',
-      },
-      {
-        // Unreadable until now. Fallback: LoanAccessService.auditorUserIds().
-        key: 'advance_loan_auditor_user_ids',
-        value: v('advance_loan_auditor_user_ids', ''),
-        description:
-          'Comma-separated user IDs granted READ-ONLY access to every loan — for a named auditor who should not be given a whole role. Blank disables it.',
-      },
     ];
   }
 
@@ -3174,9 +2459,6 @@ export class SystemSettingsService {
       cessEnabled: v('payroll_cess_enabled', 'true') !== 'false',
       cessRate: parseFloat(v('payroll_cess_rate', '0.04')),
 
-      gratuityEnabled: v('payroll_gratuity_enabled', 'false') === 'true',
-      gratuityRate: parseFloat(v('payroll_gratuity_rate', '0.0481')),
-
       // Defaults to true so daily-wage staff are treated exactly like monthly
       // staff until an admin deliberately exempts them.
       dailyWageStatutoryDeductions:
@@ -3351,9 +2633,6 @@ export interface PayrollConfig {
   esiSalaryCap: number;
 
   basicSalaryPercentage: number;
-
-  gratuityEnabled: boolean;
-  gratuityRate: number;
 
   /**
    * Whether daily-wage (salaryType = DAILY) employees are put through the same

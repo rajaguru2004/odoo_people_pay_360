@@ -91,12 +91,6 @@ export class AnalyticsTools implements DomainToolProvider {
         (a) => this.analytics.timesheetSummary(parse(a)),
       ),
       def(
-        'reimbursement_employee_summary',
-        'Reimbursement claims for one employee over a date range: counts by status and approved amount.',
-        'Reimbursement',
-        (a) => this.analytics.reimbursementSummary(parse(a)),
-      ),
-      def(
         'conduct_records_get',
         'Rewards and disciplinary records for one employee over a date range (counts, amounts, recent entries).',
         'Employee',

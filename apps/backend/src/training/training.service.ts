@@ -12,8 +12,6 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SystemSettingsService } from '../system-settings/system-settings.service';
 import { ApprovalEngineService } from '../approvals/approval-engine.service';
-import { ReimbursementsService } from '../reimbursements/reimbursements.service';
-import { BudgetCommitmentService } from '../budgets/budget-commitment.service';
 import { assertInBranch } from '../common/branch/branch-scope.util';
 import { getBranchContext } from '../common/branch/branch-context';
 import { isDeptInManagerScope } from '../common/services/manager-scope.util';
@@ -23,8 +21,6 @@ import { NominateDto } from './dto/nominate.dto';
 import { DecideNominationDto } from './dto/decide-nomination.dto';
 import { RecordAttendanceDto } from './dto/record-attendance.dto';
 
-const TRAINING_EXPENSE_TYPE = 'Training';
-const TRAINING_BUDGET_CATEGORY = 'Training';
 
 @Injectable()
 export class TrainingService {
@@ -36,8 +32,6 @@ export class TrainingService {
     private readonly notifications: NotificationsService,
     private readonly settings: SystemSettingsService,
     private readonly engine: ApprovalEngineService,
-    private readonly reimbursements: ReimbursementsService,
-    private readonly budget: BudgetCommitmentService,
   ) {}
 
   private readonly nominationInclude = {
@@ -385,70 +379,6 @@ export class TrainingService {
       include: this.nominationInclude,
     });
 
-    const paidBy = await this.settings.getSetting('training_paid_by', 'COMPANY');
-    if (paidBy === 'EMPLOYEE' && nomination.cost && Number(nomination.cost) > 0) {
-      try {
-        await this.reimbursements.createFromSource({
-          employeeId: nomination.employeeId,
-          type: TRAINING_EXPENSE_TYPE,
-          amount: nomination.cost,
-          expenseDate: nomination.session.startDate,
-          description: `Training — ${nomination.session.course.title}`,
-          sourceType: 'TRAINING',
-          sourceId: nomination.id,
-          budgetCategory: TRAINING_BUDGET_CATEGORY,
-          status: 'APPROVED',
-          approverId: approverUserId,
-        });
-      } catch (e: any) {
-        this.logger.error(
-          `Training claim for nomination ${id} failed: ${e?.message ?? e}`,
-        );
-      }
-    }
-
-    // Commit regardless of who pays: a company-settled course still consumes
-    // the training budget, it just never becomes a reimbursement.
-    if (nomination.cost && Number(nomination.cost) > 0) {
-      await this.budget.commit({
-        sourceType: 'TRAINING',
-        sourceId: nomination.id,
-        amount: nomination.cost,
-        departmentId: nomination.employee.departmentId,
-        category: TRAINING_BUDGET_CATEGORY,
-        branchId: nomination.employee.branchId,
-        onDate: nomination.session.startDate,
-      });
-    }
-
-    await this.audit.log({
-      userId: approverUserId,
-      action: 'TRAINING_APPROVED',
-      resourceType: 'TrainingNomination',
-      resourceId: id,
-      newData: { course: nomination.session.course.title, remarks, paidBy },
-      branchId: getBranchContext()?.effectiveBranchId ?? null,
-    });
-
-    if (nomination.employee.user?.id) {
-      await this.notifications
-        .create({
-          userId: nomination.employee.user.id,
-          title: 'Training nomination approved',
-          message: `You are confirmed for ${nomination.session.course.title}, starting ${nomination.session.startDate.toDateString()}.`,
-          type: 'SUCCESS' as any,
-          link: '/dashboard/my-training',
-          waTemplate: 'training_nomination',
-          waData: {
-            courseName: nomination.session.course.title,
-            sessionDate: nomination.session.startDate.toISOString(),
-            status: 'APPROVED',
-          },
-          waDedupeKey: `training:${id}:approved`,
-        })
-        .catch(() => undefined);
-    }
-
     return { success: true, message: 'Nomination approved.', data: updated };
   }
 
@@ -465,7 +395,6 @@ export class TrainingService {
       include: this.nominationInclude,
     });
 
-    await this.budget.release('TRAINING', id, reason ?? 'Nomination rejected');
 
     await this.audit.log({
       userId: approverUserId,
@@ -507,7 +436,6 @@ export class TrainingService {
     }
 
     await this.engine.abandon('TRAINING', id);
-    const cancelledClaims = await this.reimbursements.cancelBySource('TRAINING', id);
 
     const updated = await this.prisma.trainingNomination.update({
       where: { id },
@@ -515,14 +443,11 @@ export class TrainingService {
       include: this.nominationInclude,
     });
 
-    await this.budget.release('TRAINING', id, 'Nomination cancelled');
-
     await this.audit.log({
       userId: user?.id,
       action: 'TRAINING_CANCELLED',
       resourceType: 'TrainingNomination',
       resourceId: id,
-      newData: { cancelledClaims },
       branchId: getBranchContext()?.effectiveBranchId ?? null,
     });
 

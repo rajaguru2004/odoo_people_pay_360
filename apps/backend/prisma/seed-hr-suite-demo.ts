@@ -49,20 +49,13 @@ async function cleanup() {
   await prisma.letterRequest.deleteMany({ where: { employee: { branchId } } });
   await prisma.employeeDocument.deleteMany({ where: { employee: { branchId } } });
   await prisma.reminderDispatch.deleteMany({ where: { sourceKey: { in: ['asset_warranty', 'training_certificate', 'legal_document'] } } });
-  await prisma.budgetCommitment.deleteMany({ where: { line: { budget: { branchId } } } });
-  await prisma.budgetLine.deleteMany({ where: { budget: { branchId } } });
-  await prisma.budget.deleteMany({ where: { branchId } });
   await prisma.trainingNomination.deleteMany({ where: { employee: { branchId } } });
   await prisma.trainingSession.deleteMany({ where: { branchId } });
   await prisma.course.deleteMany({ where: { code: { startsWith: `${TAG}-` } } });
-  await prisma.reimbursement.deleteMany({ where: { employee: { branchId } } });
-  await prisma.travelItinerary.deleteMany({ where: { travel: { employee: { branchId } } } });
-  await prisma.travelRequest.deleteMany({ where: { employee: { branchId } } });
-  await prisma.advanceLoanRequest.deleteMany({ where: { employee: { branchId } } });
   await prisma.assetAssignment.deleteMany({ where: { asset: { branchId } } });
   await prisma.assetItem.deleteMany({ where: { branchId } });
   await prisma.employeeLegalDocument.deleteMany({ where: { employee: { branchId } } });
-  await prisma.requestApproval.deleteMany({ where: { requestType: { in: ['TRAVEL', 'TRAINING'] } } });
+  await prisma.requestApproval.deleteMany({ where: { requestType: 'TRAINING' } });
   await prisma.user.deleteMany({ where: { email: { endsWith: `@${TAG.toLowerCase()}.hrms.local` } } });
   await prisma.employee.deleteMany({ where: { branchId } });
   await prisma.department.deleteMany({ where: { code: `${TAG}-DEP` } });
@@ -230,52 +223,6 @@ async function main() {
   }
   console.log('   ✓ 3 assets (1 held by Alice — clearance will block her exit)');
 
-  // ── Travel ────────────────────────────────────────────────────────────────
-  const destination = await prisma.libraryItem.findFirst({
-    where: { libraryType: 'PER_DIEM_DESTINATION', label: 'GCC' },
-  });
-  const existingTrip = await prisma.travelRequest.findFirst({
-    where: { employeeId: bilal.id, purpose: { startsWith: `${TAG}:` } },
-  });
-  if (!existingTrip) {
-    await prisma.travelRequest.create({
-      data: {
-        employeeId: bilal.id,
-        purpose: `${TAG}: Vendor visit and contract signing`,
-        travelType: 'INTERNATIONAL',
-        destination: destination?.label ?? 'GCC',
-        country: 'United Arab Emirates',
-        departureDate: day(14),
-        returnDate: day(18),
-        perDiemRate: destination?.perDiemRate ?? 60,
-        perDiemDays: 5,
-        estimatedCost: 900,
-        advanceAmount: 300,
-        status: 'PENDING',
-        itinerary: {
-          create: [
-            {
-              legOrder: 1,
-              mode: 'FLIGHT',
-              fromPlace: 'Muscat',
-              toPlace: 'Dubai',
-              startAt: day(14),
-              reference: 'DEMO-PNR-1',
-            },
-            {
-              legOrder: 2,
-              mode: 'HOTEL',
-              toPlace: 'Dubai',
-              startAt: day(14),
-              endAt: day(18),
-            },
-          ],
-        },
-      },
-    });
-  }
-  console.log('   ✓ 1 pending international trip (visa gap + advance on approval)');
-
   // ── Training ──────────────────────────────────────────────────────────────
   const course = await prisma.course.upsert({
     where: { code: `${TAG}-SEC-101` },
@@ -420,55 +367,12 @@ async function main() {
   }
   console.log('   ✓ 1 confidential grievance against the line manager');
 
-  // ── Budget ────────────────────────────────────────────────────────────────
-  const budget = await prisma.budget.upsert({
-    where: {
-      branchId_fiscalYear_name: {
-        branchId: branch.id,
-        fiscalYear: new Date().getFullYear(),
-        name: `${TAG} Operating Budget`,
-      },
-    },
-    update: {},
-    create: {
-      name: `${TAG} Operating Budget`,
-      fiscalYear: new Date().getFullYear(),
-      startDate: new Date(new Date().getFullYear(), 0, 1),
-      endDate: new Date(new Date().getFullYear(), 11, 31),
-      branchId: branch.id,
-      currency: 'OMR',
-      status: 'ACTIVE',
-      createdById: adminUser.id,
-    },
-  });
-  for (const [category, planned] of [
-    ['Travel', 8000],
-    ['Training', 6000],
-    ['Payroll', 120000],
-    ['Overtime', 9000],
-  ] as const) {
-    const existingLine = await prisma.budgetLine.findFirst({
-      where: { budgetId: budget.id, departmentId: dept.id, category },
-    });
-    if (!existingLine) {
-      await prisma.budgetLine.create({
-        data: {
-          budgetId: budget.id,
-          departmentId: dept.id,
-          category,
-          plannedAmount: planned,
-        },
-      });
-    }
-  }
-  console.log('   ✓ active budget with 4 department lines');
-
   console.log('\n✅ Demo seed complete.');
   console.log(`   Sign in with any of these (password: ${PASSWORD})`);
   console.log(`     ADMIN     ${TAG.toLowerCase()}-adm@${TAG.toLowerCase()}.hrms.local`);
   console.log(`     MANAGER   ${TAG.toLowerCase()}-mgr@${TAG.toLowerCase()}.hrms.local`);
   console.log(`     EMPLOYEE  ${TAG.toLowerCase()}-e01@${TAG.toLowerCase()}.hrms.local  (Alice — holds a laptop)`);
-  console.log(`     EMPLOYEE  ${TAG.toLowerCase()}-e02@${TAG.toLowerCase()}.hrms.local  (Bilal — pending trip)`);
+  console.log(`     EMPLOYEE  ${TAG.toLowerCase()}-e02@${TAG.toLowerCase()}.hrms.local  (Bilal)`);
   console.log('\n   Try: approve Bilal\'s trip → a per-diem claim and an advance appear.');
   console.log('        Terminate Alice → blocked until the laptop is returned.');
   console.log('        Sign in as the manager → the grievance about them is invisible.');

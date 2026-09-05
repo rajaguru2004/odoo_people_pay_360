@@ -38,10 +38,9 @@ import type { PayrollItem } from '@/types/payroll';
  *    printed as red text with nowhere to go. Each one now names the screen that
  *    explains or fixes it.
  *  - **A row that does not reconcile says so.** Earnings − deductions is net,
- *    always; four earning columns (`siteAllowance`, `leaveEncashment`,
- *    `gratuityPayout`, `reimbursement`) are absent from most gross formulas in
- *    this codebase, so a row where the sum disagrees with the stored net is a
- *    real defect and is flagged rather than rounded away.
+ *    always; `siteAllowance` is absent from most gross formulas in this
+ *    codebase, so a row where the sum disagrees with the stored net is a real
+ *    defect and is flagged rather than rounded away.
  */
 
 /** A payslip amount that is an earning. Order is the order the panel lists them. */
@@ -52,9 +51,6 @@ const EARNING_KEYS = [
   'overtimePay',
   'foodAllowance',
   'siteAllowance',
-  'leaveEncashment',
-  'gratuityPayout',
-  'reimbursement',
 ] as const;
 
 /** A payslip amount that comes off. `deduction` is discipline + loss of pay. */
@@ -62,9 +58,6 @@ const DEDUCTION_KEYS = [
   'deduction',
   'insurance',
   'tax',
-  'advanceLoanDeduction',
-  'garnishment',
-  'otherRecovery',
 ] as const;
 
 /** Where each payslip line is decided, for the detail panel's links. */
@@ -75,13 +68,7 @@ const LINE_LINKS: Partial<Record<string, string>> = {
   overtimePay: '/dashboard/overtime',
   foodAllowance: '/dashboard/overtime',
   siteAllowance: '/dashboard/overtime',
-  leaveEncashment: '/dashboard/payroll/encashment',
-  gratuityPayout: '/dashboard/payroll/settlements',
-  reimbursement: '/dashboard/reimbursements',
   deduction: '/dashboard/attendance',
-  advanceLoanDeduction: '/dashboard/advance-loans',
-  garnishment: '/dashboard/garnishments',
-  otherRecovery: '/dashboard/payroll/recoveries',
 };
 
 const num = (v: unknown): number => Number(v) || 0;
@@ -127,10 +114,14 @@ export function buildRunRows(items: PayrollItem[]): RunRow[] {
 
     const exceptions: RowException[] = [];
     if (net <= 0) {
-      exceptions.push({ key: 'zeroNet', href: '/dashboard/payroll/validate', severity: 'critical' });
+      exceptions.push({
+        key: 'zeroNet',
+        href: '/dashboard/payroll/salary-structure',
+        severity: 'critical',
+      });
     }
     if (Math.abs(residual) >= 0.01) {
-      exceptions.push({ key: 'residual', href: '/dashboard/payroll/reports', severity: 'critical' });
+      exceptions.push({ key: 'residual', href: '/dashboard/payroll/manage', severity: 'critical' });
     }
     if (!daily && num(item.baseSalary) <= 0) {
       exceptions.push({
@@ -163,8 +154,6 @@ export function runTotals(rows: RunRow[]) {
     net: sum((r) => r.net),
     statutory: column('insurance'),
     tax: column('tax'),
-    reimbursement: column('reimbursement'),
-    loanRecovery: column('advanceLoanDeduction'),
     lop: column('deduction'),
     /** How many rows carry at least one exception — the filter's badge. */
     withExceptions: rows.filter((r) => r.exceptions.length > 0).length,
@@ -557,15 +546,12 @@ export default function PayrollRunTable({
                                   </span>
                                 </div>
                                 {Math.abs(row.residual) >= 0.01 && (
-                                  <Link
-                                    href="/dashboard/payroll/reports"
-                                    className="flex items-start gap-1 pt-1 text-[11px] text-status-error hover:underline"
-                                  >
+                                  <p className="flex items-start gap-1 pt-1 text-[11px] text-status-error">
                                     <AlertTriangle size={11} className="mt-0.5 shrink-0" />
                                     {t('residualWarning', {
                                       amount: formatCurrency(Math.abs(row.residual)),
                                     })}
-                                  </Link>
+                                  </p>
                                 )}
                               </div>
                             </div>

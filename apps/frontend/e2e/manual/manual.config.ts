@@ -83,9 +83,8 @@ export default defineConfig({
       /**
        * The HR MANAGER's book. Same stack, same Muscat branch, same figures —
        * a different account, and that is the whole point. HR_MANAGER is offered
-       * the administrator's menu minus the gratuity rules, the payroll
-       * calendar, the bank master and its field config, and the audit log; and
-       * plus an Approvals inbox the administrator does not get. The sidebar and
+       * the administrator's menu minus the audit log, and plus an Approvals
+       * inbox the administrator does not get. The sidebar and
        * the account name are in every screenshot, so those figures cannot be
        * borrowed from the admin capture — they have to be taken again as her.
        */

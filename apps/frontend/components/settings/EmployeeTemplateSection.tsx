@@ -257,7 +257,7 @@ export default function EmployeeTemplateSection() {
       return true;
     } catch (e) {
       // The API refuses locked-field edits with an explanation worth showing
-      // verbatim — it names the payroll/WPS reason the field cannot move.
+      // verbatim — it names the payroll reason the field cannot move.
       toast.error(getApiErrorMessage(e, 'Change rejected'));
       return false;
     } finally {

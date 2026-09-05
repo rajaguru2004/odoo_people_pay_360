@@ -73,7 +73,12 @@ export default function PageBreadcrumbs() {
       trail.push({ label: declared.title });
     }
 
-    return trail;
+    // A crumb never links to the page the reader is already on. Several groups
+    // point at their own first child — every self-service one does, and Payroll
+    // does since its hub became Run Payroll — so the section crumb and the child
+    // crumb can carry the SAME href, and the section one would render as a link
+    // back to where the reader is standing.
+    return trail.map((c) => (c.href === pathname ? { label: c.label } : c));
   }, [declared, navLocation, pathname, tNav]);
 
   if (crumbs.length === 0) return null;

@@ -4,9 +4,8 @@ import { toast } from '@/lib/toast';
 import { apiErrorMessage } from '@/utils/apiError';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Eye, Calendar, TrendingUp, AlertCircle, Info } from 'lucide-react';
+import { Calendar, TrendingUp, AlertCircle, Info } from 'lucide-react';
 import { CurrencyIcon } from '@/components/common/CurrencyIcon';
 import { motion } from 'framer-motion';
 import payrollService from '@/services/payrollService';
@@ -83,26 +82,23 @@ function derivePayroll(payroll: PayrollItemWithPeriod) {
   const deduction = Number(payroll.deduction) || 0;
   const insurance = Number(payroll.insurance) || 0;
   const tax = Number(payroll.tax) || 0;
-  const advanceLoanDeduction = Number(payroll.advanceLoanDeduction) || 0;
   const netSalary = Number(payroll.netSalary) || 0;
 
   // There is no separate "attendance deduction" to reconstruct. Loss of Pay is
   // already inside `deduction` (the engine stores disciplineDeduction +
-  // lopDeduction there), and reimbursement is added to net after deductions —
-  // so backing net out to a "pro-rated salary" only ever reproduced baseSalary.
-  // The old reconstruction was structurally zero AND double-counted, since the
-  // same money was then added to the total again.
-  const totalDeductions = deduction + insurance + tax + advanceLoanDeduction;
+  // lopDeduction there), so backing net out to a "pro-rated salary" only ever
+  // reproduced baseSalary. The old reconstruction was structurally zero AND
+  // double-counted, since the same money was then added to the total again.
+  const totalDeductions = deduction + insurance + tax;
   const daily = isDailyWage(payroll.employee?.salaryType);
   // A daily-wage worker's unworked days are simply unpaid, so `deduction` for
   // them is discipline only, never LOP.
   const deductionLabelKey = daily ? 'deductionsOther' : 'deductionsAbsenceAndOther';
 
-  return { baseSalary, daily, deductionLabelKey, foodAllowance, totalDeductions, advanceLoanDeduction };
+  return { baseSalary, daily, deductionLabelKey, foodAllowance, totalDeductions };
 }
 
 export default function PayrollPage() {
-  const router = useRouter();
   const t = useTranslations('payrollPage');
   const tc = useTranslations('common');
   const { user } = useAuthStore();
@@ -373,23 +369,12 @@ export default function PayrollPage() {
           <td className="px-3 py-2.5">{payroll.status ? getStatusBadge(payroll.status) : '-'}</td>
           <td className="px-3 py-2.5">
             <div className="flex items-center justify-end gap-2">
-              {isFinalized ? (
-                <>
-                  <button
-                    data-testid="payslip-view"
-                    onClick={() => router.push(`/dashboard/my-payroll/${payroll.id}`)}
-                    className="p-2 hover:bg-brand-primary-light rounded-lg text-brand-primary transition-colors"
-                    title={t('viewDetailsTooltip')}
-                  >
-                    <Eye size={16} />
-                  </button>
-                  {/* A payslip download does not exist yet — `my-payroll/[id]`
-                      labels its own equivalent "Coming soon". The control here
-                      carried no onClick at all, so it looked live and silently
-                      did nothing; better absent than lying. Restore it with the
-                      handler when the PDF endpoint lands. */}
-                </>
-              ) : (
+              {/* Nothing to open: the payslip row IS the payslip now, and a
+                  download does not exist — the control that used to sit here
+                  carried no onClick at all, so it looked live and silently did
+                  nothing. Restore it with the handler when the PDF endpoint
+                  lands. */}
+              {!isFinalized && (
                 <span className="text-xs text-text-muted">{t('notFinalizedYet')}</span>
               )}
             </div>
@@ -397,7 +382,7 @@ export default function PayrollPage() {
         </motion.tr>
       );
     });
-  }, [filteredPayrolls, getStatusBadge, router, payrollConfig, t]);
+  }, [filteredPayrolls, getStatusBadge, payrollConfig, t]);
 
   return (
     <ProtectedRoute requiredPermission="VIEW_DASHBOARD">
@@ -705,21 +690,7 @@ export default function PayrollPage() {
                         },
                       ]}
                       footer={
-                        isFinalized ? (
-                          <>
-                            <button
-                              onClick={() => router.push(`/dashboard/my-payroll/${payroll.id}`)}
-                              data-testid="payslip-card-open"
-                              // A labelled 44px button, not a bare 32px glyph:
-                              // opening the payslip is the only thing this card
-                              // is for, and an unlabelled eye is guesswork.
-                              className="inline-flex h-11 touch-manipulation items-center gap-1.5 rounded-lg px-4 text-sm font-semibold text-brand-primary transition-colors hover:bg-brand-primary-light active:scale-[0.98]"
-                            >
-                              <Eye size={16} />
-                              {t('viewDetailsTooltip')}
-                            </button>
-                          </>
-                        ) : (
+                        isFinalized ? undefined : (
                           <span className="text-xs text-text-muted">{t('notFinalizedYet')}</span>
                         )
                       }

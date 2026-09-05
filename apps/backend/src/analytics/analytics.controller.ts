@@ -70,7 +70,7 @@ export class AnalyticsController {
     summary: 'Everything the appraisal agent sees about one employee in a period',
     description:
       'Attendance, leave, overtime, tasks, projects, worklogs, timesheets, ' +
-      'reimbursements and conduct, for one date range. Defaults to the last 90 days.',
+      'and conduct, for one date range. Defaults to the last 90 days.',
   })
   @ApiQuery({ name: 'from', required: false, description: 'ISO date; defaults to 90 days ago' })
   @ApiQuery({ name: 'to', required: false, description: 'ISO date; defaults to today' })
@@ -91,7 +91,6 @@ export class AnalyticsController {
       projects,
       worklogs,
       timesheets,
-      reimbursements,
       conduct,
       teams,
     ] = await Promise.all([
@@ -102,7 +101,6 @@ export class AnalyticsController {
       this.analytics.projectContribution(period),
       this.analytics.worklogSummary(period),
       this.analytics.timesheetSummary(period),
-      this.analytics.reimbursementSummary(period),
       this.analytics.conductRecords(period),
       this.analytics.teamMembership(employeeId),
     ]);
@@ -119,7 +117,6 @@ export class AnalyticsController {
         projects,
         worklogs,
         timesheets,
-        reimbursements,
         conduct,
         teams,
       },

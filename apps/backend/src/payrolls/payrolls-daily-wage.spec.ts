@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PayrollsService } from './payrolls.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { BudgetCommitmentService } from '../budgets/budget-commitment.service';
 import { HolidaysService } from '../holidays/holidays.service';
 import { OvertimeService } from '../overtime/overtime.service';
 import { SalaryComponentsService } from '../salary-components/salary-components.service';
@@ -9,20 +8,13 @@ import { SystemSettingsService } from '../system-settings/system-settings.servic
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationDispatcher } from '../notifications/notification-dispatcher.service';
 import { OvertimePolicyService } from '../overtime-policy/overtime-policy.service';
-import { LoanPolicyService, DEFAULT_LOAN_POLICY } from '../advance-loans/loan-policy.service';
-import { LoanRecoveryService } from '../advance-loans/loan-recovery.service';
 import { AuditService } from '../audit/audit.service';
-import { GarnishmentsService } from '../garnishments/garnishments.service';
-import { GratuityService } from '../gratuity/gratuity.service';
-import { LeaveEncashmentService } from '../leave-encashment/leave-encashment.service';
-import { EmployeeRecoveriesService } from '../employee-recoveries/employee-recoveries.service';
 import {
   DEFAULT_PAYROLL_FEATURES,
   PayrollFeaturesService,
 } from './payroll-features.service';
 import { PayrollItemLinesService } from './payroll-item-lines.service';
-import { LoanNotificationService } from '../advance-loans/loan-notification.service';
-import { LoanScheduleService } from '../advance-loans/loan-schedule.service';
+import { DeductionCarryForwardService } from './deduction-carry-forward.service';
 
 /**
  * Daily-wage (salaryType = DAILY) payroll, end to end through the real
@@ -79,8 +71,6 @@ describe('PayrollsService — daily-wage (salaryType = DAILY)', () => {
     esiEmployerRate: 0,
     esiSalaryCap: 0,
     basicSalaryPercentage: 100,
-    gratuityEnabled: false,
-    gratuityRate: 0,
     dailyWageStatutoryDeductions: true,
   };
 
@@ -207,49 +197,7 @@ describe('PayrollsService — daily-wage (salaryType = DAILY)', () => {
         // from the HTTP verb and would record every transition as CREATE.
         // AuditService swallows its own errors, so a no-op stub is faithful.
         { provide: AuditService, useValue: { log: jest.fn() } },
-        // No court orders and no carried shortfalls: the loaders return empty
-        // maps rather than undefined, because create() pre-seeds every employee
-        // id and would otherwise read a missing entry as a missing employee.
-        // End-of-service is OFF in these suites, so nothing accrues. Stubbed
-        // rather than real because the provision is a separate ledger and these
-        // suites assert the payslip.
-        // Leave encashment is OFF in these suites; the loader returns an empty
-        // map rather than undefined because create() pre-seeds every id.
-        {
-          provide: EmployeeRecoveriesService,
-          useValue: {
-            loadForPayroll: jest.fn().mockResolvedValue(new Map()),
-            persistAllocation: jest.fn(),
-            reverseForPayroll: jest.fn().mockResolvedValue(0),
-          },
-        },
-        {
-          provide: LeaveEncashmentService,
-          useValue: {
-            loadForPayroll: jest.fn().mockResolvedValue(new Map()),
-            linkToItem: jest.fn(),
-            settleForPayroll: jest.fn().mockResolvedValue(0),
-            reverseForPayroll: jest.fn().mockResolvedValue(0),
-          },
-        },
-        {
-          provide: GratuityService,
-          useValue: {
-            accrueForPayroll: jest.fn().mockResolvedValue({ accrued: 0, skipped: 0 }),
-            reverseForPayroll: jest.fn().mockResolvedValue(0),
-            settledAccrualCount: jest.fn().mockResolvedValue(0),
-          },
-        },
-        {
-          provide: GarnishmentsService,
-          useValue: {
-            loadForPayroll: jest.fn().mockResolvedValue(new Map()),
-            loadDeductionCarryForwards: jest.fn().mockResolvedValue(new Map()),
-            persistAllocation: jest.fn(),
-            persistDeductionRecovery: jest.fn(),
-            reverseForPayroll: jest.fn(),
-          },
-        },
+        { provide: PrismaService, useValue: prisma },
         // Every payroll extension ships OFF. DEFAULT_PAYROLL_FEATURES is the
         // inert state, so these suites keep asserting the base engine.
         {
@@ -266,30 +214,19 @@ describe('PayrollsService — daily-wage (salaryType = DAILY)', () => {
             deleteForItem: jest.fn(),
           },
         },
-        // Loan recovery is planned inside create(). The policy is stubbed to the
-        // hardcoded defaults (v2 kill-switch OFF) so these suites assert the
-        // LEGACY recovery behaviour, unchanged.
         {
-          provide: LoanPolicyService,
-          useValue: { resolve: jest.fn().mockResolvedValue(DEFAULT_LOAN_POLICY) },
+          // Deduction balances an earlier run could not take. No fixture has
+          // one, so the loader returns an empty map rather than undefined —
+          // create() pre-seeds every employee id and would otherwise read a
+          // missing entry as a missing employee.
+          provide: DeductionCarryForwardService,
+          useValue: {
+            loadForEmployees: jest.fn().mockResolvedValue(new Map()),
+            persistRecovery: jest.fn(),
+            reverseForPayroll: jest.fn(),
+            markOutstandingAsReceivable: jest.fn().mockResolvedValue(0),
+          },
         },
-        { provide: LoanRecoveryService, useValue: new LoanRecoveryService(prisma as any) },
-        // The loan notification log. Payroll only tells a borrower their loan
-        // is fully repaid, and does it once per cycle through this.
-        {
-          provide: LoanNotificationService,
-          useValue: { notifyOnce: jest.fn().mockResolvedValue(true) },
-        },
-        // Court orders. No employee in these fixtures has one, so the rung is
-        // empty and the loan arithmetic below is unchanged — which is the
-        // point: adding the rung must not move money where there is no order.
-        {
-          // Only reached when deferralMode is EXTEND_TENURE, which these
-          // fixtures leave at the CARRY_FORWARD default.
-          provide: LoanScheduleService,
-          useValue: { regenerate: jest.fn().mockResolvedValue(undefined) },
-        },
-        { provide: PrismaService, useValue: prisma },
         { provide: HolidaysService, useValue: holidays },
         { provide: OvertimeService, useValue: {} },
         { provide: SalaryComponentsService, useValue: {} },
@@ -300,16 +237,6 @@ describe('PayrollsService — daily-wage (salaryType = DAILY)', () => {
         { provide: NotificationDispatcher, useValue: { dispatch: jest.fn() } },
         { provide: OvertimePolicyService, useValue: otPolicy },
         { provide: AuditService, useValue: { log: jest.fn() } },
-        {
-          // Budgeting is observational — it must never change payroll figures.
-          provide: BudgetCommitmentService,
-          useValue: {
-            realizeMany: jest.fn().mockResolvedValue(0),
-            commit: jest.fn(),
-            release: jest.fn(),
-            realize: jest.fn(),
-          },
-        },
       ],
     }).compile();
 

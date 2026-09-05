@@ -56,7 +56,6 @@ export interface RouteSpec {
 }
 
 const EVERYONE: Role[] = ALL_ROLES;
-const ADMIN: Role[] = ['admin'];
 const ADMIN_HR: Role[] = ['admin', 'hr'];
 const ADMIN_HR_MANAGER: Role[] = ['admin', 'hr', 'manager'];
 
@@ -76,8 +75,6 @@ export const ROUTES: RouteSpec[] = [
   { path: '/dashboard/people', guarded: true, allowed: ADMIN_HR },
   { path: '/dashboard/time', guarded: true, allowed: ADMIN_HR },
   { path: '/dashboard/leave', guarded: true, allowed: ADMIN_HR },
-  { path: '/dashboard/payroll/overview', guarded: true, allowed: ADMIN_HR },
-  { path: '/dashboard/finance', guarded: true, allowed: ADMIN_HR },
   { path: '/dashboard/talent', guarded: true, allowed: ADMIN_HR },
   { path: '/dashboard/workplace', guarded: true, allowed: ADMIN_HR },
   { path: '/dashboard/system', guarded: true, allowed: ADMIN_HR },
@@ -261,7 +258,7 @@ export const ROUTES: RouteSpec[] = [
   { path: '/dashboard/overtime/new', guarded: false, allowed: EVERYONE },
   { path: '/dashboard/my-overtime', guarded: false, allowed: EVERYONE },
 
-  // ── Payroll and banking ───────────────────────────────────────────────────
+  // ── Payroll ───────────────────────────────────────────────────────────────
   // The payroll index is role-polymorphic: admins see runs, employees see their
   // own payslips. Guarded, but every role is allowed through.
   { path: '/dashboard/payroll', guarded: true, allowed: EVERYONE },
@@ -274,73 +271,6 @@ export const ROUTES: RouteSpec[] = [
   { path: '/dashboard/payroll/approvals', guarded: true, allowed: ADMIN_HR },
   // MANAGE_SALARY_COMPONENTS: admin, hr.
   { path: '/dashboard/payroll/salary-structure', guarded: true, allowed: ADMIN_HR },
-
-  // ── Payroll extensions ──────────────────────────────────────────────────
-  //
-  // Every one of these is behind a feature flag that ships OFF, so the sidebar
-  // does not offer them and a signed-in user reaching the URL directly sees a
-  // "switched off" panel rather than a broken screen. They are listed here for
-  // the guard they DO have — the route table's job is who gets past
-  // ProtectedRoute, which is unaffected by whether the feature is enabled.
-  { path: '/dashboard/payroll/validate', guarded: true, allowed: ADMIN_HR },
-  { path: '/dashboard/payroll/settlements', guarded: true, allowed: ADMIN_HR },
-  { path: '/dashboard/payroll/transfers', guarded: true, allowed: ADMIN_HR },
-  { path: '/dashboard/payroll/grades', guarded: true, allowed: ADMIN_HR },
-  { path: '/dashboard/payroll/encashment', guarded: true, allowed: ADMIN_HR },
-  { path: '/dashboard/payroll/recoveries', guarded: true, allowed: ADMIN_HR },
-  // ADMIN alone: a gratuity rule IS the calculation, so changing one re-prices
-  // every future accrual and every settlement quoted from it.
-  { path: '/dashboard/payroll/gratuity-rules', guarded: true, allowed: ['admin'] },
-  // VIEW_ALL_PAYROLL: admin, hr.
-  { path: '/dashboard/payroll/reports', guarded: true, allowed: ADMIN_HR },
-  // ADMIN alone: a calendar decides which inputs are late for a whole branch.
-  { path: '/dashboard/payroll/calendar', guarded: true, allowed: ['admin'] },
-  // Self-service, so everyone signed in — it can only ever show your own figure.
-  { path: '/dashboard/my-payroll/gratuity', guarded: true, allowed: EVERYONE },
-  // ADMIN alone — narrower than the rest of banking, which admits HR too.
-  //
-  // These were the only two routes where ProtectedRoute has to deny an
-  // AUTHENTICATED non-admin, which is why they were the only ones that exposed
-  // the React #310 crash: the guard called `redirect()` during a Client
-  // Component's render, abandoning it mid-flight. Now it navigates from an
-  // effect, so denial reaches /403 like everywhere else.
-  { path: '/dashboard/banks', guarded: true, allowed: ['admin'] },
-  { path: '/dashboard/banks/config', guarded: true, allowed: ['admin'] },
-  { path: '/dashboard/banks/branch-countries', guarded: true, allowed: ADMIN_HR },
-  { path: '/dashboard/banks/migrate', guarded: true, allowed: ADMIN_HR },
-
-  // ── Money and claims ──────────────────────────────────────────────────────
-  //
-  // Two Finance screens are deliberately absent rather than forgotten:
-  // `/dashboard/budgets/[id]` and `/dashboard/advance-loans/[id]` are DYNAMIC
-  // routes, and this matrix only walks static paths — it has no id to open one
-  // with. They are covered by the Finance journeys instead, which arrive at a
-  // detail screen from the list that owns the record. `routes.test.ts` does not
-  // count them as missing for the same reason.
-  { path: '/dashboard/reimbursements', guarded: false, allowed: EVERYONE },
-  { path: '/dashboard/advance-loans', guarded: false, allowed: EVERYONE },
-  { path: '/dashboard/advance-loans/reports', guarded: false, allowed: ADMIN_HR },
-  // The product catalogue decides what every future loan costs. The page is
-  // not wrapped in <ProtectedRoute> — like its two siblings — so a non-admin
-  // reaches the shell and is told the rule instead of being bounced.
-  { path: '/dashboard/advance-loans/products', guarded: false, allowed: ADMIN },
-  // Deciding a leaver's outstanding loans moves company money, so HR and ADMIN
-  // only. Not <ProtectedRoute>-wrapped, like its siblings: a manager reaches
-  // the shell and is told the rule.
-  { path: '/dashboard/advance-loans/settlement', guarded: false, allowed: ADMIN_HR },
-  // A borrower's own ledger. Open to everyone: the server answers with the
-  // caller's own loans, and an account with no employee record is told so.
-  { path: '/dashboard/my-loan-statement', guarded: false, allowed: EVERYONE },
-  // Court orders take pay ahead of every loan, so HR and ADMIN only. Like its
-  // loan siblings it is not <ProtectedRoute>-wrapped: a manager reaches the
-  // shell and is told the rule.
-  { path: '/dashboard/garnishments', guarded: false, allowed: ADMIN_HR },
-  // The loan ledger. Readable by HR, changeable by ADMIN — the accounts decide
-  // how company money is reported.
-  { path: '/dashboard/accounting', guarded: false, allowed: ADMIN_HR },
-  { path: '/dashboard/travel', guarded: true, allowed: ADMIN_HR_MANAGER },
-  { path: '/dashboard/my-travel', guarded: false, allowed: EVERYONE },
-  { path: '/dashboard/budgets', guarded: true, allowed: ADMIN_HR },
 
   // ── People ops ────────────────────────────────────────────────────────────
   { path: '/dashboard/appraisal', guarded: true, allowed: ADMIN_HR },

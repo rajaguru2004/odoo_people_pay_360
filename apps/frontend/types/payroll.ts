@@ -47,21 +47,14 @@ export interface PayrollItem {
   overtimeHours: number;
   overtimePay: number;
   foodAllowance: number;
-  reimbursement: number; // Non-taxable, added to net after deductions
-  advanceLoanDeduction?: number; // Salary advance / loan recovery, subtracted from net
   insurance: number; // Total insurance (BHXH + BHYT + BHTN)
   tax: number; // Personal income tax
   /**
-   * The columns `GET /payrolls/:id` has always returned and this type never
-   * declared, so every screen had to reconstruct gross from five of the eight
-   * earning columns and silently lost the other three. Optional because older
-   * cached responses and the trimmed payslip view models do not carry them.
+   * A column `GET /payrolls/:id` has always returned and this type never
+   * declared, so every screen reconstructed gross without it. Optional because
+   * older cached responses and the trimmed payslip view models do not carry it.
    */
   siteAllowance?: number; // Site allowance granted on an overtime request. Earning, taxable.
-  leaveEncashment?: number; // Leave paid out instead of taken. Earning.
-  gratuityPayout?: number; // EOSB paid through this run. Only on a FINAL_SETTLEMENT run.
-  garnishment?: number; // Court-ordered attachment. Deducted before loan recovery.
-  otherRecovery?: number; // Asset damage, training bonds. Post-tax employer recovery.
   netSalary: number;
   notes?: string;
   createdAt: string;

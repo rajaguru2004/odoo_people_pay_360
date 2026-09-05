@@ -153,40 +153,13 @@ export class SystemSettingsController {
           g('leave_approval_hierarchy_enabled', 'false') === 'true',
         supervisor_approval_enabled:
           g('supervisor_approval_enabled', 'false') === 'true',
-        reimbursement_enabled: g('reimbursement_enabled', 'true') === 'true',
-
         // Payroll extensions. Every one defaults to the string 'false', so an
         // instance that has never heard of them reads them off. Emitted as real
         // booleans, following overtime_enabled rather than the string style of
-        // the payroll_pf_* keys, because the sidebar and the payslip renderer
-        // branch on them directly.
+        // the payroll_pf_* keys, because the payslip renderer branches on them
+        // directly.
         payroll_item_lines_enabled:
           g('payroll_item_lines_enabled', 'false') === 'true',
-        payroll_eosb_enabled: g('payroll_eosb_enabled', 'false') === 'true',
-        // The two sub-switches, and they are load-bearing rather than
-        // decorative: `FinalSettlementsService.assertEnabled()` refuses every
-        // route unless eosb AND settlement are both on, so a screen that gated
-        // on the master alone rendered a complete, usable settlements page over
-        // an API answering 404 to all of it.
-        payroll_eosb_accrual_enabled:
-          g('payroll_eosb_accrual_enabled', 'false') === 'true',
-        payroll_eosb_settlement_enabled:
-          g('payroll_eosb_settlement_enabled', 'false') === 'true',
-        payroll_eosb_pay_through_final_run:
-          g('payroll_eosb_pay_through_final_run', 'false') === 'true',
-        payroll_calendar_enabled:
-          g('payroll_calendar_enabled', 'false') === 'true',
-        payroll_preflight_enabled:
-          g('payroll_preflight_enabled', 'false') === 'true',
-        payroll_employee_recovery_enabled:
-          g('payroll_employee_recovery_enabled', 'false') === 'true',
-        leave_encashment_enabled:
-          g('leave_encashment_enabled', 'false') === 'true',
-        payroll_reports_enabled:
-          g('payroll_reports_enabled', 'false') === 'true',
-        employee_transfer_enabled:
-          g('employee_transfer_enabled', 'false') === 'true',
-        employee_grade_enabled: g('employee_grade_enabled', 'false') === 'true',
         // The document engine flags. Declaring them in getAllSettings() is NOT
         // enough — this payload is a hand-picked list, so a flag missing HERE
         // never reaches the branding store and its nav entry / conversion

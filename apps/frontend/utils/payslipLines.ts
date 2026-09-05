@@ -8,7 +8,7 @@
  * asserting it through a browser.
  *
  * The numbers never come from lines. `totalIncome`, `totalDeductions` and
- * `netSalary` stay derived from the twelve authoritative columns, so turning
+ * `netSalary` stay derived from the authoritative columns, so turning
  * itemisation on cannot change a figure on screen — only the granularity of the
  * labels beside it.
  */
@@ -36,7 +36,6 @@ export interface PayslipRow {
 export interface PayslipGroups {
   income: PayslipRow[];
   deductions: PayslipRow[];
-  reimbursement: PayslipRow[];
 }
 
 export interface PayslipItemLike {
@@ -47,9 +46,7 @@ export interface PayslipItemLike {
   overtimePay: unknown;
   foodAllowance: unknown;
   siteAllowance?: unknown;
-  reimbursement: unknown;
   deduction: unknown;
-  advanceLoanDeduction: unknown;
   insurance: unknown;
   tax: unknown;
   actualWorkDays?: unknown;
@@ -84,17 +81,9 @@ const INCOME_BUCKETS = [
   'overtimePay',
   'foodAllowance',
   'siteAllowance',
-  'leaveEncashment',
 ] as const;
 
-const DEDUCTION_BUCKETS = [
-  'insurance',
-  'tax',
-  'deduction',
-  'advanceLoanDeduction',
-  'garnishment',
-  'otherRecovery',
-] as const;
+const DEDUCTION_BUCKETS = ['insurance', 'tax', 'deduction'] as const;
 
 /**
  * Do the stored lines account for a column exactly?
@@ -119,10 +108,9 @@ export function bucketReconciles(
  * Build the two sections.
  *
  * With `item.lines` empty or absent, the output is exactly the rows the payslip
- * has always shown, in the order it has always shown them — including the three
- * that are conditional on being non-zero (food allowance, other deductions,
- * loan recovery) and the reimbursement block that only appears when there is
- * one.
+ * has always shown, in the order it has always shown them — including the ones
+ * that are conditional on being non-zero (food allowance, site allowance, other
+ * deductions).
  */
 export function buildPayslipLines(
   item: PayslipItemLike,
@@ -139,14 +127,9 @@ export function buildPayslipLines(
     overtimePay: num(item.overtimePay),
     foodAllowance: num(item.foodAllowance),
     siteAllowance: num(item.siteAllowance),
-    reimbursement: num(item.reimbursement),
     deduction: num(item.deduction),
-    advanceLoanDeduction: num(item.advanceLoanDeduction),
     insurance: num(item.insurance),
     tax: num(item.tax),
-    garnishment: 0,
-    otherRecovery: 0,
-    leaveEncashment: 0,
   };
 
   const itemised = (bucket: string, sign: PayslipSign): PayslipRow[] =>
@@ -186,8 +169,8 @@ export function buildPayslipLines(
 
   for (const bucket of INCOME_BUCKETS.slice(1)) {
     const column = columns[bucket] ?? 0;
-    // Food allowance and leave encashment have always been conditional; basic,
-    // allowance, bonus and overtime have always shown even at zero.
+    // Food and site allowance have always been conditional; basic, allowance,
+    // bonus and overtime have always shown even at zero.
     const alwaysShown = bucket === 'allowances' || bucket === 'bonus' || bucket === 'overtimePay';
     if (!alwaysShown && column <= 0) continue;
 
@@ -207,9 +190,7 @@ export function buildPayslipLines(
               }
             : bucket === 'foodAllowance'
               ? { label: 'Food Allowance (Overtime)' }
-              : bucket === 'siteAllowance'
-                ? { label: 'Site Allowance (Overtime)' }
-                : { label: 'Leave encashment' }),
+              : { label: 'Site Allowance (Overtime)' }),
       amount: column,
       sign: 'plus',
       source: 'COLUMN',
@@ -235,38 +216,14 @@ export function buildPayslipLines(
         ? { label: opts.labels.pf }
         : bucket === 'tax'
           ? { label: opts.labels.tax }
-          : bucket === 'deduction'
-            ? {
-                labelKey: opts.daily
-                  ? 'deductionOther'
-                  : 'deductionsAbsenceAndOther',
-              }
-            : bucket === 'advanceLoanDeduction'
-              ? { label: 'Salary advance / loan recovery' }
-              : bucket === 'garnishment'
-                ? { label: 'Court-ordered deduction' }
-                : { label: 'Recovery' }),
+          : {
+              labelKey: opts.daily ? 'deductionOther' : 'deductionsAbsenceAndOther',
+            }),
       amount: column,
       sign: 'minus',
       source: 'COLUMN',
     });
   }
 
-  // ── Reimbursement ──────────────────────────────────────────────────────
-  const reimbursement: PayslipRow[] =
-    columns.reimbursement > 0
-      ? bucketReconciles(lines, 'reimbursement', columns.reimbursement)
-        ? itemised('reimbursement', 'plus')
-        : [
-            {
-              key: 'reimbursement',
-              label: 'Approved expense reimbursements (non-taxable)',
-              amount: columns.reimbursement,
-              sign: 'plus',
-              source: 'COLUMN',
-            },
-          ]
-      : [];
-
-  return { income, deductions, reimbursement };
+  return { income, deductions };
 }

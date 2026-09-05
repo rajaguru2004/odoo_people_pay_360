@@ -265,7 +265,7 @@ export class ApprovalEngineService {
           // WhatsApp comes free here: APPROVAL_REQUESTED is a discriminating
           // type, so the template registry selects on it without an explicit
           // key. waData only enriches the body. One block covers LEAVE,
-          // OVERTIME, BANK_CHANGE, TRAVEL, TRAINING and ADVANCE_LOAN.
+          // OVERTIME and TRAINING.
           {
             waData: {
               requestType: type,

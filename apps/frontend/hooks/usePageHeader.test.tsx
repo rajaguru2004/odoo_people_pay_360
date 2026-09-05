@@ -11,17 +11,17 @@ import { usePageHeader } from './usePageHeader';
 
 beforeEach(() => {
   usePageHeaderStore.setState({ entry: null });
-  navigationState.pathname = '/dashboard/finance';
+  navigationState.pathname = '/dashboard/payroll';
 });
 
 describe('usePageHeader', () => {
   it('declares the title and subtitle for the current route', () => {
-    renderHook(() => usePageHeader('Finance', 'Money owed and lent'));
+    renderHook(() => usePageHeader('Payroll', 'Runs, batches and payslips'));
 
     expect(usePageHeaderStore.getState().entry).toEqual({
-      pathname: '/dashboard/finance',
-      title: 'Finance',
-      subtitle: 'Money owed and lent',
+      pathname: '/dashboard/payroll',
+      title: 'Payroll',
+      subtitle: 'Runs, batches and payslips',
       breadcrumbs: undefined,
     });
   });
@@ -39,7 +39,7 @@ describe('usePageHeader', () => {
     // Callers pass array literals. Depending on the reference would mean
     // set() → render → new array → set(), forever.
     const { rerender } = renderHook(() =>
-      usePageHeader('Finance', undefined, [{ label: 'Finance' }]),
+      usePageHeader('Payroll', undefined, [{ label: 'Payroll' }]),
     );
     const first = usePageHeaderStore.getState().entry;
 
@@ -49,7 +49,7 @@ describe('usePageHeader', () => {
   });
 
   it('clears its own entry on unmount', () => {
-    const { unmount } = renderHook(() => usePageHeader('Finance'));
+    const { unmount } = renderHook(() => usePageHeader('Payroll'));
     unmount();
     expect(usePageHeaderStore.getState().entry).toBeNull();
   });
@@ -57,7 +57,7 @@ describe('usePageHeader', () => {
   it('does not wipe the entry the next page has already declared', () => {
     // The incoming page's effect can run before the outgoing page's cleanup;
     // an unguarded clear would blank the heading mid-navigation.
-    const { unmount } = renderHook(() => usePageHeader('Finance'));
+    const { unmount } = renderHook(() => usePageHeader('Payroll'));
     usePageHeaderStore.setState({ entry: { pathname: '/dashboard/people', title: 'People' } });
 
     unmount();

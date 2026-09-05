@@ -11,11 +11,9 @@ import type { runTotals } from './PayrollRunTable';
  *
  * The old four were `General staff / Total income / Total deduction / Net
  * Salary`, and two of them were wrong rather than merely thin: "total income"
- * summed five of the nine earning columns and "total deduction" three of the
- * six, so site allowance, leave encashment, gratuity paid through the run,
- * court orders and post-tax recoveries were all silently missing — and the
- * three cards could not be reconciled against the fourth, which came from the
- * run's own stored total.
+ * summed five of the six earning columns, so site allowance was silently
+ * missing — and the three cards could not be reconciled against the fourth,
+ * which came from the run's own stored total.
  *
  * Every figure here is summed from the same row arithmetic the table below
  * prints, so the cards and the table can never disagree, and the residual is
@@ -56,7 +54,7 @@ export default function RunSummaryCards({
           ? t('cardEmployeesExceptions', { count: totals.withExceptions })
           : t('cardEmployeesClean'),
       subTone: totals.withExceptions > 0 ? 'text-status-warning' : 'text-text-muted',
-      href: '/dashboard/payroll/validate',
+      href: '/dashboard/payroll/manage',
     },
     {
       key: 'gross',
@@ -77,10 +75,9 @@ export default function RunSummaryCards({
       sub: t('cardDeductionsHint', {
         tax: labels.tax,
         amount: formatCurrency(totals.tax),
-        loan: formatCurrency(totals.loanRecovery),
       }),
       subTone: 'text-text-muted',
-      href: '/dashboard/payroll/recoveries',
+      href: '/dashboard/attendance',
     },
     {
       key: 'statutory',
@@ -94,7 +91,7 @@ export default function RunSummaryCards({
           ? t('cardStatutoryHint')
           : t('cardStatutoryNone', { name: labels.pf }),
       subTone: totals.statutory > 0 ? 'text-text-muted' : 'text-status-warning',
-      href: '/dashboard/payroll/reports',
+      href: '/dashboard/payroll/salary-structure',
     },
   ];
 
@@ -143,11 +140,6 @@ export default function RunSummaryCards({
           {formatCurrency(totals.net)}
         </p>
         <div className="mt-auto pt-2 space-y-1">
-          {totals.reimbursement > 0 && (
-            <p className="text-[11px] text-text-on-brand/85 leading-snug">
-              {t('reimbursementsNote', { amount: formatCurrency(totals.reimbursement) })}
-            </p>
-          )}
           {Math.abs(drift) >= 0.01 && (
             <Link
               href={`/dashboard/payroll/${payrollId}`}

@@ -222,20 +222,6 @@ export class AnalyticsService {
     };
   }
 
-  async reimbursementSummary({ employeeId, from, to }: PeriodArgs) {
-    const rows = await this.prisma.reimbursement.findMany({
-      where: { employeeId, expenseDate: { gte: from, lte: to } },
-      select: { status: true, amount: true, type: true },
-    });
-    const approved = rows.filter((r) => r.status === 'APPROVED' || r.status === 'PAID');
-    return {
-      totalClaims: rows.length,
-      approvedClaims: approved.length,
-      rejectedClaims: rows.filter((r) => r.status === 'REJECTED').length,
-      approvedAmount: round2(approved.reduce((s, r) => s + num(r.amount), 0)),
-    };
-  }
-
   async conductRecords({ employeeId, from, to }: PeriodArgs) {
     const [rewards, disciplines] = await Promise.all([
       this.prisma.reward.findMany({

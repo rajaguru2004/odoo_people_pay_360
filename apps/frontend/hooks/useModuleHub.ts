@@ -9,10 +9,10 @@ import type { HubDelta } from '@/types/moduleHub';
 /**
  * The one read behind a module hub.
  *
- * Finance, Talent and Workplace each used to fan out four to six requests from
- * the browser, and two of Talent's counted rows off a page. One aggregate per
- * hub removes both problems, so the hook that fetches it is the same three
- * lines every time and lives here rather than three times.
+ * Talent and Workplace each used to fan out four to six requests from the
+ * browser, and two of Talent's counted rows off a page. One aggregate per hub
+ * removes both problems, so the hook that fetches it is the same three lines
+ * every time and lives here rather than twice.
  *
  * `branchId` is in the query key because a branch switch has to re-fetch. For
  * Workplace that is only PARTLY true — `Project` is deliberately not
@@ -49,9 +49,9 @@ export function useModuleHub<T>(name: string, path: string) {
  * Returns `undefined` — so no badge is drawn — when the server could not
  * establish a baseline, and when the change is exactly zero. Three hub figures
  * genuinely have no history to reconstruct from (asset status, project status,
- * and the pending queues, since neither `Reimbursement` nor `LetterRequest`
- * carries a `rejectedAt`). Those cards say so in their footnote rather than
- * showing a badge that reads as "unchanged".
+ * and the letter queue, since `LetterRequest` carries no `rejectedAt`). Those
+ * cards say so in their footnote rather than showing a badge that reads as
+ * "unchanged".
  */
 export function toDelta(
   delta: HubDelta | null | undefined,

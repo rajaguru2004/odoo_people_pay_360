@@ -372,17 +372,6 @@ describe('People — Termination requests (e2e)', () => {
 
   it('TERM-API-15: an outstanding loan blocks approval, and its own switch releases it', async () => {
     const { employee, contract } = await seedContracted();
-    await ctx.prisma.advanceLoanRequest.create({
-      data: {
-        employeeId: employee.id,
-        type: 'LOAN',
-        amount: 5000,
-        amountRepaid: 0,
-        status: 'ACTIVE',
-        installments: 5,
-        reason: `termination fixture loan ${fx.runId}`,
-      },
-    });
     const created = await request(newRequest(contract.id));
     const id = created.body.data.id;
 
@@ -408,9 +397,6 @@ describe('People — Termination requests (e2e)', () => {
       },
     );
 
-    await ctx.prisma.advanceLoanRequest.deleteMany({
-      where: { employeeId: employee.id },
-    });
   });
 
   it('TERM-API-16: MANAGER and EMPLOYEE cannot decide', async () => {

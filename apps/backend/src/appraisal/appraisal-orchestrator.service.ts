@@ -48,7 +48,6 @@ const DEFAULT_PLAN_TOOLS = [
   'project_contribution_get',
   'worklog_employee_summary',
   'timesheet_employee_summary',
-  'reimbursement_employee_summary',
   'conduct_records_get',
   'team_membership_get',
 ];
@@ -63,7 +62,6 @@ const TOOL_FRIENDLY: Record<string, string> = {
   project_contribution_get: 'projects',
   worklog_employee_summary: 'work hours',
   timesheet_employee_summary: 'timesheets',
-  reimbursement_employee_summary: 'expense claims',
   conduct_records_get: 'conduct records',
   team_membership_get: 'team involvement',
 };

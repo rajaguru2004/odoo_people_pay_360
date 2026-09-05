@@ -3,8 +3,6 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
 import { StorageModule } from '../storage/storage.module';
 import { LettersModule } from '../letters/letters.module';
-import { WpsModule } from '../wps/wps.module';
-import { WpsFileDownloadResolver } from '../wps/wps-download.resolver';
 import { TaskAttachmentsModule } from '../task-attachments/task-attachments.module';
 import { TaskAttachmentDownloadResolver } from '../task-attachments/task-attachment-download.resolver';
 import { SecureDownloadController } from '../storage/secure-download.controller';
@@ -35,7 +33,6 @@ import {
     AuditModule,
     StorageModule,
     LettersModule,
-    WpsModule,
     // Task attachments became a downloadable kind with finding R53: they used
     // to go through the PUBLIC door, where the URL was the whole credential.
     TaskAttachmentsModule,
@@ -56,7 +53,6 @@ import {
       inject: [
         LetterDownloadResolver,
         EmployeeDocumentDownloadResolver,
-        WpsFileDownloadResolver,
         TaskAttachmentDownloadResolver,
         GeneratedDocumentDownloadResolver,
         DocumentAssetDownloadResolver,

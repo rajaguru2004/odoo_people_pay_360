@@ -116,7 +116,6 @@ for (const [path, expected] of [
   ['/dashboard/attendance', 'attendance'],
   ['/dashboard/leaves', 'leave'],
   ['/dashboard/payroll/manage', 'payroll'],
-  ['/dashboard/reimbursements', 'finance'],
   ['/dashboard/training', 'talent'],
   ['/dashboard/assets', 'workplace'],
 ]) {

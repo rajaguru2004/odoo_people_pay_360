@@ -182,9 +182,6 @@ export class PayslipDocumentResolver implements DocumentContextResolver {
           { label: 'Bonus', amount: money(item.bonus) },
           { label: 'Food allowance', amount: money(item.foodAllowance) },
           { label: 'Site allowance', amount: money(item.siteAllowance) },
-          { label: 'Reimbursement', amount: money(item.reimbursement) },
-          { label: 'Leave encashment', amount: money(item.leaveEncashment) },
-          { label: 'End-of-service', amount: money(item.gratuityPayout) },
         ].filter((r) => r.amount !== 0);
 
     const deductions = deductionLines.length
@@ -193,9 +190,6 @@ export class PayslipDocumentResolver implements DocumentContextResolver {
           { label: 'Deductions', amount: money(item.deduction) },
           { label: 'Insurance', amount: money(item.insurance) },
           { label: 'Tax', amount: money(item.tax) },
-          { label: 'Advance / loan', amount: money(item.advanceLoanDeduction) },
-          { label: 'Garnishment', amount: money(item.garnishment) },
-          { label: 'Other recovery', amount: money(item.otherRecovery) },
         ].filter((r) => r.amount !== 0);
 
     const totalEarnings = earnings.reduce((a: number, r: any) => a + r.amount, 0);

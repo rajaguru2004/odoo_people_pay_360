@@ -24,7 +24,7 @@ import { resolve } from 'path';
  *
  * These are working pictures — the whole administrator surface, unannotated —
  * and they are looked at constantly while the chapters are being written:
- * "what does the encashment screen actually show", "is that queue empty".
+ * "what does the approvals screen actually show", "is that queue empty".
  * Keeping them next to `content/` means the answer is one directory away from
  * the file asking the question. They are build output and are gitignored,
  * exactly like the page images the finished document is checked with.
@@ -73,31 +73,10 @@ const SCREENS: Array<{ name: string; path: string; group: string }> = [
   { group: 'Leave', name: '53-balances', path: '/dashboard/leaves/balances' },
   { group: 'Leave', name: '54-overtime', path: '/dashboard/overtime' },
 
-  { group: 'Payroll', name: '60-overview', path: '/dashboard/payroll/overview' },
   { group: 'Payroll', name: '61-manage', path: '/dashboard/payroll/manage' },
-  { group: 'Payroll', name: '62-validate', path: '/dashboard/payroll/validate' },
   { group: 'Payroll', name: '63-batches', path: '/dashboard/payroll/batches' },
   { group: 'Payroll', name: '64-approvals', path: '/dashboard/payroll/approvals' },
   { group: 'Payroll', name: '65-salary-structure', path: '/dashboard/payroll/salary-structure' },
-  { group: 'Payroll', name: '66-grades', path: '/dashboard/payroll/grades' },
-  { group: 'Payroll', name: '67-settlements', path: '/dashboard/payroll/settlements' },
-  { group: 'Payroll', name: '68-gratuity-rules', path: '/dashboard/payroll/gratuity-rules' },
-  { group: 'Payroll', name: '69-encashment', path: '/dashboard/payroll/encashment' },
-  { group: 'Payroll', name: '70-recoveries', path: '/dashboard/payroll/recoveries' },
-  { group: 'Payroll', name: '71-calendar', path: '/dashboard/payroll/calendar' },
-  { group: 'Payroll', name: '72-transfers', path: '/dashboard/payroll/transfers' },
-  { group: 'Payroll', name: '73-reports', path: '/dashboard/payroll/reports' },
-  { group: 'Payroll', name: '74-banks', path: '/dashboard/banks' },
-  { group: 'Payroll', name: '75-bank-config', path: '/dashboard/banks/config' },
-  { group: 'Payroll', name: '76-bank-countries', path: '/dashboard/banks/branch-countries' },
-  { group: 'Payroll', name: '77-bank-migrate', path: '/dashboard/banks/migrate' },
-
-  { group: 'Finance', name: '80-hub', path: '/dashboard/finance' },
-  { group: 'Finance', name: '81-reimbursements', path: '/dashboard/reimbursements' },
-  { group: 'Finance', name: '82-travel', path: '/dashboard/travel' },
-  { group: 'Finance', name: '83-loans', path: '/dashboard/advance-loans' },
-  { group: 'Finance', name: '84-loan-reports', path: '/dashboard/advance-loans/reports' },
-  { group: 'Finance', name: '85-budgets', path: '/dashboard/budgets' },
 
   { group: 'Talent', name: '90-hub', path: '/dashboard/talent' },
   { group: 'Talent', name: '91-appraisal', path: '/dashboard/appraisal' },
@@ -115,7 +94,7 @@ const SCREENS: Array<{ name: string; path: string; group: string }> = [
   { group: 'System', name: 'B2-audit-logs', path: '/dashboard/audit-logs' },
 ];
 
-// Fail loudly rather than collect sixty-seven blank records.
+// Fail loudly rather than collect a directory of blank records.
 test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   try {

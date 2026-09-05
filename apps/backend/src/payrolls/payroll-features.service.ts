@@ -5,19 +5,14 @@ import { SystemSettingsService } from '../system-settings/system-settings.servic
  * Which payroll extensions are switched on.
  *
  * Deliberately NOT part of `PayrollConfig`. `PayrollConfig` is the *calculation*
- * config, and six spec fixtures build it as an object literal
- * (`payrolls-money-invariants`, `payrolls-advance-loan`, `payrolls-daily-wage`,
- * `overtime-cycle`, `payrolls-reimbursement`, `payrolls-overtime`). Adding a
- * required field there breaks all six at compile time; adding an optional one
- * gives every existing test a silent default, which is worse — the fixture would
- * stop describing what the engine actually runs with.
+ * config, and the spec fixtures build it as an object literal. Adding a required
+ * field there breaks all of them at compile time; adding an optional one gives
+ * every existing test a silent default, which is worse — the fixture would stop
+ * describing what the engine actually runs with.
  *
  * Keeping the switches in their own object also keeps the honest property that
- * makes this whole phase safe: `calculateSalaryOptimized`'s signature never
- * changes, so the arithmetic that produces today's payslips cannot be altered by
- * anything here.
- *
- * Shaped after `ResolvedLoanPolicy` / `DEFAULT_LOAN_POLICY`.
+ * makes this safe: `calculateSalaryOptimized`'s signature never changes, so the
+ * arithmetic that produces today's payslips cannot be altered by anything here.
  */
 export interface PayrollFeatureFlags {
   /** Write an itemised breakdown alongside each payslip total. */
@@ -32,47 +27,7 @@ export interface PayrollFeatureFlags {
    */
   itemLinesStrictReconciliation: boolean;
 
-  /** Master switch for end-of-service benefits. */
-  eosbEnabled: boolean;
-  /** Write a monthly gratuity accrual when a payroll locks. */
-  eosbAccrualEnabled: boolean;
-  /** Allow final-settlement documents to be prepared. */
-  eosbSettlementEnabled: boolean;
-  /** What to do when an employee's nationality class is unrecorded. */
-  eosbUnknownNationalityPolicy: 'BLOCK' | 'SKIP';
-  /** Divisor for the fractional years-of-service calculation. */
-  eosbServiceYearDays: number;
-  /**
-   * Pay the benefit through the FINAL_SETTLEMENT run rather than outside payroll.
-   *
-   * Off, gratuity is a provision and never a payslip line. On, the exit payout
-   * reaches the payslip and therefore the wage file — which some jurisdictions
-   * require and others do not, so it is the client's call rather than ours.
-   */
-  eosbPayThroughFinalRun: boolean;
-
-  leaveEncashmentEnabled: boolean;
-  /** Whether encashment joins the taxable and statutory base. */
-  leaveEncashmentTaxable: boolean;
   leaveCarryForwardEnabled: boolean;
-
-  calendarEnabled: boolean;
-  /** WARN leaves a cut-off advisory; BLOCK refuses generation. */
-  cutOffEnforcement: 'WARN' | 'BLOCK';
-
-  preflightEnabled: boolean;
-
-  employeeRecoveryEnabled: boolean;
-  recoveryLadderPosition: 'AFTER_LOAN' | 'BEFORE_LOAN';
-  /** A recovery is bounded by the minimum-take-home floor. */
-  recoveryRespectsMinNet: boolean;
-
-  employeeTransferEnabled: boolean;
-  /** Which date decides the paying branch. */
-  transferPayBasis: 'PERIOD_END' | 'CUT_OFF';
-
-  gradeEnabled: boolean;
-  reportsEnabled: boolean;
 }
 
 /**
@@ -86,57 +41,18 @@ export const DEFAULT_PAYROLL_FEATURES: PayrollFeatureFlags = {
   itemLinesEnabled: false,
   itemLinesStrictReconciliation: true,
 
-  eosbEnabled: false,
-  eosbAccrualEnabled: false,
-  eosbSettlementEnabled: false,
-  eosbUnknownNationalityPolicy: 'BLOCK',
-  eosbServiceYearDays: 365,
-  eosbPayThroughFinalRun: false,
-
-  leaveEncashmentEnabled: false,
-  leaveEncashmentTaxable: true,
   leaveCarryForwardEnabled: false,
-
-  calendarEnabled: false,
-  cutOffEnforcement: 'WARN',
-
-  preflightEnabled: false,
-
-  employeeRecoveryEnabled: false,
-  recoveryLadderPosition: 'AFTER_LOAN',
-  recoveryRespectsMinNet: true,
-
-  employeeTransferEnabled: false,
-  transferPayBasis: 'PERIOD_END',
-
-  gradeEnabled: false,
-  reportsEnabled: false,
 };
 
 /** Present-and-'true' rather than not-'false': an unset key must read OFF. */
 const bool = (v: string | undefined, fallback: boolean): boolean =>
   v === undefined ? fallback : v.trim().toLowerCase() === 'true';
 
-const num = (v: string | undefined, fallback: number): number => {
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-};
-
-const oneOf = <T extends string>(
-  v: string | undefined,
-  allowed: readonly T[],
-  fallback: T,
-): T => {
-  const up = (v ?? '').trim().toUpperCase();
-  return (allowed as readonly string[]).includes(up) ? (up as T) : fallback;
-};
-
 /**
  * Reads the raw setting map into the typed flag object.
  *
  * Pure and exported so it can be unit-tested as a table without a database —
- * the resolution rules (unset reads OFF, an unrecognised enum falls back rather
- * than throwing) are the part worth pinning.
+ * the resolution rule (unset reads OFF) is the part worth pinning.
  */
 export function resolvePayrollFeatures(
   raw: Record<string, string>,
@@ -149,77 +65,10 @@ export function resolvePayrollFeatures(
       d.itemLinesStrictReconciliation,
     ),
 
-    eosbEnabled: bool(raw.payroll_eosb_enabled, d.eosbEnabled),
-    eosbAccrualEnabled: bool(
-      raw.payroll_eosb_accrual_enabled,
-      d.eosbAccrualEnabled,
-    ),
-    eosbSettlementEnabled: bool(
-      raw.payroll_eosb_settlement_enabled,
-      d.eosbSettlementEnabled,
-    ),
-    eosbUnknownNationalityPolicy: oneOf(
-      raw.payroll_eosb_unknown_nationality_policy,
-      ['BLOCK', 'SKIP'] as const,
-      d.eosbUnknownNationalityPolicy,
-    ),
-    eosbServiceYearDays: num(
-      raw.payroll_eosb_service_year_days,
-      d.eosbServiceYearDays,
-    ),
-    eosbPayThroughFinalRun: bool(
-      raw.payroll_eosb_pay_through_final_run,
-      d.eosbPayThroughFinalRun,
-    ),
-
-    leaveEncashmentEnabled: bool(
-      raw.leave_encashment_enabled,
-      d.leaveEncashmentEnabled,
-    ),
-    leaveEncashmentTaxable: bool(
-      raw.leave_encashment_taxable,
-      d.leaveEncashmentTaxable,
-    ),
     leaveCarryForwardEnabled: bool(
       raw.leave_carry_forward_enabled,
       d.leaveCarryForwardEnabled,
     ),
-
-    calendarEnabled: bool(raw.payroll_calendar_enabled, d.calendarEnabled),
-    cutOffEnforcement: oneOf(
-      raw.payroll_cutoff_enforcement,
-      ['WARN', 'BLOCK'] as const,
-      d.cutOffEnforcement,
-    ),
-
-    preflightEnabled: bool(raw.payroll_preflight_enabled, d.preflightEnabled),
-
-    employeeRecoveryEnabled: bool(
-      raw.payroll_employee_recovery_enabled,
-      d.employeeRecoveryEnabled,
-    ),
-    recoveryLadderPosition: oneOf(
-      raw.payroll_recovery_ladder_position,
-      ['AFTER_LOAN', 'BEFORE_LOAN'] as const,
-      d.recoveryLadderPosition,
-    ),
-    recoveryRespectsMinNet: bool(
-      raw.payroll_recovery_respects_min_net,
-      d.recoveryRespectsMinNet,
-    ),
-
-    employeeTransferEnabled: bool(
-      raw.employee_transfer_enabled,
-      d.employeeTransferEnabled,
-    ),
-    transferPayBasis: oneOf(
-      raw.payroll_transfer_pay_basis,
-      ['PERIOD_END', 'CUT_OFF'] as const,
-      d.transferPayBasis,
-    ),
-
-    gradeEnabled: bool(raw.employee_grade_enabled, d.gradeEnabled),
-    reportsEnabled: bool(raw.payroll_reports_enabled, d.reportsEnabled),
   };
 }
 
@@ -227,11 +76,8 @@ export function resolvePayrollFeatures(
  * Resolves the payroll feature switches.
  *
  * `SystemSetting` is a flat, key-unique global table with no branch column, and
- * this phase deliberately does not give it one: it is read on nearly every
- * request path, and a scope column there is disproportionate to the problem.
- * Features that genuinely need to vary per branch carry the variation in their
- * own table instead — the payroll calendar's `enforceCutOff` is the worked
- * example.
+ * this deliberately does not give it one: it is read on nearly every request
+ * path, and a scope column there is disproportionate to the problem.
  *
  * Callers resolve ONCE, before opening any transaction, and pass the object
  * down. That is what makes the flags-off guarantee cheap: with a switch off the

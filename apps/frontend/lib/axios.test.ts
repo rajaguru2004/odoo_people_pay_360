@@ -235,12 +235,12 @@ describe('response interceptor — success', () => {
   });
 
   it('passes a blob response through untouched, keeping .data for the caller', async () => {
-    // File downloads (payslips, the WPS wage file) rely on this bypass; the
+    // File downloads (payslips, the payroll export) rely on this bypass; the
     // unwrap would hand the caller the blob's *contents* rather than the
     // response, losing the headers a download needs.
     respondWith('binary-ish');
 
-    const response = (await axiosInstance.get('/wps/files/1/download', {
+    const response = (await axiosInstance.get('/export/payroll/p1', {
       responseType: 'blob',
     })) as unknown as { data: string; status: number };
 
@@ -273,12 +273,18 @@ describe('response interceptor — the flat error shape', () => {
   });
 
   it('preserves the whole body under .details so nothing is lost to flattening', async () => {
-    // WPS pre-flight returns its findings in the error body; the screen
-    // re-renders them from here.
-    const body = { message: 'Pre-flight failed', findings: [{ code: 'NO_IBAN', severity: 'BLOCKING' }] };
+    // The flat shape carries only the fields it knows about. Everything else
+    // the failure envelope holds — the field-level `errors` map among them —
+    // is read back off `.details` by the screen that asked.
+    const body = {
+      message: 'Validation failed',
+      errors: { periodStart: 'Overlaps an existing run' },
+      timestamp: '2026-09-05T00:00:00.000Z',
+      path: '/payrolls',
+    };
     failWith(422, body);
 
-    const err = await axiosInstance.post('/wps/generate', {}).catch((e) => e);
+    const err = await axiosInstance.post('/payrolls', {}).catch((e) => e);
 
     expect(err.details).toEqual(body);
     expect(err.statusCode).toBe(422);

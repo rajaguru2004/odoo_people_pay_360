@@ -19,21 +19,11 @@ export interface OpenAssetSummary {
   assignedAt: Date;
 }
 
-export interface OutstandingLoanSummary {
-  loanId: string;
-  type: string;
-  referenceNo: string | null;
-  outstanding: number;
-}
-
 export interface ClearanceStatus {
-  /** Everything is clear: no held assets AND no outstanding loan balance. */
+  /** Everything is clear: no held assets. */
   cleared: boolean;
-  /** Split flags so a caller can tell the two obligations apart. */
   assetCleared: boolean;
-  loanCleared: boolean;
   openAssets: OpenAssetSummary[];
-  outstandingLoans: OutstandingLoanSummary[];
 }
 
 export interface ClearanceOverride {
@@ -80,7 +70,7 @@ export class ClearanceService {
    * question before answering it.
    *
    * Two defects lived in the fact that this used to be skipped entirely (R26,
-   * R27): the projection queried `assetAssignment` and `advanceLoanRequest` by
+   * R27): the projection queried `assetAssignment` by
    * a raw id, and both of those models are `'relation'`-scoped by the HOLDER.
    * So an id that belonged to nobody, and an id that belonged to somebody in
    * another branch, both matched zero rows and both produced
@@ -131,7 +121,7 @@ export class ClearanceService {
   }
 
   /**
-   * Open obligations: assets still held AND unrecovered loan balances.
+   * Open obligations: assets still held.
    *
    * `caller` is the request principal on the READ path (`GET
    * /assets/clearance/:employeeId`) and absent on the internal offboarding
@@ -153,54 +143,11 @@ export class ClearanceService {
       orderBy: { assignedAt: 'asc' },
     });
 
-    // Outstanding loans are a clearance obligation too: letting an employee
-    // walk with an unrecovered balance is how a receivable silently vanishes.
-    // Terminal statuses (SETTLED/WRITTEN_OFF/CLOSED/COMPLETED/RECEIVABLE) are
-    // deliberate outcomes and do NOT block.
-    const loans = await this.prisma.advanceLoanRequest.findMany({
-      where: {
-        employeeId,
-        // Only statuses where money is ACTUALLY out. A DRAFT or PENDING request
-        // has not been disbursed, so it is not a debt and must not block an
-        // exit; RECEIVABLE is a deliberate carry decision that already settled.
-        status: { in: ['APPROVED', 'DISBURSED', 'ACTIVE', 'ON_HOLD'] },
-      },
-      select: {
-        id: true,
-        type: true,
-        referenceNo: true,
-        amount: true,
-        amountRepaid: true,
-        writtenOffAmount: true,
-        waivedAmount: true,
-      },
-    });
-    const outstandingLoans = loans
-      .map((l) => ({
-        loanId: l.id,
-        type: l.type,
-        referenceNo: l.referenceNo,
-        outstanding:
-          Math.round(
-            (Number(l.amount) -
-              Number(l.amountRepaid) -
-              Number(l.writtenOffAmount) -
-              Number(l.waivedAmount)) *
-              100,
-          ) / 100,
-      }))
-      .filter((l) => l.outstanding > 0.005);
-
     const assetCleared = open.length === 0;
-    const loanCleared = outstandingLoans.length === 0;
 
     return {
-      // `cleared` keeps its original meaning for existing callers: everything
-      // is clear. The two flags let a caller tell the reasons apart.
-      cleared: assetCleared && loanCleared,
+      cleared: assetCleared,
       assetCleared,
-      loanCleared,
-      outstandingLoans,
       openAssets: open.map((a) => ({
         assignmentId: a.id,
         assetId: a.asset.id,
@@ -238,48 +185,17 @@ export class ClearanceService {
 
     const status = await this.getClearanceStatus(employeeId);
 
-    // Loans have their own kill-switch, so a site can block on assets but not
-    // on loans (or the reverse) without code changes.
-    const loanBlockingEnabled =
-      (await this.settings.getSetting(
-        'loan_clearance_blocking_enabled',
-        'true',
-      )) !== 'false';
-    const loanBlocks = loanBlockingEnabled && !status.loanCleared;
+    if (status.assetCleared) return;
 
-    if (status.assetCleared && !loanBlocks) return;
-
-    const listedParts: string[] = [];
-    if (!status.assetCleared) {
-      listedParts.push(
-        status.openAssets.map((a) => `${a.assetTag} (${a.name})`).join(', '),
-      );
-    }
-    if (loanBlocks) {
-      listedParts.push(
-        status.outstandingLoans
-          .map(
-            (l) =>
-              `${l.type} ${l.referenceNo ?? l.loanId.slice(0, 8)} — ${l.outstanding} outstanding`,
-          )
-          .join(', '),
-      );
-    }
-    const listed = listedParts.filter(Boolean).join('; ');
+    const listed = status.openAssets
+      .map((a) => `${a.assetTag} (${a.name})`)
+      .join(', ');
 
     if (!override.reason?.trim()) {
-      // Name BOTH obligations accurately: quoting an asset count while listing
-      // a loan reads as a bug and sends the reader hunting for hardware.
-      const what: string[] = [];
-      if (!status.assetCleared) {
-        what.push(`${status.openAssets.length} company asset(s)`);
-      }
-      if (loanBlocks) {
-        what.push(`${status.outstandingLoans.length} outstanding advance/loan balance(s)`);
-      }
       throw new BadRequestException(
-        `Cannot complete offboarding: employee still has ${what.join(' and ')} — ${listed}. ` +
-          'Record the returns / settle the balance first, or supply an override reason (ADMIN/HR_MANAGER only).',
+        `Cannot complete offboarding: employee still has ` +
+          `${status.openAssets.length} company asset(s) — ${listed}. ` +
+          'Record the returns first, or supply an override reason (ADMIN/HR_MANAGER only).',
       );
     }
 
@@ -299,18 +215,6 @@ export class ClearanceService {
         openAssets: status.openAssets.map((a) => ({
           assetTag: a.assetTag,
           name: a.name,
-        })),
-        // R29 — the loan half used to be dropped here, so an exit overridden
-        // past an unrecovered advance left an audit trail stating that no money
-        // was owed. That is the half an auditor is most likely to be looking
-        // for, and it is the half nothing else in the system reconstructs once
-        // the employee is gone. Recorded even when empty, so a reader can tell
-        // "nothing was owed" from "we did not look".
-        outstandingLoans: status.outstandingLoans.map((l) => ({
-          loanId: l.loanId,
-          type: l.type,
-          referenceNo: l.referenceNo,
-          outstanding: l.outstanding,
         })),
       },
       branchId: getBranchContext()?.effectiveBranchId ?? null,

@@ -29,8 +29,8 @@ import {
  * A manual whose figures show an empty product does not merely look bad. It
  * teaches the reader the wrong thing: an administrator reading the payroll
  * chapter needs to see a run with a dozen people in it, because the questions
- * they actually have — which rows failed validation, what the branch totals to,
- * who is missing bank details — are questions a one-row table cannot show.
+ * they actually have — what the branch totals to, who is missing a salary
+ * component — are questions a one-row table cannot show.
  *
  * So this builds a small but complete Muscat operation over the API: twelve
  * staff across three departments, a month of attendance, requests waiting in
@@ -389,9 +389,8 @@ test('a Muscat operation for the administrator manual to photograph', async () =
   // Minted HERE rather than in `seed.manual.ts` because the HR manager IS one of
   // this seed's staff: Aisha Al Balushi, created a few lines above and given the
   // HR_MANAGER role a moment ago. The HR book is the admin book seen from an
-  // account that cannot reach the payroll calendar, the bank master, the
-  // gratuity rules or the audit log — and that HAS an Approvals inbox the
-  // administrator does not. Every figure in it therefore has to be taken as
+  // account that cannot reach the audit log — and that HAS an Approvals inbox
+  // the administrator does not. Every figure in it therefore has to be taken as
   // her: the sidebar and the account menu are in every screenshot, so an HR
   // manual built from the admin captures would show a reader a menu they do
   // not have.
@@ -555,21 +554,6 @@ test('a Muscat operation for the administrator manual to photograph', async () =
     }
   });
 
-  await step('grades — a five-band structure', async () => {
-    const BANDS = [
-      { code: 'G1', name: 'Support', level: 1, minSalary: 400, maxSalary: 650 },
-      { code: 'G2', name: 'Officer', level: 2, minSalary: 650, maxSalary: 900 },
-      { code: 'G3', name: 'Senior Officer', level: 3, minSalary: 900, maxSalary: 1200 },
-      { code: 'G4', name: 'Manager', level: 4, minSalary: 1200, maxSalary: 1800 },
-      { code: 'G5', name: 'Head of Function', level: 5, minSalary: 1800, maxSalary: 2600 },
-    ];
-    const existing = asList<{ code: string }>(await admin.get('/grades').catch(() => null));
-    for (const band of BANDS) {
-      if (existing.some((g) => g.code === band.code)) continue;
-      await admin.post('/grades', { ...band, description: `${band.name} band — Oman operations.` });
-    }
-  });
-
   // ── the calendar ──────────────────────────────────────────────────────────
   // Oman's public holidays. Without them the schedule screens show a working
   // month with no holidays at all, and the holiday tab in Settings is bare.
@@ -632,51 +616,6 @@ test('a Muscat operation for the administrator manual to photograph', async () =
   });
 
   // ── the approval queues ───────────────────────────────────────────────────
-  await step('reimbursements — three waiting for approval', async () => {
-    // The type is validated against the REIMBURSEMENT_TYPE library by LABEL,
-    // not by an upper-case code: "Travel", never "TRAVEL". The server lists the
-    // permitted set in its refusal, which is how these were arrived at.
-    const CLAIMS: Array<[string, string, number, string]> = [
-      ['fatma.alzadjali@company.com', 'Travel', 42.5, 'Taxi fares — bank visits for the WPS setup.'],
-      ['anil.kumar@company.com', 'Office Supplies', 118, 'Annual developer tooling licence.'],
-      ['maryam.alkindi@company.com', 'Food', 26.75, 'Interview panel lunch — four candidates.'],
-    ];
-    // `POST /reimbursements` accepts the same claim twice — quite rightly, an
-    // employee may take two taxis — so `idempotent()` cannot help. Without a
-    // real check a third run of this seed left twelve claims in a queue that is
-    // meant to show three.
-    const filed = asList<{ description?: string }>(
-      await scoped.get('/reimbursements').catch(() => null),
-    ).map((r) => r.description);
-
-    for (const [email, type, amount, description] of CLAIMS) {
-      const api = logins.get(email);
-      if (!api || filed.includes(description)) continue;
-      await api.post('/reimbursements', { type, amount, expenseDate: day(-6), description });
-    }
-  });
-
-  await step('advances and loans — two waiting for approval', async () => {
-    const rashid = logins.get('rashid.alhinai@company.com');
-    if (rashid) {
-      await idempotent(() => rashid.post('/advance-loans', {
-        type: 'LOAN', amount: 900, installments: 9,
-        reason: 'Vehicle repair — repayable over nine months.',
-      }));
-    }
-    // Kept small on purpose. `loan_max_emi_percent_of_net` caps every
-    // instalment at 50% of monthly NET, and net is measured after loss of pay —
-    // so an advance sized off the basic salary is refused for staff who have
-    // not been paid a full month yet. 250 was rejected; this is not.
-    const maryam = logins.get('maryam.alkindi@company.com');
-    if (maryam) {
-      await idempotent(() => maryam.post('/advance-loans', {
-        type: 'ADVANCE', amount: 100, installments: 1,
-        reason: 'School fees — to be recovered from next month.',
-      }));
-    }
-  });
-
   await step('letters — two requests waiting to be issued', async () => {
     // Checked before writing, not merely tolerated on failure.
     //
@@ -725,7 +664,7 @@ test('a Muscat operation for the administrator manual to photograph', async () =
     // is tolerated rather than fixed here, for the same reason it cannot be
     // checked: nothing in the console can see them, so nothing in the manual
     // shows them. When P1 is fixed, replace this with the `filed.includes(...)`
-    // shape used by the reimbursements and letters above.
+    // shape used by the letters above.
     const raised = asList<{ subject?: string }>(
       await scoped.get('/grievances').catch(() => null),
     ).map((g) => g.subject);
@@ -872,20 +811,6 @@ test('a Muscat operation for the administrator manual to photograph', async () =
       name: 'Muscat Operations',
       code: 'MCT-OPS',
       departmentId: deptId('E2E-OPS'),
-    });
-  });
-
-  await step('a budget for the year', async () => {
-    const existing = asList<{ name?: string }>(await scoped.get('/budgets').catch(() => null));
-    if (existing.some((b) => b.name === `Muscat operating budget ${thisYear}`)) return;
-    await scoped.post('/budgets', {
-      name: `Muscat operating budget ${thisYear}`,
-      fiscalYear: thisYear,
-      startDate: `${thisYear}-01-01`,
-      endDate: `${thisYear}-12-31`,
-      branchId,
-      currency: 'OMR',
-      status: 'ACTIVE',
     });
   });
 

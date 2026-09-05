@@ -6,8 +6,8 @@ import { resolve } from 'path';
 /**
  * Anchors only — no screenshots, short waits.
  *
- * The reconnaissance pass already photographed all sixty-seven administrator
- * screens; what it does not leave behind in a usable form is the list of things
+ * The reconnaissance pass already photographed every administrator screen;
+ * what it does not leave behind in a usable form is the list of things
  * a callout can be anchored TO. Re-running the whole sweep just to re-read the
  * test ids costs fifteen minutes for information that takes two to collect, so
  * this is the cheap half on its own.
@@ -38,23 +38,15 @@ const PATHS = [
   '/dashboard/schedules/overview', '/dashboard/schedules/shifts',
   '/dashboard/leave', '/dashboard/leaves', '/dashboard/leaves/pending',
   '/dashboard/leaves/balances', '/dashboard/overtime',
-  '/dashboard/payroll/overview', '/dashboard/payroll/manage', '/dashboard/payroll/validate',
-  '/dashboard/payroll/batches', '/dashboard/payroll/approvals',
-  '/dashboard/payroll/salary-structure', '/dashboard/payroll/grades',
-  '/dashboard/payroll/settlements', '/dashboard/payroll/gratuity-rules',
-  '/dashboard/payroll/encashment', '/dashboard/payroll/recoveries',
-  '/dashboard/payroll/calendar', '/dashboard/payroll/transfers', '/dashboard/payroll/reports',
-  '/dashboard/banks', '/dashboard/banks/config', '/dashboard/banks/branch-countries',
-  '/dashboard/banks/migrate',
-  '/dashboard/finance', '/dashboard/reimbursements', '/dashboard/travel',
-  '/dashboard/advance-loans', '/dashboard/advance-loans/reports', '/dashboard/budgets',
+  '/dashboard/payroll/manage', '/dashboard/payroll/batches',
+  '/dashboard/payroll/approvals', '/dashboard/payroll/salary-structure',
   '/dashboard/talent', '/dashboard/appraisal', '/dashboard/training',
   '/dashboard/rewards-disciplines', '/dashboard/grievances',
   '/dashboard/workplace', '/dashboard/assets', '/dashboard/letters', '/dashboard/projects',
   '/dashboard/system', '/dashboard/settings', '/dashboard/audit-logs',
 ];
 
-// Fail loudly rather than collect sixty-seven blank records.
+// Fail loudly rather than collect a file of blank records.
 test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   try {

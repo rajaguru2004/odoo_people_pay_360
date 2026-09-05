@@ -78,7 +78,7 @@ class PayrollService {
    *
    * This is the ONLY way forward for a run that reached LOCKED without approval —
    * submit, approve and lock all reject a LOCKED payroll, so such a run is
-   * otherwise stuck and can never produce a wage file.
+   * otherwise stuck and can never be paid out.
    */
   async createRevision(id: string, reason: string): Promise<ApiResponse<Payroll>> {
     return axiosInstance.post(`/payrolls/${id}/create-revision`, { reason });

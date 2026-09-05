@@ -17,10 +17,10 @@ import { UserRole } from '@/types/auth';
  *
  *     Minified React error #310 — rendered more hooks than during the previous render
  *
- * so a user who should have seen the 403 page saw a crashed one instead. The
- * only routes where this surfaced were `/dashboard/banks` and
- * `/dashboard/banks/config`, because they are the only two that have to deny an
- * *authenticated* non-admin; everywhere else the denial path is never taken.
+ * so a user who should have seen the 403 page saw a crashed one instead. It
+ * surfaces only where the guard has to deny an *authenticated* user — the
+ * ADMIN/HR screens such as `/dashboard/people` and the payroll runs; everywhere
+ * else the denial path is never taken.
  *
  * Navigation now happens in an effect, after render, via the router — the
  * supported way to leave a Client Component. Hooks run unconditionally and in a
@@ -48,8 +48,8 @@ import { UserRole } from '@/types/auth';
  *     and `!isAuthenticated || denied` came out false too: the guard **rendered
  *     the protected page to a user it had not yet cleared**, fired its requests,
  *     and never called `router.replace` at all. That is the intermittent
- *     "HR stayed on /dashboard/banks" failure — not a slow redirect, an absent
- *     one.
+ *     "a manager stayed on /dashboard/people" failure — not a slow redirect, an
+ *     absent one.
  *
  * Both are fixed by refusing to answer until the store can be answered from:
  * `hasHydrated` says storage has been read, and a settled session is one that

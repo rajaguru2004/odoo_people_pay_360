@@ -18,7 +18,6 @@ import Avatar from '@/components/common/Avatar';
 import ProfileCompletionBar from '@/components/employees/ProfileCompletionBar';
 import DocumentUpload from '@/components/employees/DocumentUpload';
 import DocumentList from '@/components/employees/DocumentList';
-import PaymentInformationSection from '@/components/profile/PaymentInformationSection';
 import WhatsAppOptInSection from '@/components/profile/WhatsAppOptInSection';
 import WhatsAppLinkSection from '@/components/profile/WhatsAppLinkSection';
 import DiscordLinkSection from '@/components/profile/DiscordLinkSection';
@@ -580,9 +579,6 @@ export default function ProfilePage() {
                         </div>
                     }
                 />
-
-                {/* Payment Information — bank details via approval workflow */}
-                <PaymentInformationSection />
 
                 {/* WhatsApp notification opt-in (anchor: /dashboard/profile#notifications) */}
                 <WhatsAppOptInSection />

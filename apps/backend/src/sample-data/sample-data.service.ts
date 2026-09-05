@@ -552,57 +552,10 @@ export class SampleDataService {
             },
           });
         }
-        for (const r of reimbSpecsFor(m.year, m.month)) {
-          const approved = r.status === 'APPROVED' || r.status === 'PAID';
-          await prisma.reimbursement.create({
-            data: {
-              employeeId: employees[r.empIdx].id, type: r.type, amount: r.amount,
-              expenseDate: dU(r.date), description: `${r.type} expense claim`, status: r.status,
-              approverId: approved || r.status === 'REJECTED' ? hrUserId : null,
-              approvedAt: approved ? new Date() : null,
-              approverRemarks: r.status === 'APPROVED' ? 'Approved for reimbursement.' : null,
-              rejectedReason: r.status === 'REJECTED' ? 'Missing receipt.' : null,
-              paidAt: r.status === 'PAID' ? new Date() : null,
-            },
-          });
-        }
       }
 
       await prisma.workSchedule.createMany({ data: scheduleRows });
       await prisma.attendance.createMany({ data: attendanceRows });
-
-      say('Setting up salary advances & loans…');
-      const alSpecs = [
-        { empIdx: 0, type: 'LOAN', amount: 60000, installments: 12, status: 'APPROVED' },
-        { empIdx: 1, type: 'ADVANCE', amount: 10000, installments: 1, status: 'APPROVED' },
-        { empIdx: 2, type: 'LOAN', amount: 24000, installments: 6, status: 'APPROVED' },
-        { empIdx: 3, type: 'ADVANCE', amount: 8000, installments: 1, status: 'PENDING' },
-        { empIdx: 4, type: 'LOAN', amount: 30000, installments: 10, status: 'REJECTED' },
-        { empIdx: 5, type: 'ADVANCE', amount: 5000, installments: 1, status: 'CANCELLED' },
-        { empIdx: 6, type: 'LOAN', amount: 12000, installments: 6, status: 'COMPLETED' },
-        // Oman branch — amounts in OMR.
-        { empIdx: 18, type: 'ADVANCE', amount: 300, installments: 1, status: 'APPROVED' },
-        { empIdx: 19, type: 'LOAN', amount: 1200, installments: 6, status: 'APPROVED' },
-      ] as const;
-      for (const a of alSpecs) {
-        const completed = a.status === 'COMPLETED';
-        const hasPlan = a.status === 'APPROVED' || completed;
-        const installmentAmount = a.type === 'LOAN' ? Math.round(a.amount / a.installments) : a.amount;
-        await prisma.advanceLoanRequest.create({
-          data: {
-            employeeId: employees[a.empIdx].id, type: a.type, amount: a.amount,
-            reason: `${a.type === 'LOAN' ? 'Personal loan' : 'Salary advance'} request`,
-            status: a.status, installments: a.installments,
-            installmentAmount: hasPlan ? installmentAmount : null,
-            amountRepaid: completed ? a.amount : 0,
-            approverId: hasPlan || a.status === 'REJECTED' ? hrUserId : null,
-            approvedAt: hasPlan ? new Date() : null,
-            approverRemarks: a.status === 'APPROVED' ? 'Approved; recovered via payroll.' : null,
-            rejectedReason: a.status === 'REJECTED' ? 'Exceeds allowed limit.' : null,
-            completedAt: completed ? new Date() : null,
-          },
-        });
-      }
 
       say('Running payroll (draft) for the previous & current month…');
       // ONE BATCH AND ONE RUN PER BRANCH, not one company-wide run.
@@ -850,9 +803,9 @@ export class SampleDataService {
     const ofEmp = sampleFilters.ofSampleEmployee;
     const [
       employees, departments, branches, attendance, leaveRequests, overtime,
-      reimbursements, advancesLoans, payrollItems, projects, tasks,
-      teams, assets, travelRequests, trainingNominations, budgetLines,
-      bankDetails, letters, grievances, documents, visas, rewards, disciplines,
+      payrollItems, projects, tasks,
+      teams, assets, trainingNominations,
+      letters, grievances, documents, visas, rewards, disciplines,
       timesheets, workLogs, corrections, appraisalResults, notifications, auditLogs,
     ] = await Promise.all([
       this.prisma.employee.count({ where: sampleFilters.employeeByEmail }),
@@ -861,17 +814,12 @@ export class SampleDataService {
       this.prisma.attendance.count({ where: ofEmp }),
       this.prisma.leaveRequest.count({ where: ofEmp }),
       this.prisma.overtimeRequest.count({ where: ofEmp }),
-      this.prisma.reimbursement.count({ where: ofEmp }),
-      this.prisma.advanceLoanRequest.count({ where: ofEmp }),
       this.prisma.payrollItem.count({ where: { payroll: { batch: { name: { startsWith: 'SMP' } } } } }),
       this.prisma.project.count({ where: sampleFilters.projectByCodePrefix }),
       this.prisma.task.count({ where: sampleFilters.taskByCodePrefix }),
       this.prisma.team.count({ where: sampleFilters.byCodePrefix }),
       this.prisma.assetItem.count({ where: { assetTag: { startsWith: SMP } } }),
-      this.prisma.travelRequest.count({ where: ofEmp }),
       this.prisma.trainingNomination.count({ where: ofEmp }),
-      this.prisma.budgetLine.count({ where: { budget: { name: { startsWith: SMP } } } }),
-      this.prisma.employeeBankDetail.count({ where: ofEmp }),
       this.prisma.letterRequest.count({ where: ofEmp }),
       this.prisma.grievance.count({ where: ofEmp }),
       this.prisma.employeeDocument.count({ where: ofEmp }),
@@ -887,9 +835,9 @@ export class SampleDataService {
     ]);
     return {
       departments, branches, employees, attendance, leaveRequests,
-      overtime, reimbursements, advancesLoans, payrollItems, projects, tasks,
-      teams, assets, travelRequests, trainingNominations, budgetLines,
-      bankDetails, letters, grievances, documents, visas, rewards, disciplines,
+      overtime, payrollItems, projects, tasks,
+      teams, assets, trainingNominations,
+      letters, grievances, documents, visas, rewards, disciplines,
       timesheets, workLogs, corrections, appraisalResults, notifications, auditLogs,
     };
   }

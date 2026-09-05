@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Download, Lock, Edit, Save, X, Info, SendHorizontal, ArrowLeftRight, GitBranch } from 'lucide-react';
+import { Download, Lock, Edit, Save, X, Info, SendHorizontal, GitBranch } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import payrollService from '@/services/payrollService';
 import { Payroll, PayrollItem } from '@/types/payroll';
@@ -119,10 +119,10 @@ function PayrollDetailPageContent({ params }: { params: Promise<{ id: string }> 
   };
 
   // The lifecycle is DRAFT -> submit -> PENDING_APPROVAL -> approve -> APPROVED
-  // -> lock -> LOCKED. Only `lock` settles reimbursements and advance/loan
-  // installments, so skipping straight to it (as the old single "finalize" button
-  // did from DRAFT) produced a payroll that read as final but had paid nothing
-  // out. Approval happens on the Payroll approvals screen.
+  // -> lock -> LOCKED. Only `lock` marks the salaries final, so skipping straight
+  // to it (as the old single "finalize" button did from DRAFT) produced a payroll
+  // that read as final but had never been approved. Approval happens on the
+  // Payroll approvals screen.
   const handleSubmit = async () => {
     const ok = await confirm({
       title: t('submitConfirmMessage'),
@@ -162,9 +162,9 @@ function PayrollDetailPageContent({ params }: { params: Promise<{ id: string }> 
   /**
    * A LOCKED payroll cannot be edited, re-approved or re-locked — so a revision is
    * the only way to correct one. That matters for runs finalised by the old code
-   * path without approval: they are otherwise stuck and can never produce a wage
-   * file. The new version is a DRAFT at version+1 that copies the amounts but no
-   * ledger rows, so it can never double-pay.
+   * path without approval: they are otherwise stuck. The new version is a DRAFT
+   * at version+1 that copies the amounts but no ledger rows, so it can never
+   * double-pay.
    */
   const handleCreateRevision = async () => {
     if (!revisionReason.trim()) {
@@ -259,16 +259,6 @@ function PayrollDetailPageContent({ params }: { params: Promise<{ id: string }> 
                 >
                   <Lock size={18} />
                   {t('lockBtn')}
-                </button>
-              )}
-              {/* Only a locked run can produce a wage file, so this appears there. */}
-              {isHR && payroll.status === 'LOCKED' && (
-                <button
-                  onClick={() => router.push(`/dashboard/payroll/${id}/wps`)}
-                  className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-text-on-brand rounded-[--radius-button] font-semibold hover:shadow-lg transition-all"
-                >
-                  <ArrowLeftRight size={18} />
-                  {t('wpsBtn')}
                 </button>
               )}
               {/* The only way to correct a LOCKED run — and the only escape for one
