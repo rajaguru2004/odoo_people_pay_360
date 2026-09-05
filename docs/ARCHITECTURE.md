@@ -118,6 +118,26 @@ ambiguous — it is both "storage not read yet" and "signed out". Anything that
 spinner until it flips. Without it, every reload flashes /login to a signed-in
 user.
 
+### The shell
+
+`app/dashboard/layout.tsx` is exactly one viewport tall and does not scroll;
+`<main>` is the only scroller inside it. With a growing document the rail and
+the header scrolled off the top of a long page, taking the navigation and the
+sign-out control with them.
+
+Two consequences follow. The rail carries its own `overflow-y-auto`, because a
+fully-expanded accordion can be taller than the window and a rail that cannot
+reach its last entry is no better than one that scrolled away. And the header
+bar is `shrink-0`, so it keeps its height instead of being squeezed by the
+content below it.
+
+The header owns the single `<h1>` for the whole shell — a page declares its text
+through `usePageHeader` rather than painting a second heading. The breadcrumb
+trail is deliberately NOT in the header: it describes the page rather than the
+frame, so it renders at the top of the content area instead. Both read the same
+derivation (`usePageChrome`), which is what stops the heading and the trail
+drifting apart.
+
 ### Theming
 
 `theme/presets/*` are plain objects. `ThemeProvider` writes them onto `<html>` as

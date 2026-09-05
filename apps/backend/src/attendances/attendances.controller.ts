@@ -23,6 +23,7 @@ import { BulkAttendanceDto } from './dto/bulk-attendance.dto';
 import { AttendanceSummaryDto } from './dto/attendance-summary.dto';
 import { EmployeeHistoryDto } from './dto/employee-history.dto';
 import { HubSummaryDto } from './dto/hub-summary.dto';
+import { MonthlyReportDto } from './dto/monthly-report.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -110,6 +111,22 @@ export class AttendancesController {
   })
   hubSummary(@Query() query: HubSummaryDto) {
     return this.hubService.getSummary(query.period ?? 'month', query.anchor);
+  }
+
+  @Get('monthly-report')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.HR_MANAGER,
+    UserRole.PAYROLL_OFFICER,
+    UserRole.MANAGER,
+  )
+  @ApiOperation({
+    summary: 'One month of the whole workforce',
+    description:
+      'A row per employee with a cell per day and the month\u2019s totals. Everyone still on the books appears, whether or not they produced a single punch.',
+  })
+  monthlyReport(@Query() query: MonthlyReportDto) {
+    return this.attendancesService.monthlyReport(query);
   }
 
   @Get('employee/:employeeId')

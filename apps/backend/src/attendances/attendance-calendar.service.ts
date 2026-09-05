@@ -55,6 +55,34 @@ export interface DayCalendar {
   source: 'schedule' | 'branch';
 }
 
+/**
+ * The roster row the day composer reads.
+ *
+ * Structural rather than a Prisma payload type so a caller may hand over a row
+ * it selected for its own reasons, and so `requiredHours` can arrive as the
+ * Decimal Prisma returns or as the number a test writes.
+ */
+export interface RosterOverride {
+  id: string;
+  shiftType: ShiftType;
+  isWorkDay: boolean;
+  startTime: string | null;
+  endTime: string | null;
+  requiredHours: Prisma.Decimal | number | null;
+}
+
+/** The shift window a day is measured against — wall clocks plus their zone. */
+export interface ShiftWindow {
+  zone: string;
+  officeStart: string;
+  officeEnd: string;
+}
+
+/** The key `scheduleIndex` files a roster row under. */
+export function rosterKey(employeeId: string, dayKey: string): string {
+  return `${employeeId}|${dayKey}`;
+}
+
 const EMPLOYEE_CALENDAR_SELECT = {
   id: true,
   timezone: true,
@@ -251,55 +279,81 @@ export class AttendanceCalendarService {
    * An end at or before the start belongs to the following morning, so a night
    * shift's day is not reported as over the moment it begins.
    */
-  officeEndInstant(dayKey: string, config: ResolvedBranchConfig): DateTime {
-    const start = parseWallClock(config.officeStart) ?? 0;
-    const end = parseWallClock(config.officeEnd) ?? 0;
+  officeEndInstant(dayKey: string, window: ShiftWindow): DateTime {
+    const start = parseWallClock(window.officeStart) ?? 0;
+    const end = parseWallClock(window.officeEnd) ?? 0;
     const base = DateTime.fromFormat(dayKey, 'yyyy-MM-dd', {
-      zone: config.zone,
+      zone: window.zone,
     }).set({ hour: Math.floor(end / 60), minute: end % 60 });
     return end <= start ? base.plus({ days: 1 }) : base;
   }
 
   /**
-   * The full picture for one employee on one date.
+   * Roster rows for a set of people over a range, keyed by employee and day.
+   *
+   * The batched twin of the lookup inside `resolveDay`. A month's report asks
+   * the same question for every person on every day, and one query per cell is
+   * several hundred round trips for a report nobody would wait for.
+   */
+  async scheduleIndex(
+    employeeIds: string[],
+    fromKey: string,
+    toKey: string,
+  ): Promise<Map<string, RosterOverride>> {
+    const index = new Map<string, RosterOverride>();
+    if (employeeIds.length === 0) return index;
+
+    const rows = await this.prisma.workSchedule.findMany({
+      where: {
+        employeeId: { in: employeeIds },
+        date: { gte: dayKeyToDate(fromKey), lte: dayKeyToDate(toKey) },
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        date: true,
+        shiftType: true,
+        isWorkDay: true,
+        startTime: true,
+        endTime: true,
+        requiredHours: true,
+      },
+    });
+
+    for (const row of rows) {
+      index.set(rosterKey(row.employeeId, toDayKey(row.date)), row);
+    }
+    return index;
+  }
+
+  /**
+   * The day's verdict from inputs the caller has already loaded.
+   *
+   * Split out of `resolveDay` so one day and a whole month reach the same
+   * answer by the same route: `resolveDay` fetches for a single cell, a report
+   * fetches in bulk, and both end here. A second copy of this precedence is a
+   * second definition of what a working day is, and the two drift the first
+   * time a roster rule changes.
    *
    * A WorkSchedule row beats the branch calendar outright — deviating from the
    * branch calendar is the only reason such a row is ever written, so treating
-   * it as a hint that the branch could override would make the table pointless.
+   * it as a hint the branch could override would make the table pointless.
    */
-  async resolveDay(
-    employeeId: string,
-    dayKey: string,
-    context?: EmployeeCalendarContext,
-  ): Promise<DayCalendar> {
-    const employee = context ?? (await this.employeeContext(employeeId));
-    const [companyZone, holidayIndex, schedule] = await Promise.all([
-      this.companyTimezone(),
-      this.holidayIndex(dayKey, dayKey),
-      this.prisma.workSchedule.findUnique({
-        where: { employeeId_date: { employeeId, date: dayKeyToDate(dayKey) } },
-        select: {
-          id: true,
-          shiftType: true,
-          isWorkDay: true,
-          startTime: true,
-          endTime: true,
-          requiredHours: true,
-        },
-      }),
-    ]);
-
-    const branchConfig = this.resolveBranch(employee.branch, companyZone);
-    const zone = resolveZone(employee, employee.branch, companyZone);
-    const holiday = this.holidayOn(holidayIndex, dayKey, employee.branchId);
+  composeDay(input: {
+    dayKey: string;
+    zone: string;
+    branchConfig: ResolvedBranchConfig;
+    holiday: ResolvedHoliday | null;
+    schedule: RosterOverride | null;
+  }): DayCalendar {
+    const { dayKey, zone, branchConfig, holiday, schedule } = input;
     const weeklyOff = isWeeklyOff(
       parseDayKey(dayKey) ?? DateTime.fromMillis(0),
       branchConfig.weeklyOffDays,
     );
 
     if (schedule) {
-      const officeStart =
-        schedule.startTime?.trim() || branchConfig.officeStart;
+      const officeStart = schedule.startTime?.trim() || branchConfig.officeStart;
       const officeEnd = schedule.endTime?.trim() || branchConfig.officeEnd;
       return {
         date: dayKey,
@@ -337,5 +391,42 @@ export class AttendanceCalendarService {
       schedule: null,
       source: 'branch',
     };
+  }
+
+  /**
+   * The full picture for one employee on one date.
+   *
+   * Loads the three inputs the composer needs and hands them straight over, so
+   * the precedence between a roster row and the branch calendar is stated once.
+   */
+  async resolveDay(
+    employeeId: string,
+    dayKey: string,
+    context?: EmployeeCalendarContext,
+  ): Promise<DayCalendar> {
+    const employee = context ?? (await this.employeeContext(employeeId));
+    const [companyZone, holidayIndex, schedule] = await Promise.all([
+      this.companyTimezone(),
+      this.holidayIndex(dayKey, dayKey),
+      this.prisma.workSchedule.findUnique({
+        where: { employeeId_date: { employeeId, date: dayKeyToDate(dayKey) } },
+        select: {
+          id: true,
+          shiftType: true,
+          isWorkDay: true,
+          startTime: true,
+          endTime: true,
+          requiredHours: true,
+        },
+      }),
+    ]);
+
+    return this.composeDay({
+      dayKey,
+      zone: resolveZone(employee, employee.branch, companyZone),
+      branchConfig: this.resolveBranch(employee.branch, companyZone),
+      holiday: this.holidayOn(holidayIndex, dayKey, employee.branchId),
+      schedule,
+    });
   }
 }
