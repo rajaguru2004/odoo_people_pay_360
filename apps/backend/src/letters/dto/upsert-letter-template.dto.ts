@@ -1,10 +1,4 @@
-import {
-  IsBoolean,
-  IsIn,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { LETTER_LOCALES } from './request-letter.dto';
 
@@ -21,21 +15,19 @@ export class UpsertLetterTemplateDto {
 
   @ApiPropertyOptional({ enum: LETTER_LOCALES, default: 'en' })
   @IsOptional()
-  @IsIn(LETTER_LOCALES)
+  @IsIn(LETTER_LOCALES as unknown as string[])
   locale?: string;
 
   @ApiProperty({
     description:
-      'The letter body. Supports {{value}} and {{#if value}}…{{else}}…{{/if}} against a ' +
-      'fixed context — see letter-template.util.ts. Must be self-contained markup.',
+      'Handlebars source rendered to PDF. Must be a self-contained document — a strict no-network page means external stylesheets and webfonts will not load.',
   })
   @IsString()
   bodyHtml: string;
 
   @ApiPropertyOptional({
     default: true,
-    description:
-      'false issues on request; keep it true for anything stating pay',
+    description: 'false issues instantly; keep true for anything stating pay',
   })
   @IsOptional()
   @IsBoolean()

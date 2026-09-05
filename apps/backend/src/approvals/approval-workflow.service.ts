@@ -1,72 +1,67 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { ApprovalMode, Prisma } from '@prisma/client';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { UpsertWorkflowDto } from './dto/upsert-workflow.dto';
 import {
   APPROVAL_KINDS,
   APPROVAL_REQUEST_TYPES,
-  type ApprovalRequestType,
+  type ApprovalRequestType as RequestType,
 } from './approval-kind.registry';
-import { UpsertWorkflowDto } from './dto/upsert-workflow.dto';
-
-const WORKFLOW_INCLUDE = {
-  steps: { orderBy: { stepOrder: 'asc' } },
-} satisfies Prisma.ApprovalWorkflowInclude;
 
 /**
- * Administration of the configurable chains.
- *
- * At most one workflow per request type is active at a time; upserting a new
- * one deactivates the previous one in the same transaction rather than editing
- * it in place, so a chain that was in force when a request was raised is still
- * readable afterwards.
+ * Admin CRUD for configurable approval chains. Exactly one active workflow may
+ * exist per request type (enforced by a partial unique index + this service
+ * deactivating any prior active workflow on upsert).
  */
 @Injectable()
 export class ApprovalWorkflowService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   /**
-   * The request types a chain can govern. Served to the frontend so the chain
-   * builder and the inbox do not hardcode the union — adding a type on the
-   * server surfaces it in the UI with no frontend change.
+   * The request types that can be governed by a chain. Served to the frontend so
+   * the settings chain builder and the approval inbox stop hardcoding the union
+   * — adding a type on the server surfaces it in the UI with no frontend edit.
    */
   listKinds() {
-    return APPROVAL_REQUEST_TYPES.map((type) => ({
-      type,
-      label: APPROVAL_KINDS[type].label,
-      link: APPROVAL_KINDS[type].link,
-    }));
+    return {
+      success: true,
+      data: APPROVAL_REQUEST_TYPES.map((type) => ({
+        type,
+        label: APPROVAL_KINDS[type].label,
+        link: APPROVAL_KINDS[type].link,
+      })),
+    };
   }
 
   async list() {
-    return this.prisma.approvalWorkflow.findMany({
-      include: WORKFLOW_INCLUDE,
+    const data = await this.prisma.approvalWorkflow.findMany({
+      include: { steps: { orderBy: { stepOrder: 'asc' } } },
       orderBy: [{ requestType: 'asc' }, { createdAt: 'desc' }],
     });
+    return { success: true, data };
   }
 
-  async getForType(type: ApprovalRequestType) {
+  async getForType(type: RequestType) {
     return this.prisma.approvalWorkflow.findFirst({
-      where: { requestType: type, isActive: true },
-      include: WORKFLOW_INCLUDE,
+      where: { requestType: type as any, isActive: true },
+      include: { steps: { orderBy: { stepOrder: 'asc' } } },
     });
   }
 
   /**
-   * Create or replace the active workflow for a request type.
-   *
-   * A role step with no live holder is refused up front: it would activate,
-   * resolve to an empty pool and be auto-skipped, so the chain would silently
-   * be shorter than the administrator configured.
+   * Create or replace the active workflow for a request type. Validates that
+   * role steps have at least one eligible user, then atomically deactivates the
+   * prior active workflow and writes the new ordered steps.
    */
   async upsert(dto: UpsertWorkflowDto, actorUserId?: string) {
     if (!dto.steps?.length) {
       throw new BadRequestException('A workflow needs at least one step');
     }
 
+    // Guard: role steps must have at least one active user to avoid dead-ends.
     for (const step of dto.steps) {
       if (step.approverType === 'HR_MANAGER' || step.approverType === 'ADMIN') {
         const count = await this.prisma.user.count({
@@ -74,7 +69,7 @@ export class ApprovalWorkflowService {
         });
         if (count === 0) {
           throw new BadRequestException(
-            `No active ${step.approverType} user exists, so it cannot be an approval step`,
+            `No active ${step.approverType} user exists — cannot use it as an approval step`,
           );
         }
       }
@@ -82,75 +77,62 @@ export class ApprovalWorkflowService {
 
     const workflow = await this.prisma.$transaction(async (tx) => {
       await tx.approvalWorkflow.updateMany({
-        where: { requestType: dto.requestType, isActive: true },
+        where: { requestType: dto.requestType as any, isActive: true },
         data: { isActive: false },
       });
       return tx.approvalWorkflow.create({
         data: {
-          requestType: dto.requestType,
+          requestType: dto.requestType as any,
           name: dto.name ?? null,
-          mode: dto.mode ?? ApprovalMode.SEQUENTIAL,
+          mode: (dto.mode ?? 'SEQUENTIAL') as any,
           isActive: dto.isActive ?? true,
           steps: {
-            create: dto.steps.map((step, index) => ({
-              stepOrder: index + 1,
-              approverType: step.approverType,
+            create: dto.steps.map((s, i) => ({
+              stepOrder: i + 1,
+              approverType: s.approverType as any,
             })),
           },
         },
-        include: WORKFLOW_INCLUDE,
+        include: { steps: { orderBy: { stepOrder: 'asc' } } },
       });
     });
 
-    await this.prisma.auditLog.create({
-      data: {
-        userId: actorUserId ?? null,
-        action: 'APPROVAL_WORKFLOW_UPSERT',
-        entityType: 'ApprovalWorkflow',
-        entityId: workflow.id,
-        metadata: {
-          requestType: workflow.requestType,
-          mode: workflow.mode,
-          isActive: workflow.isActive,
-          steps: workflow.steps.map((step) => step.approverType),
-        },
+    await this.audit.log({
+      userId: actorUserId,
+      action: 'APPROVAL_WORKFLOW_UPSERT',
+      resourceType: 'ApprovalWorkflow',
+      resourceId: workflow.id,
+      newData: {
+        requestType: workflow.requestType,
+        mode: (workflow as any).mode,
+        isActive: workflow.isActive,
+        steps: workflow.steps.map((s) => s.approverType),
       },
     });
-    return workflow;
+    return { success: true, data: workflow };
   }
 
   async setActive(id: string, isActive: boolean, actorUserId?: string) {
-    const workflow = await this.prisma.approvalWorkflow.findUnique({
-      where: { id },
-    });
-    if (!workflow) throw new NotFoundException('Workflow not found');
-
+    const wf = await this.prisma.approvalWorkflow.findUnique({ where: { id } });
+    if (!wf) throw new BadRequestException('Workflow not found');
     if (isActive) {
       await this.prisma.approvalWorkflow.updateMany({
-        where: {
-          requestType: workflow.requestType,
-          isActive: true,
-          id: { not: id },
-        },
+        where: { requestType: wf.requestType, isActive: true, id: { not: id } },
         data: { isActive: false },
       });
     }
-
     const updated = await this.prisma.approvalWorkflow.update({
       where: { id },
       data: { isActive },
-      include: WORKFLOW_INCLUDE,
+      include: { steps: { orderBy: { stepOrder: 'asc' } } },
     });
-
-    await this.prisma.auditLog.create({
-      data: {
-        userId: actorUserId ?? null,
-        action: 'APPROVAL_WORKFLOW_TOGGLE',
-        entityType: 'ApprovalWorkflow',
-        entityId: id,
-        metadata: { isActive },
-      },
+    await this.audit.log({
+      userId: actorUserId,
+      action: 'APPROVAL_WORKFLOW_TOGGLE',
+      resourceType: 'ApprovalWorkflow',
+      resourceId: id,
+      newData: { isActive },
     });
-    return updated;
+    return { success: true, data: updated };
   }
 }

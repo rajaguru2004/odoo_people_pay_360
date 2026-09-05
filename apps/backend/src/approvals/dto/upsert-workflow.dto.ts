@@ -1,49 +1,56 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ApprovalMode, ApproverType } from '@prisma/client';
-import { Type } from 'class-transformer';
 import {
-  ArrayMinSize,
   IsArray,
   IsBoolean,
-  IsEnum,
+  IsIn,
   IsOptional,
   IsString,
-  MaxLength,
+  ArrayMinSize,
   ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   APPROVAL_REQUEST_TYPES,
   type ApprovalRequestType,
 } from '../approval-kind.registry';
 
+export const APPROVER_TYPES = [
+  'SUPERVISOR',
+  'MANAGER',
+  'HR_MANAGER',
+  'ADMIN',
+] as const;
+export type ApproverTypeLiteral = (typeof APPROVER_TYPES)[number];
+
+export const APPROVAL_MODES = ['SEQUENTIAL', 'PARALLEL'] as const;
+export type ApprovalModeLiteral = (typeof APPROVAL_MODES)[number];
+
 export class WorkflowStepDto {
-  @ApiProperty({ enum: ApproverType, example: ApproverType.SUPERVISOR })
-  @IsEnum(ApproverType)
-  approverType: ApproverType;
+  @ApiProperty({ enum: APPROVER_TYPES })
+  @IsIn(APPROVER_TYPES as unknown as string[])
+  approverType: ApproverTypeLiteral;
 }
 
 export class UpsertWorkflowDto {
-  // Sourced from the registry, so adding a governable type never needs an edit
-  // here — the enum value and the registry entry are the whole change.
-  @ApiProperty({ enum: APPROVAL_REQUEST_TYPES, example: 'LEAVE' })
-  @IsEnum(Object.fromEntries(APPROVAL_REQUEST_TYPES.map((t) => [t, t])))
+  // Sourced from the registry so a new approvable type never needs an edit here.
+  @ApiProperty({ enum: APPROVAL_REQUEST_TYPES })
+  @IsIn(APPROVAL_REQUEST_TYPES as unknown as string[])
   requestType: ApprovalRequestType;
 
-  @ApiPropertyOptional({ example: 'Leave — supervisor then HR' })
+  @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  @MaxLength(150)
   name?: string;
 
   @ApiPropertyOptional({
-    enum: ApprovalMode,
-    default: ApprovalMode.SEQUENTIAL,
+    enum: APPROVAL_MODES,
+    default: 'SEQUENTIAL',
     description:
-      'SEQUENTIAL: a step opens only once the previous approver accepts. PARALLEL: every step opens at once and all must approve.',
+      'SEQUENTIAL: a step is actionable only after the previous approver accepts. PARALLEL: every step is actionable at once and all must approve.',
   })
   @IsOptional()
-  @IsEnum(ApprovalMode)
-  mode?: ApprovalMode;
+  @IsIn(APPROVAL_MODES as unknown as string[])
+  mode?: ApprovalModeLiteral;
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()

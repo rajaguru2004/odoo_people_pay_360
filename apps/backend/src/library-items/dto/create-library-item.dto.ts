@@ -1,93 +1,109 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEnum, IsString, IsNotEmpty, IsOptional, IsBoolean, IsInt, IsIn, IsNumber, Min, ValidateIf } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 import { LibraryType } from '@prisma/client';
-import {
-  IsBoolean,
-  IsEnum,
-  IsIn,
-  IsInt,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-  ValidateIf,
-} from 'class-validator';
 
 export class CreateLibraryItemDto {
-  @ApiProperty({ enum: LibraryType, example: LibraryType.LEAVE_TYPE })
+  @ApiProperty({
+    enum: LibraryType,
+    example: 'POSITION',
+    description: 'Type of library this item belongs to',
+  })
   @IsEnum(LibraryType)
+  @IsNotEmpty()
   libraryType: LibraryType;
 
-  @ApiProperty({ example: 'Study Leave' })
+  @ApiProperty({
+    example: 'Senior Developer',
+    description: 'Display label of the library item',
+  })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(200)
   label: string;
 
-  @ApiPropertyOptional({ default: true })
-  @IsOptional()
+  @ApiProperty({
+    example: true,
+    required: false,
+    description: 'Whether the item is active and selectable',
+  })
   @IsBoolean()
+  @IsOptional()
   isActive?: boolean;
 
-  @ApiPropertyOptional({ default: 0 })
-  @IsOptional()
+  @ApiProperty({
+    example: 0,
+    required: false,
+    description: 'Order weight for sorting',
+  })
   @IsInt()
+  @IsOptional()
   sortOrder?: number;
 
-  @ApiPropertyOptional({
-    example: 5,
-    description: 'LEAVE_TYPE only: days allocated for a fresh year.',
-  })
-  @IsOptional()
+  @ApiProperty({ example: 12, required: false, description: 'Default days allocated per year' })
   @IsInt()
-  @Min(0)
+  @IsOptional()
   defaultDays?: number;
 
-  @ApiPropertyOptional({ default: true })
-  @IsOptional()
+  @ApiProperty({ example: true, required: false, description: 'Is the leave type paid' })
   @IsBoolean()
+  @IsOptional()
   isPaid?: boolean;
 
-  @ApiPropertyOptional({
-    example: 3,
-    description:
-      'Minimum days between filing and the first day off. 0 means it may be filed for today.',
-  })
-  @IsOptional()
+  @ApiProperty({ example: 0, required: false, description: 'Required notice days in advance' })
   @IsInt()
-  @Min(0)
+  @IsOptional()
   requiresNoticeDays?: number;
 
-  @ApiPropertyOptional({
-    default: true,
-    description:
-      'False for unpaid leave: recorded, writes attendance, costs no entitlement.',
-  })
-  @IsOptional()
+  @ApiProperty({ example: true, required: false, description: 'Whether this leave type affects the balance' })
   @IsBoolean()
+  @IsOptional()
   affectsBalance?: boolean;
 
-  @ApiPropertyOptional({
-    enum: ['MONTHLY', 'DAILY'],
+  @ApiProperty({ example: 'FEMALE', required: false, description: 'Gender restriction: MALE, FEMALE, or null for all genders' })
+  @IsString()
+  @IsOptional()
+  genderRestriction?: string | null;
+
+  @ApiProperty({
+    example: 'DAILY',
+    required: false,
     nullable: true,
+    enum: ['MONTHLY', 'DAILY'],
     description:
-      'EMPLOYMENT_TYPE only: the pay basis this type forces on anyone assigned ' +
-      "it. null leaves the choice with the employee's own record.",
+      'EMPLOYMENT_TYPE only. The pay basis this employment type forces on every ' +
+      'employee assigned to it — DAILY makes their baseSalary a PER-DAY rate. ' +
+      'null leaves it unspecified, so each employee keeps their own salaryType.',
   })
   @IsOptional()
-  // As with genderRestriction, null is an explicit "clear it".
-  @ValidateIf((_o, value) => value !== null)
+  @ValidateIf((_o, value) => value !== null) // null is a deliberate "clear the flag"
   @IsIn(['MONTHLY', 'DAILY'])
   payBasis?: 'MONTHLY' | 'DAILY' | null;
 
-  @ApiPropertyOptional({
-    enum: ['MALE', 'FEMALE'],
+  @ApiProperty({
+    example: 'PAUSE',
+    required: false,
     nullable: true,
-    description: 'null means the type is available to everybody.',
+    enum: ['CONTINUE', 'PAUSE', 'EXTEND'],
+    description:
+      'LEAVE_TYPE only. What happens to loan recovery while an employee is on ' +
+      'this leave: CONTINUE deducts as normal, PAUSE skips the cycle, EXTEND ' +
+      'pushes the whole schedule out by one. Payroll has always read this ' +
+      'column (strictest-wins across overlapping leave types) and no DTO ' +
+      'carried it, so the rule could only be set in the database. null leaves ' +
+      'the deployment-wide `loan_unpaid_leave_policy` in charge.',
   })
   @IsOptional()
-  // null is a deliberate "clear the restriction", not a missing value.
-  @ValidateIf((_o, value) => value !== null)
-  @IsIn(['MALE', 'FEMALE'])
-  genderRestriction?: 'MALE' | 'FEMALE' | null;
+  @ValidateIf((_o, value) => value !== null) // null is a deliberate "clear it"
+  @IsIn(['CONTINUE', 'PAUSE', 'EXTEND'])
+  loanDeductionPolicy?: 'CONTINUE' | 'PAUSE' | 'EXTEND' | null;
+
+  @ApiProperty({
+    example: 50,
+    required: false,
+    description:
+      'PER_DIEM_DESTINATION only: daily allowance for this destination. Snapshotted onto a travel request at submit, never read live.',
+  })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  perDiemRate?: number;
 }

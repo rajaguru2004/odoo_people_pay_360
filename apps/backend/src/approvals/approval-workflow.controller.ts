@@ -4,142 +4,120 @@ import {
   Controller,
   Get,
   Param,
-  ParseUUIDPipe,
   Patch,
   Put,
   Query,
   UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-  ApiTags,
-} from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { Principal } from '../auth/auth.service';
-import { ApprovalEngineService } from './approval-engine.service';
 import { ApprovalWorkflowService } from './approval-workflow.service';
-import { isApprovalRequestType } from './approval-kind.registry';
+import { ApprovalEngineService } from './approval-engine.service';
 import { UpsertWorkflowDto } from './dto/upsert-workflow.dto';
 import { SetWorkflowActiveDto } from './dto/set-active.dto';
-import { ListApprovalHistoryDto } from './dto/list-history.dto';
-
-/** Every role that can hold a step, plus EMPLOYEE — a supervisor holds no more. */
-const CHAIN_PARTICIPANTS = [
-  UserRole.ADMIN,
-  UserRole.HR_MANAGER,
-  UserRole.MANAGER,
-  UserRole.EMPLOYEE,
-] as const;
+import { isApprovalRequestType } from './approval-kind.registry';
 
 @ApiTags('Approval Workflows')
-@ApiBearerAuth('JWT-auth')
-@Controller('approval-workflows')
+@ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('approval-workflows')
 export class ApprovalWorkflowController {
   constructor(
     private readonly workflows: ApprovalWorkflowService,
     private readonly engine: ApprovalEngineService,
   ) {}
 
-  // The literal segments are declared before `:id` — Express matches in
-  // declaration order, and with a parameterised route first `kinds` would reach
-  // ParseUUIDPipe and answer 400.
   @Get('kinds')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Request types a chain can govern' })
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Request types that can be governed by an approval chain',
+  })
   kinds() {
     return this.workflows.listKinds();
   }
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'List every configured approval workflow' })
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'List all configured approval workflows' })
   list() {
     return this.workflows.list();
   }
 
   @Put()
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({
-    summary: 'Create or replace the active workflow for a request type',
-    description:
-      'The previous active workflow is deactivated rather than edited, so a chain that governed an existing request stays readable.',
-  })
-  upsert(@Body() dto: UpsertWorkflowDto, @CurrentUser() user: Principal) {
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Create/replace the active workflow for a request type' })
+  upsert(@CurrentUser() user: any, @Body() dto: UpsertWorkflowDto) {
     return this.workflows.upsert(dto, user.id);
   }
 
   @Patch(':id/active')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Enable or disable a workflow' })
-  @ApiParam({ name: 'id', description: 'Workflow UUID' })
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Enable/disable a workflow' })
   setActive(
+    @CurrentUser() user: any,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: SetWorkflowActiveDto,
-    @CurrentUser() user: Principal,
   ) {
     return this.workflows.setActive(id, dto.isActive, user.id);
   }
 
   @Get('pending/me')
-  @Roles(...CHAIN_PARTICIPANTS)
-  @ApiOperation({ summary: 'Live approval steps awaiting the current user' })
-  pendingForMe(@CurrentUser() user: Principal) {
-    return this.engine.pendingForUser(user);
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Active approval steps awaiting the current user' })
+  async pendingForMe(@CurrentUser() user: any) {
+    return { success: true, data: await this.engine.pendingForUser(user) };
   }
 
   @Get('can-approve')
-  @Roles(...CHAIN_PARTICIPANTS)
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
   @ApiOperation({
-    summary: 'Whether the caller is an approver under the active chains',
-    description:
-      'Drives navigation visibility, so it stays true while the inbox happens to be empty.',
+    summary: 'Whether the current user is an approver under the active chains',
   })
-  canApprove(@CurrentUser() user: Principal) {
-    return this.engine.canApprove(user);
+  async canApprove(@CurrentUser() user: any) {
+    return { success: true, data: await this.engine.canApprove(user) };
   }
 
   @Get('inbox')
-  @Roles(...CHAIN_PARTICIPANTS)
-  @ApiOperation({ summary: 'Pending requests the caller can act on' })
-  inbox(@CurrentUser() user: Principal) {
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Approval inbox: pending requests the user can act on' })
+  inbox(@CurrentUser() user: any) {
     return this.engine.inboxForUser(user);
   }
 
   @Get('history')
-  @Roles(...CHAIN_PARTICIPANTS)
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
   @ApiOperation({
     summary: 'Requests this user has already decided, newest first',
   })
-  history(
-    @Query() query: ListApprovalHistoryDto,
-    @CurrentUser() user: Principal,
-  ) {
-    return this.engine.historyForUser(user, query.limit ?? 50);
+  history(@CurrentUser() user: any, @Query('limit') limit?: string) {
+    const parsed = Number(limit);
+    return this.engine.historyForUser(
+      user,
+      Number.isFinite(parsed) && parsed > 0 ? parsed : 50,
+    );
   }
 
   @Get('trail/:type/:requestId')
-  @Roles(...CHAIN_PARTICIPANTS)
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
   @ApiOperation({
     summary:
-      'The approval trail for a request, plus whether the caller may act',
+      'Approval trail for a given request, plus whether the caller may act on the live step',
   })
-  @ApiParam({ name: 'type', description: 'LEAVE | OVERTIME | TRAINING' })
-  @ApiParam({ name: 'requestId', description: 'Domain request UUID' })
-  trail(
+  async trail(
+    @CurrentUser() user: any,
     @Param('type') type: string,
-    @Param('requestId', ParseUUIDPipe) requestId: string,
-    @CurrentUser() user: Principal,
+    @Param('requestId') requestId: string,
   ) {
     if (!isApprovalRequestType(type)) {
       throw new BadRequestException(`Unknown approval request type "${type}"`);
     }
-    return this.engine.trailFor(type, requestId, user);
+    return {
+      success: true,
+      data: await this.engine.trailFor(type, requestId, user),
+    };
   }
 }

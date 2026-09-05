@@ -1,108 +1,394 @@
 import {
   Controller,
   Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
   Param,
-  ParseIntPipe,
-  ParseUUIDPipe,
   Query,
   UseGuards,
+  ForbiddenException,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
   ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { PayrollsService } from './payrolls.service';
-import { ListMyPayslipsDto, YtdSummaryDto } from './dto/my-payslips.dto';
+import { PayrollValidationService } from './payroll-validation.service';
+import { PayrollHubService } from './payroll-hub.service';
+import {
+  CreatePayrollDto,
+  UpdatePayrollItemDto,
+  UnlockPayrollDto,
+  ListPayrollsQueryDto,
+  PAYROLL_STATUSES,
+} from './dto/payroll.dto';
+import { ApprovePayrollDto } from './dto/approve-payroll.dto';
+import { RejectPayrollDto } from './dto/reject-payroll.dto';
+import { CreateRevisionDto } from './dto/create-revision.dto';
+import { BulkApproveDto } from './dto/bulk-approve.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { Principal } from '../auth/auth.service';
+import { isDeptInManagerScope } from '../common/services/manager-scope.util';
+import { PrismaService } from '../prisma/prisma.service';
+import { AuditResource } from '../audit/audit-resource.decorator';
 
-/**
- * The read side of payroll: what an employee is shown about their own pay.
- *
- * None of these routes carries `@Roles`, and that is not an oversight. Every
- * one of them is a question somebody is entitled to ask about themselves, so
- * the narrowing happens in the service where the subject of the question is
- * known — a decorator can say which ROLE may ask, never WHOSE payslip is being
- * asked for. The run engine (creating, calculating, approving and paying a run)
- * is not part of this controller.
- */
-@ApiTags('Payroll')
+@ApiTags('Payrolls')
 @ApiBearerAuth('JWT-auth')
 @Controller('payrolls')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@AuditResource('Payroll')
 export class PayrollsController {
-  constructor(private readonly payrollsService: PayrollsService) {}
+  constructor(
+    private readonly payrollsService: PayrollsService,
+    private readonly prisma: PrismaService,
+    private readonly validation: PayrollValidationService,
+    private readonly hub: PayrollHubService,
+  ) {}
 
-  // Every literal segment below is declared before the parameterised routes.
-  // Express matches in declaration order, so `my-payslips/list` reaching a
-  // `:employeeId` route first would be answered with a 400 from ParseUUIDPipe
-  // rather than with the caller's payslips.
-
-  @Get('my-payslips/list')
-  @ApiOperation({
-    summary: 'My payslips',
-    description:
-      'The most recent published payslips for the signed-in employee, newest first. Pass a year for a full calendar year instead.',
-  })
-  findMine(@CurrentUser() user: Principal, @Query() query: ListMyPayslipsDto) {
-    return this.payrollsService.findMine(user, query.year);
+  @Get()
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Get all payrolls' })
+  @ApiQuery({ name: 'year', required: false, type: Number })
+  @ApiQuery({ name: 'status', required: false, enum: PAYROLL_STATUSES })
+  findAll(@Query() query: ListPayrollsQueryDto) {
+    return this.payrollsService.findAll({
+      year: query.year,
+      status: query.status,
+    });
   }
 
+  // Declared before @Get(':id') so the literal path is not swallowed by the param route.
   @Get('my-ytd-summary')
+  @Roles('EMPLOYEE', 'MANAGER', 'HR_MANAGER', 'ADMIN')
   @ApiOperation({
-    summary: 'My year to date',
-    description:
-      'Gross, deductions and net for the year, counting paid runs only.',
+    summary: 'Get YTD summary',
+    description: 'Year-to-date income and tax summary',
   })
-  ytdSummary(@CurrentUser() user: Principal, @Query() query: YtdSummaryDto) {
-    return this.payrollsService.ytdSummary(
-      user,
-      query.year ?? new Date().getUTCFullYear(),
-    );
+  @ApiQuery({ name: 'year', required: false, type: Number })
+  getYTDSummary(@CurrentUser() user: any, @Query('year') year?: number) {
+    const currentYear = year || new Date().getFullYear();
+    return this.payrollsService.getYTDSummary(user.employeeId, currentYear);
   }
 
-  @Get('my-payslips/:id')
+  // Also before @Get(':id'), for the same reason: without this the literal
+  // "hub-summary" reaches ParseUUIDPipe and answers 400 instead of the hub.
+  @Get('hub-summary')
+  @Roles('ADMIN', 'HR_MANAGER')
   @ApiOperation({
-    summary: 'One of my payslips',
-    description: 'The payslip with its earnings and deduction lines.',
+    summary: 'Payroll module hub summary',
+    description:
+      'The payroll processing position in one payload: what is open, what is ' +
+      'waiting for approval, what has been paid for the reporting period, who ' +
+      'is not in a run, and whether the people in it can actually be paid. ' +
+      'Money is LOCKED runs only — the same rule every payroll report applies, ' +
+      'because a DRAFT total is money that has not moved.',
   })
-  findMineById(
-    @CurrentUser() user: Principal,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.payrollsService.findMineById(user, id);
+  @ApiQuery({
+    name: 'months',
+    required: false,
+    enum: [6, 12],
+    description: 'Trend window. Anything else is refused rather than defaulted.',
+  })
+  @ApiResponse({ status: 200, description: 'Hub summary retrieved' })
+  @ApiResponse({ status: 400, description: 'months outside the offered window' })
+  async getHubSummary(@Query('months') months?: string) {
+    return { success: true, data: await this.hub.getSummary(months) };
   }
 
-  @Get('salary-structure/:employeeId')
+  @Get(':id')
+  @Roles('ADMIN', 'HR_MANAGER')
   @ApiOperation({
-    summary: 'The standing salary structure',
-    description:
-      'An employee may read their own; anyone else needs a payroll role.',
+    summary: 'Get payroll by ID',
+    description: 'Get payroll with all items',
   })
-  salaryStructure(
-    @CurrentUser() user: Principal,
-    @Param('employeeId', ParseUUIDPipe) employeeId: string,
-  ) {
-    return this.payrollsService.salaryStructure(user, employeeId);
+  @ApiParam({ name: 'id', description: 'Payroll UUID' })
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return this.payrollsService.findOne(id);
   }
 
   @Get('payslip/:employeeId/:month/:year')
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
   @ApiOperation({
-    summary: 'A payslip for one period',
-    description:
-      'An employee may read their own; anyone else needs a payroll role. Only the payroll office sees a run that has not been approved.',
+    summary: 'Get payslip',
+    description: 'Get employee payslip for a month',
   })
-  @ApiParam({ name: 'month', description: '1–12' })
-  findForPeriod(
-    @CurrentUser() user: Principal,
+  @ApiParam({ name: 'employeeId', description: 'Employee UUID' })
+  @ApiParam({ name: 'month', description: 'Month (1-12)' })
+  @ApiParam({ name: 'year', description: 'Year' })
+  async getPayslip(
+    @CurrentUser() user: any,
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
-    @Param('month', ParseIntPipe) month: number,
-    @Param('year', ParseIntPipe) year: number,
+    @Param('month') month: number,
+    @Param('year') year: number,
   ) {
-    return this.payrollsService.findForPeriod(user, employeeId, month, year);
+    // EMPLOYEE: can only view their own payslip. Without this an employee
+    // could read any colleague's salary by passing their UUID — the
+    // self-scoped routes above (my-payslips/list, my-payslips/:itemId) derive
+    // the employee from the token, but this one takes it from the path.
+    if (user?.role === 'EMPLOYEE' && user?.employeeId !== employeeId) {
+      throw new ForbiddenException('You can only view your own payslip.');
+    }
+
+    // MANAGER: can only view payslips for own dept employees
+    if (user?.role === 'MANAGER') {
+      const emp = await this.prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { departmentId: true },
+      });
+      if (!emp || !isDeptInManagerScope(user, emp.departmentId)) {
+        throw new ForbiddenException(
+          'You do not have permission to view payslips outside your department.',
+        );
+      }
+    }
+    // ADMIN and HR_MANAGER own the run and may read it at any status. Everyone
+    // else — the employee themselves, and a manager reading their team — sees
+    // only what `my-payslips/*` would show them: APPROVED or LOCKED. A DRAFT
+    // payslip is a figure HR is still working on, not a statement of pay.
+    const onlyFinalized = !['ADMIN', 'HR_MANAGER'].includes(user?.role);
+    return this.payrollsService.getPayslip(employeeId, +month, +year, {
+      onlyFinalized,
+    });
+  }
+
+  @Post('preflight')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Is this run safe to generate?',
+    description:
+      'Runs every check generation would run, plus the ones it cannot — pending ' +
+      'leave, missing contracts, post-cut-off inputs — BEFORE any payroll ' +
+      'exists. Writes nothing. Same finding shape as the WPS pre-flight, so one ' +
+      'screen renders both.',
+  })
+  preflight(@Body() dto: any) {
+    return this.validation
+      .preflight(dto)
+      .then((data) => ({ success: true, data }));
+  }
+
+  @Post()
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Create payroll',
+    description: 'Create monthly payroll and calculate salaries',
+  })
+  @ApiResponse({ status: 201, description: 'Payroll created' })
+  @ApiResponse({ status: 409, description: 'Payroll already exists' })
+  create(@Body() dto: CreatePayrollDto) {
+    return this.payrollsService.create(dto);
+  }
+
+  @Patch(':id/items/:itemId')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Update payroll item',
+    description: 'Adjust salary components',
+  })
+  @ApiParam({ name: 'id', description: 'Payroll UUID' })
+  @ApiParam({ name: 'itemId', description: 'Payroll item UUID' })
+  updateItem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: UpdatePayrollItemDto,
+  ) {
+    return this.payrollsService.updateItem(id, itemId, dto);
+  }
+
+  @Post(':id/finalize')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Finalize payroll (deprecated alias for POST :id/lock)',
+    description:
+      'Kept for existing integrations. Delegates to the same code path as ' +
+      'POST :id/lock, so the payroll must be APPROVED first. It previously ' +
+      'locked from any status without flipping reimbursements or advance/loan ' +
+      'installments to PAID, which left LOCKED meaning nothing. Prefer ' +
+      'submit -> approve -> lock.',
+  })
+  @ApiParam({ name: 'id', description: 'Payroll UUID' })
+  finalize(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+    return this.payrollsService.finalize(id, user.id);
+  }
+
+  // Employee Payslip Endpoints
+  @Get('my-payslips/list')
+  @Roles('EMPLOYEE', 'MANAGER', 'HR_MANAGER', 'ADMIN')
+  @ApiOperation({
+    summary: 'Get my payslips',
+    description: 'Get all payslips for current user',
+  })
+  getMyPayslips(@CurrentUser() user: any) {
+    return this.payrollsService.getEmployeePayslips(user.employeeId);
+  }
+
+  @Get('my-payslips/:itemId')
+  @Roles('EMPLOYEE', 'MANAGER', 'HR_MANAGER', 'ADMIN')
+  @ApiOperation({ summary: 'Get my payslip detail' })
+  @ApiParam({ name: 'itemId', description: 'Payroll item UUID' })
+  getMyPayslip(@Param('itemId', ParseUUIDPipe) itemId: string, @CurrentUser() user: any) {
+    return this.payrollsService.getEmployeePayslipDetail(
+      user.employeeId,
+      itemId,
+    );
+  }
+
+  // =====================================================
+  // PAYROLL WORKFLOW ENDPOINTS
+  // =====================================================
+
+  @Post(':id/submit')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Submit payroll for approval',
+    description: 'Change status from DRAFT to PENDING_APPROVAL',
+  })
+  @ApiParam({ name: 'id', description: 'Payroll UUID' })
+  @ApiResponse({ status: 200, description: 'Payroll submitted for approval' })
+  @ApiResponse({ status: 400, description: 'Invalid status transition' })
+  submitForApproval(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+    return this.payrollsService.submitForApproval(id, user.id);
+  }
+
+  @Post(':id/approve')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Approve payroll',
+    description: 'Change status from PENDING_APPROVAL to APPROVED',
+  })
+  @ApiParam({ name: 'id', description: 'Payroll UUID' })
+  @ApiResponse({ status: 200, description: 'Payroll approved' })
+  @ApiResponse({ status: 400, description: 'Invalid status transition' })
+  approvePayroll(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ApprovePayrollDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.payrollsService.approvePayroll(id, user.id, dto);
+  }
+
+  @Post(':id/reject')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Reject payroll',
+    description: 'Change status from PENDING_APPROVAL to REJECTED',
+  })
+  @ApiParam({ name: 'id', description: 'Payroll UUID' })
+  @ApiResponse({ status: 200, description: 'Payroll rejected' })
+  @ApiResponse({ status: 400, description: 'Invalid status transition' })
+  rejectPayroll(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RejectPayrollDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.payrollsService.rejectPayroll(id, user.id, dto);
+  }
+
+  @Post(':id/lock')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Lock payroll',
+    description: 'Change status from APPROVED to LOCKED after payment',
+  })
+  @ApiParam({ name: 'id', description: 'Payroll UUID' })
+  @ApiResponse({ status: 200, description: 'Payroll locked' })
+  @ApiResponse({ status: 400, description: 'Invalid status transition' })
+  lockPayroll(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: any) {
+    return this.payrollsService.lockPayroll(id, user.id);
+  }
+
+  @Post(':id/unlock')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Unlock a locked payroll and reverse its loan recovery',
+    description:
+      'Returns the payroll to APPROVED so it can be corrected. Every PAID ' +
+      'advance/loan recovery is REVERSED (never deleted) with a matching ' +
+      'REVERSAL ledger entry, balances and schedule rows are restored, and any ' +
+      'loan this run auto-closed is reopened. Refused when a LATER run has ' +
+      'already recovered against the same loans, or when a locked revision ' +
+      'descends from this payroll.',
+  })
+  @ApiParam({ name: 'id', description: 'Payroll UUID' })
+  @ApiResponse({ status: 200, description: 'Payroll unlocked' })
+  @ApiResponse({ status: 400, description: 'Payroll is not LOCKED' })
+  @ApiResponse({
+    status: 409,
+    description: 'A later run or a locked revision must be reversed first',
+  })
+  unlockPayroll(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UnlockPayrollDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.payrollsService.unlockPayroll(id, user.id, dto);
+  }
+
+  @Post(':id/create-revision')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Create revision',
+    description: 'Create new version of LOCKED payroll',
+  })
+  @ApiParam({ name: 'id', description: 'Payroll UUID' })
+  @ApiResponse({ status: 201, description: 'Revision created' })
+  @ApiResponse({
+    status: 400,
+    description: 'Can only create revision from LOCKED payroll',
+  })
+  createRevision(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateRevisionDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.payrollsService.createRevision(id, user.id, dto);
+  }
+
+  @Get(':id/history')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Get approval history',
+    description: 'Get timeline of all status changes',
+  })
+  @ApiParam({ name: 'id', description: 'Payroll UUID' })
+  @ApiResponse({ status: 200, description: 'Approval history retrieved' })
+  getApprovalHistory(@Param('id', ParseUUIDPipe) id: string) {
+    return this.payrollsService.getApprovalHistory(id);
+  }
+
+  @Post('bulk-approve')
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Bulk approve payrolls',
+    description: 'Approve multiple payrolls at once',
+  })
+  @ApiResponse({ status: 200, description: 'Bulk approval completed' })
+  bulkApprove(
+    @Body() dto: BulkApproveDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.payrollsService.bulkApprove(dto.payrollIds, user.id, dto.notes);
+  }
+
+  @Delete(':id')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Delete payroll',
+    description: 'Delete a payroll cycle if it is not locked',
+  })
+  @ApiParam({ name: 'id', description: 'Payroll UUID' })
+  @ApiResponse({ status: 200, description: 'Payroll deleted' })
+  @ApiResponse({ status: 400, description: 'Cannot delete locked payroll' })
+  remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.payrollsService.remove(id);
   }
 }

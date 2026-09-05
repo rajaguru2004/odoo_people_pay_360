@@ -1,18 +1,11 @@
 import { Transform, Type } from 'class-transformer';
-import {
-  IsBoolean,
-  IsEnum,
-  IsInt,
-  IsOptional,
-  IsString,
-  IsUUID,
-  Min,
-} from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { AssetStatus } from '@prisma/client';
+import { ASSET_STATUSES } from '../assets.service';
 
 export class QueryAssetsDto {
-  @ApiPropertyOptional({ enum: AssetStatus })
+  @ApiPropertyOptional({ enum: ASSET_STATUSES })
   @IsOptional()
   @IsEnum(AssetStatus)
   status?: AssetStatus;
@@ -27,9 +20,7 @@ export class QueryAssetsDto {
   @IsUUID()
   branchId?: string;
 
-  @ApiPropertyOptional({
-    description: 'Matches the tag, the name or the serial number',
-  })
+  @ApiPropertyOptional({ description: 'Matches asset tag, name or serial number' })
   @IsOptional()
   @IsString()
   search?: string;

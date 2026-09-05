@@ -1,11 +1,10 @@
 /**
- * The letters this platform ships with, seeded on boot the way the library
- * pick lists are.
+ * Shipped letter templates, seeded on boot the same way library defaults are.
  *
- * The markup is self-contained — one inline stylesheet, no external font or
- * asset beyond the company logo — so a letter renders and prints identically
- * wherever it is opened. The Arabic variants set `dir="rtl"` and lead with an
- * Arabic font stack; the rest of the document is the same document.
+ * The markup is deliberately self-contained: PdfService renders with a strict
+ * no-network page, so an external stylesheet or webfont would silently not load.
+ * Arabic variants set `dir="rtl"` and a Noto Arabic stack — the fonts installed
+ * in the image for exactly this.
  */
 export interface LetterTemplateDefault {
   key: string;
@@ -16,8 +15,8 @@ export interface LetterTemplateDefault {
 }
 
 const BASE_STYLE = `
-  @page { margin: 18mm; }
-  body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #111827; font-size: 13pt; line-height: 1.7; margin: 0; padding: 24px; }
+  @page { margin: 0; }
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #111827; font-size: 13pt; line-height: 1.7; }
   .header { text-align: center; border-bottom: 2px solid #e5e7eb; padding-bottom: 16px; margin-bottom: 28px; }
   .header img { max-height: 60px; }
   .header h2 { margin: 8px 0 0; font-size: 15pt; }
@@ -43,19 +42,17 @@ function page(opts: {
   body: string;
   footer: string;
 }): string {
-  const ref = opts.dir === 'rtl' ? 'الرقم المرجعي' : 'Ref';
-  const date = opts.dir === 'rtl' ? 'التاريخ' : 'Date';
   return `<!doctype html>
 <html dir="${opts.dir}" lang="${opts.lang}">
-<head><meta charset="utf-8"><title>${opts.title}</title><style>${opts.style}</style></head>
+<head><meta charset="utf-8"><style>${opts.style}</style></head>
 <body>
   <div class="header">
     {{#if companyLogoUrl}}<img src="{{companyLogoUrl}}" alt="{{companyName}}" />{{/if}}
     <h2>{{companyName}}</h2>
   </div>
   <div class="meta">
-    <span>${ref}: {{serialNumber}}</span>
-    <span>${date}: {{issueDate}}</span>
+    <span>${opts.dir === 'rtl' ? 'الرقم المرجعي' : 'Ref'}: {{serialNumber}}</span>
+    <span>${opts.dir === 'rtl' ? 'التاريخ' : 'Date'}: {{issueDate}}</span>
   </div>
   <h1>${opts.title}</h1>
   ${opts.body}
@@ -64,15 +61,12 @@ function page(opts: {
 </html>`;
 }
 
-const EN_FOOTER =
-  'This document was generated electronically and is valid without a physical signature. Verify it with reference {{serialNumber}}.';
-
 export const LETTER_TEMPLATE_DEFAULTS: LetterTemplateDefault[] = [
   {
     key: 'SALARY_CERTIFICATE',
     name: 'Salary Certificate',
     locale: 'en',
-    // It states somebody's pay to a bank, so it is never issued instantly.
+    // States someone's pay to a bank — never instant.
     requiresApproval: true,
     bodyHtml: page({
       dir: 'ltr',
@@ -95,7 +89,8 @@ export const LETTER_TEMPLATE_DEFAULTS: LetterTemplateDefault[] = [
     <p>For {{companyName}},</p>
     <p style="margin-top:44px">_______________________<br/>Human Resources</p>
   </div>`,
-      footer: EN_FOOTER,
+      footer:
+        'This document was generated electronically and is valid without a physical signature. Verify with reference {{serialNumber}}.',
     }),
   },
   {
@@ -124,8 +119,7 @@ export const LETTER_TEMPLATE_DEFAULTS: LetterTemplateDefault[] = [
     <p>عن {{companyName}}،</p>
     <p style="margin-top:44px">_______________________<br/>الموارد البشرية</p>
   </div>`,
-      footer:
-        'صدرت هذه الوثيقة إلكترونياً وهي صالحة دون توقيع. الرقم المرجعي {{serialNumber}}.',
+      footer: 'صدرت هذه الوثيقة إلكترونياً وهي صالحة دون توقيع. الرقم المرجعي {{serialNumber}}.',
     }),
   },
   {
@@ -145,21 +139,21 @@ export const LETTER_TEMPLATE_DEFAULTS: LetterTemplateDefault[] = [
      {{startDate}}, is a bona fide employee of {{companyName}}.</p>
   <p>{{companyName}} has <strong>no objection</strong> to the above employee
      {{#if purpose}}{{purpose}}{{else}}proceeding with their stated request{{/if}}.</p>
-  <p>This certificate is issued at the employee's request and creates no financial
-     obligation on the part of the company.</p>
+  <p>This certificate is issued at the employee's request and does not constitute
+     any financial obligation on the part of the company.</p>
   <div class="sign">
     <p>For {{companyName}},</p>
     <p style="margin-top:44px">_______________________<br/>Human Resources</p>
   </div>`,
-      footer: EN_FOOTER,
+      footer:
+        'This document was generated electronically and is valid without a physical signature. Verify with reference {{serialNumber}}.',
     }),
   },
   {
     key: 'EXPERIENCE',
     name: 'Experience Letter',
     locale: 'en',
-    // A statement of past employment carries no live financial data, so it can
-    // be issued the moment it is asked for.
+    // A statement of past employment carries no live financial data.
     requiresApproval: false,
     bodyHtml: page({
       dir: 'ltr',
@@ -178,7 +172,8 @@ export const LETTER_TEMPLATE_DEFAULTS: LetterTemplateDefault[] = [
     <p>For {{companyName}},</p>
     <p style="margin-top:44px">_______________________<br/>Human Resources</p>
   </div>`,
-      footer: EN_FOOTER,
+      footer:
+        'This document was generated electronically and is valid without a physical signature. Verify with reference {{serialNumber}}.',
     }),
   },
   {
@@ -206,7 +201,8 @@ export const LETTER_TEMPLATE_DEFAULTS: LetterTemplateDefault[] = [
     <p>For {{companyName}},</p>
     <p style="margin-top:44px">_______________________<br/>Human Resources</p>
   </div>`,
-      footer: EN_FOOTER,
+      footer:
+        'This document was generated electronically and is valid without a physical signature. Verify with reference {{serialNumber}}.',
     }),
   },
 ];

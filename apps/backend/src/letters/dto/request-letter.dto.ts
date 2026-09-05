@@ -6,8 +6,7 @@ export const LETTER_LOCALES = ['en', 'ar'] as const;
 export class RequestLetterDto {
   @ApiProperty({
     example: 'SALARY_CERTIFICATE',
-    description:
-      'A LetterTemplate key: SALARY_CERTIFICATE | NOC | EXPERIENCE | EMBASSY',
+    description: 'LetterTemplate key: SALARY_CERTIFICATE | NOC | EXPERIENCE | EMBASSY',
   })
   @IsString()
   @MaxLength(50)
@@ -15,18 +14,15 @@ export class RequestLetterDto {
 
   @ApiPropertyOptional({ enum: LETTER_LOCALES, default: 'en' })
   @IsOptional()
-  @IsIn(LETTER_LOCALES)
+  @IsIn(LETTER_LOCALES as unknown as string[])
   locale?: string;
 
-  @ApiPropertyOptional({
-    description: 'Why the letter is needed; it appears in the text',
-  })
+  @ApiPropertyOptional({ description: 'Why the letter is needed; appears in the text' })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
   purpose?: string;
 
-  @ApiPropertyOptional({ example: 'Bank Muscat', description: 'The addressee' })
+  @ApiPropertyOptional({ example: 'Bank Muscat', description: 'Addressee' })
   @IsOptional()
   @IsString()
   @MaxLength(200)

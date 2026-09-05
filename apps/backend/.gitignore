@@ -6,10 +6,10 @@
 logs
 *.log
 npm-debug.log*
+pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-AGENT_INSTRUCTIONS.md
-.AGENT_INSTRUCTIONS.md
+lerna-debug.log*
 
 # OS
 .DS_Store
@@ -21,21 +21,26 @@ AGENT_INSTRUCTIONS.md
 # IDEs and editors
 /.idea
 .project
+.classpath
+.c9/
+*.launch
 .settings/
+*.sublime-workspace
 
 # IDE - VSCode
 .vscode/*
 !.vscode/settings.json
+!.vscode/tasks.json
 !.vscode/launch.json
+!.vscode/extensions.json
 
-# Uploads (runtime artefacts, not source)
-/uploads/*
-!/uploads/.gitkeep
+# Environment
+# # .env
+# .env.local
+# .env.*.local
 
-# Local-only env for the e2e suite (never commit credentials)
+# Uploads
+/uploads
+
+# Local-only env for the browser test suite (never commit credentials)
 .env.test
-
-# Privately stored files (issued letters). Deliberately outside `uploads/`,
-# which is served statically — a salary certificate must not be readable by
-# link alone. Runtime data, never source.
-/storage

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Email Verified</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f4;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+
+          <!-- Company Header -->
+          <tr>
+            <td style="background-color: #ffffff; padding: 28px 32px 24px; text-align: center; border-bottom: 2px solid #e5e7eb;">
+              {{#if companyLogoUrl}}
+                <img src="{{companyLogoUrl}}" alt="{{#if companyName}}{{companyName}}{{else}}ESS Portal{{/if}}" style="max-height: 52px; width: auto; display: block; margin: 0 auto;" />
+              {{else}}
+                <p style="margin: 0; font-size: 20px; font-weight: 700; color: #111827;">{{#if companyName}}{{companyName}}{{else}}ESS Portal{{/if}}</p>
+              {{/if}}
+            </td>
+          </tr>
+
+          <!-- Title Banner -->
+          <tr>
+            <td style="background-color: #059669; padding: 28px 32px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.2px;">Email Address Verified</h1>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding: 36px 32px;">
+              <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">Dear <strong>{{email}}</strong>,</p>
+
+              <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+                Your email address has been successfully verified. You now have full access to the Employee Self Service Portal and may log in at any time.
+              </p>
+
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 28px 0;">
+                <tr>
+                  <td align="center">
+                    <a href="{{loginUrl}}" style="display: inline-block; padding: 13px 36px; background-color: #059669; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 15px; font-weight: 600;">
+                      Log In to Portal
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="background-color: #ecfdf5; border-left: 4px solid #059669; padding: 14px 16px; border-radius: 0 4px 4px 0;">
+                    <p style="color: #065f46; font-size: 13px; line-height: 1.5; margin: 0;">
+                      We recommend updating your profile information on your first login to ensure your records are complete and accurate.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8f9fa; padding: 24px 32px; text-align: center; border-top: 1px solid #e5e7eb;">
+              <p style="color: #6b7280; font-size: 13px; line-height: 1.5; margin: 0 0 6px;">
+                &copy; 2026 {{#if companyName}}{{companyName}}{{else}}ESS Portal{{/if}}. All rights reserved.
+              </p>
+              <p style="color: #9ca3af; font-size: 12px; line-height: 1.5; margin: 0;">
+                This is an automated notification. Please do not reply to this email.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

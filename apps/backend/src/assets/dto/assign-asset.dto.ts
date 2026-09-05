@@ -1,10 +1,4 @@
-import {
-  IsDateString,
-  IsOptional,
-  IsString,
-  IsUUID,
-  MaxLength,
-} from 'class-validator';
+import { IsDateString, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class AssignAssetDto {
@@ -21,10 +15,7 @@ export class AssignAssetDto {
   @IsDateString()
   assignedAt?: string;
 
-  @ApiPropertyOptional({
-    example: 'New',
-    description: 'Condition at hand-over',
-  })
+  @ApiPropertyOptional({ example: 'New', description: 'Condition at hand-over' })
   @IsOptional()
   @IsString()
   @MaxLength(50)
