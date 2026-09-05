@@ -13,6 +13,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     'VIEW_DASHBOARD',
     'VIEW_EMPLOYEES', 'CREATE_EMPLOYEE', 'EDIT_EMPLOYEE', 'TERMINATE_EMPLOYEE',
     'VIEW_DEPARTMENTS', 'MANAGE_DEPARTMENTS',
+    // Reading the roster and writing it are separate: a department head reads
+    // their team's, and every /work-schedules route is ADMIN + HR server-side.
+    'VIEW_SCHEDULES', 'MANAGE_SCHEDULES',
     'VIEW_ALL_PAYROLL', 'MANAGE_PAYROLL', 'APPROVE_PAYROLL', 'VIEW_OWN_PAYSLIP',
     'MANAGE_SALARY_COMPONENTS',
     'VIEW_REPORTS', 'EXPORT_DATA',
@@ -26,6 +29,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     'VIEW_DASHBOARD',
     'VIEW_EMPLOYEES', 'CREATE_EMPLOYEE', 'EDIT_EMPLOYEE', 'TERMINATE_EMPLOYEE',
     'VIEW_DEPARTMENTS', 'MANAGE_DEPARTMENTS',
+    'VIEW_SCHEDULES', 'MANAGE_SCHEDULES',
     'VIEW_ALL_PAYROLL', 'VIEW_OWN_PAYSLIP',
     'VIEW_REPORTS', 'EXPORT_DATA',
     'MANAGE_USERS',
@@ -48,6 +52,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     'VIEW_DASHBOARD',
     'VIEW_EMPLOYEES',
     'VIEW_DEPARTMENTS',
+    // Read only — no MANAGE_SCHEDULES. The server refuses every roster write
+    // from this role, so drawing the buttons would be a lie the user finds.
+    'VIEW_SCHEDULES',
     'VIEW_OWN_PAYSLIP',
     'VIEW_REPORTS',
     'VIEW_OWN_PROFILE', 'EDIT_OWN_PROFILE',

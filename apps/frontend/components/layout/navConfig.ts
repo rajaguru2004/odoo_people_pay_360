@@ -1,4 +1,12 @@
-import { Building2, Clock, LayoutDashboard, Settings, Users, Wallet } from 'lucide-react';
+import {
+  Building2,
+  CalendarRange,
+  Clock,
+  LayoutDashboard,
+  Settings,
+  Users,
+  Wallet,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { UserRole } from '@/types/auth';
 import type { PublicBranding } from '@/types/settings';
@@ -159,6 +167,27 @@ export const adminMenuItems: NavGroup[] = [
     ],
   },
   {
+    // Separate from Time & attendance on purpose. That module is a RECORD of
+    // what happened; this one is the PLAN for what is meant to. They share the
+    // WorkSchedule table and nothing else, and folding the roster into the
+    // attendance rail would bury "nobody is covering Thursday" under six screens
+    // about last month.
+    icon: CalendarRange,
+    labelKey: 'schedules',
+    href: '/dashboard/schedules',
+    roles: ['ADMIN', 'HR_MANAGER'],
+    permissions: ['VIEW_SCHEDULES'],
+    children: [
+      { labelKey: 'workingSchedule', href: '/dashboard/schedules/overview' },
+      { labelKey: 'shiftCalendar', href: '/dashboard/schedules/calendar' },
+      {
+        labelKey: 'shiftManagement',
+        href: '/dashboard/schedules/shifts',
+        roles: ['ADMIN', 'HR_MANAGER'],
+      },
+    ],
+  },
+  {
     icon: Wallet,
     labelKey: 'payroll',
     href: '/dashboard/payroll',
@@ -230,6 +259,20 @@ export const departmentHeadMenuItems: NavGroup[] = [
       { labelKey: 'attendanceRequests', href: '/dashboard/attendance/corrections' },
       { labelKey: 'attendanceLogs', href: '/dashboard/attendance/history' },
       { labelKey: 'attendanceReports', href: '/dashboard/attendance/reports' },
+    ],
+  },
+  {
+    icon: CalendarRange,
+    labelKey: 'schedules',
+    href: '/dashboard/schedules',
+    roles: ['MANAGER'],
+    permissions: ['VIEW_SCHEDULES'],
+    // A department head reads their team's roster and cannot write it: every
+    // route under /work-schedules is ADMIN + HR server-side, so offering the
+    // management screen here would hand them a page whose every button 403s.
+    children: [
+      { labelKey: 'workingSchedule', href: '/dashboard/schedules/overview' },
+      { labelKey: 'shiftCalendar', href: '/dashboard/schedules/calendar' },
     ],
   },
   {

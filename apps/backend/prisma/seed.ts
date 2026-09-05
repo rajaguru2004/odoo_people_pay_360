@@ -749,31 +749,123 @@ async function seedCorrections(employees: Record<string, string>) {
   console.log(`  ✔ ${REQUESTS.length} pending attendance corrections`);
 }
 
+/** ISO weekday of a date-only value, 1 = Monday … 7 = Sunday. */
+function isoWeekdayOf(date: Date): number {
+  return ((date.getUTCDay() + 6) % 7) + 1;
+}
+
+/**
+ * Two working weeks of roster, shaped so every panel on the Schedules hub has
+ * something true to draw.
+ *
+ * Only people who DEVIATE from their branch calendar get a row. A row per
+ * employee per day for everyone else would be headcount × 365 rows a year saying
+ * nothing the branch calendar does not already say — which is also why roughly
+ * half the workforce is deliberately left unrostered: "who has no shift" is the
+ * number the module exists to surface, and a seed where everybody is covered
+ * cannot show that the card works.
+ *
+ * Sohar rests Friday only (ISO 5); Head Office rests Friday and Saturday.
+ */
 async function seedWorkSchedules(employees: Record<string, string>) {
-  // Only the plant runs a roster that deviates from its branch calendar. A row
-  // per employee per day for everyone else would say nothing the branch
-  // calendar does not already say.
-  const NIGHT_SHIFT = ['EMP-0012', 'EMP-0013'];
+  /** The fortnight the demo opens on, starting today. */
+  const HORIZON = 14;
+
+  interface RosterPattern {
+    code: string;
+    shiftType: ShiftType;
+    startTime: string | null;
+    endTime: string | null;
+    requiredHours: number | null;
+    notes: string;
+    /** ISO weekdays the pattern lands on. Empty means every day in the horizon. */
+    weekdays?: number[];
+  }
+
+  const PATTERNS: RosterPattern[] = [
+    // The plant's night rotation — the case the whole table exists for.
+    { code: 'EMP-0012', shiftType: ShiftType.NIGHT, startTime: '20:00', endTime: '04:00', requiredHours: 8, notes: 'Night rotation' },
+    { code: 'EMP-0013', shiftType: ShiftType.NIGHT, startTime: '20:00', endTime: '04:00', requiredHours: 8, notes: 'Night rotation' },
+    // Maintenance covers the plant in two halves, so the shift-mix panel has
+    // more than one bar and the hourly curve has a shape rather than a block.
+    { code: 'EMP-0014', shiftType: ShiftType.MORNING, startTime: '06:00', endTime: '14:00', requiredHours: 8, notes: 'Maintenance early' },
+    { code: 'EMP-0019', shiftType: ShiftType.AFTERNOON, startTime: '14:00', endTime: '22:00', requiredHours: 8, notes: 'Maintenance late' },
+    // Four long days rather than five, which is why `weekdays` exists.
+    { code: 'EMP-0015', shiftType: ShiftType.MORNING, startTime: '06:00', endTime: '16:00', requiredHours: 10, notes: 'Compressed week', weekdays: [1, 2, 3, 4] },
+    // A flexible row has no window to place on an hour axis. One of them is
+    // enough for the staffing curve to report what it is leaving out instead of
+    // quietly under-drawing the morning.
+    { code: 'EMP-0007', shiftType: ShiftType.FLEXIBLE, startTime: null, endTime: null, requiredHours: 7, notes: 'Flexible hours', weekdays: [1, 2, 3, 4, 7] },
+  ];
+
   let created = 0;
 
-  for (const code of NIGHT_SHIFT) {
-    for (let ahead = 0; ahead < 7; ahead += 1) {
+  const upsert = async (
+    code: string,
+    date: Date,
+    data: Omit<RosterPattern, 'code' | 'weekdays'>,
+  ) => {
+    const employeeId = employees[code];
+    if (!employeeId) return;
+    await prisma.workSchedule.upsert({
+      where: { employeeId_date: { employeeId, date } },
+      update: {},
+      create: {
+        employeeId,
+        date,
+        shiftType: data.shiftType,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        requiredHours: data.requiredHours,
+        notes: data.notes,
+      },
+    });
+    created += 1;
+  };
+
+  for (const pattern of PATTERNS) {
+    for (let ahead = 0; ahead < HORIZON; ahead += 1) {
       const date = daysFromToday(ahead);
-      await prisma.workSchedule.upsert({
-        where: { employeeId_date: { employeeId: employees[code], date } },
-        update: {},
-        create: {
-          employeeId: employees[code],
-          date,
-          shiftType: ShiftType.NIGHT,
-          startTime: '20:00',
-          endTime: '04:00',
-          requiredHours: 8,
-          notes: 'Night rotation',
-        },
-      });
-      created += 1;
+      if (pattern.weekdays && !pattern.weekdays.includes(isoWeekdayOf(date))) {
+        continue;
+      }
+      await upsert(pattern.code, date, pattern);
     }
+  }
+
+  // A shift on the branch's own weekly off. Not a mistake in the seed — it is
+  // the conflict the roster is perfectly happy to contain and the reason the
+  // module sweeps a window rather than trusting the write path. Relative to
+  // today so it is always inside the week the hub opens on.
+  for (let ahead = 0; ahead < HORIZON; ahead += 1) {
+    const date = daysFromToday(ahead);
+    if (isoWeekdayOf(date) !== 5) continue;
+    await upsert('EMP-0011', date, {
+      shiftType: ShiftType.FULL_DAY,
+      startTime: '07:00',
+      endTime: '16:00',
+      requiredHours: 9,
+      notes: 'Weekend cover — rostered on the branch weekly off',
+    });
+    break;
+  }
+
+  // The same thing against a public holiday. The holiday calendar is fixed to
+  // real dates, so this is only visible once the reader pages to it — which is
+  // the honest behaviour: a conflict on a date is reported on that date.
+  const upcomingHoliday = await prisma.holiday.findFirst({
+    where: { date: { gte: daysFromToday(0) } },
+    orderBy: { date: 'asc' },
+    select: { date: true, name: true },
+  });
+  if (upcomingHoliday) {
+    await upsert('EMP-0010', upcomingHoliday.date, {
+      shiftType: ShiftType.FULL_DAY,
+      startTime: '08:00',
+      endTime: '13:00',
+      requiredHours: 5,
+      notes: `Skeleton cover on ${upcomingHoliday.name}`,
+    });
   }
 
   console.log(`  ✔ ${created} rostered shifts`);

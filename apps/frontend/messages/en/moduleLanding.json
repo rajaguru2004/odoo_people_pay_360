@@ -14,6 +14,10 @@
     "title": "Time & attendance",
     "subtitle": "Who is in, what was corrected and how the period is trending."
   },
+  "schedules": {
+    "title": "Schedules",
+    "subtitle": "Who is rostered, where the gaps are and what the roster contradicts."
+  },
   "desc": {
     "branches": "Every location the company operates from.",
     "allDepartments": "The full department list, with heads and headcount.",
@@ -32,6 +36,9 @@
     "attendanceReports": "Hours, lateness and absence across a period.",
     "attendanceManager": "Schedules, shifts and the rules behind the numbers.",
     "biometricEnrollment": "Faces enrolled for the attendance terminals.",
-    "settings": "Company details, branding and the defaults every screen reads."
+    "settings": "Company details, branding and the defaults every screen reads.",
+    "workingSchedule": "The whole workforce against the month, one row each.",
+    "shiftCalendar": "One person's shifts, week by week.",
+    "shiftManagement": "Roster a shift, edit one, or lay a pattern over a range."
   }
 }
