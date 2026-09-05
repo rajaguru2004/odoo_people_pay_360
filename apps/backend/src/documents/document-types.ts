@@ -75,7 +75,7 @@ export interface DocumentTypeDef {
   category: DocumentCategory;
   /** Only 'bulk' types may feed POST /documents/batches. */
   cardinality: 'single' | 'bulk';
-  subjectType: 'EMPLOYEE' | 'PAYROLL' | 'LOAN' | 'SETTLEMENT' | 'PERIOD' | 'NONE';
+  subjectType: 'EMPLOYEE' | 'PAYROLL' | 'SETTLEMENT' | 'PERIOD' | 'NONE';
   /** Human name, shown in the gallery. */
   name: string;
   description: string;
@@ -162,7 +162,7 @@ const LETTER_VARS: readonly DocumentVariable[] = [
   ...DOCUMENT_VARS,
   ...EMPLOYEE_VARS,
   ...SIGNATORY_VARS,
-  { name: 'purpose', label: 'Purpose', type: 'string', group: 'Request', sample: 'Bank loan application', alwaysPresent: false },
+  { name: 'purpose', label: 'Purpose', type: 'string', group: 'Request', sample: 'Bank account opening', alwaysPresent: false },
   { name: 'addressedTo', label: 'Addressed to', type: 'string', group: 'Request', sample: 'Bank Muscat', alwaysPresent: false },
   CUSTOM_NAMESPACE,
 ];
@@ -561,52 +561,6 @@ export const DOCUMENT_TYPES: readonly DocumentTypeDef[] = [
       money('accrued', 'Accrued'),
     ], { employeeName: 'Ahmed Al-Balushi', yearsOfService: 5.4, accrued: '2,400.000' },
       [{ name: 'totalLiability', label: 'Total liability', type: 'money', group: 'Report', sample: '48,200.000' }]),
-  },
-  {
-    key: 'LOAN_STATEMENT',
-    category: 'FINANCE',
-    cardinality: 'single',
-    subjectType: 'LOAN',
-    name: 'Loan statement',
-    description: 'Instalments, payments and balance for one advance or loan.',
-    allowedRoles: ['ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'],
-    selfService: true,
-    sensitivity: 'PAY',
-    serialized: false,
-    vaultDocumentType: null,
-    defaultLocales: ['en'],
-    variables: [
-      ...COMPANY_VARS, ...DOCUMENT_VARS, ...EMPLOYEE_VARS, ...SIGNATORY_VARS,
-      {
-        name: 'rows', label: 'Statement lines', type: 'table', group: 'Loan',
-        columns: [text('date', 'Date'), text('label', 'Description'), money('amount', 'Amount'), money('balance', 'Balance')],
-        sample: [{ date: '01/08/2026', label: 'Instalment 4 of 12', amount: '100.000', balance: '800.000' }],
-      },
-      { name: 'reference', label: 'Loan reference', type: 'string', group: 'Loan', sample: 'LN-2026-0042' },
-      { name: 'principal', label: 'Principal', type: 'money', group: 'Loan', sample: '1,200.000' },
-      { name: 'outstanding', label: 'Outstanding', type: 'money', group: 'Loan', sample: '800.000' },
-    ],
-  },
-  {
-    key: 'LOAN_OUTSTANDING_REPORT',
-    category: 'FINANCE',
-    cardinality: 'single',
-    subjectType: 'PERIOD',
-    name: 'Outstanding loans report',
-    description: 'Every open advance or loan and its balance.',
-    allowedRoles: ['ADMIN', 'HR_MANAGER'],
-    selfService: false,
-    sensitivity: 'PAY',
-    serialized: false,
-    vaultDocumentType: null,
-    defaultLocales: ['en'],
-    variables: reportVars('rows', 'Outstanding rows', [
-      text('employeeName', 'Employee'),
-      text('reference', 'Reference'),
-      money('principal', 'Principal'),
-      money('outstanding', 'Outstanding'),
-    ], { employeeName: 'Ahmed Al-Balushi', reference: 'LN-2026-0042', principal: '1,200.000', outstanding: '800.000' },
-      [{ name: 'totalOutstanding', label: 'Total outstanding', type: 'money', group: 'Report', sample: '12,400.000' }]),
   },
 
   // ── Time and leave ───────────────────────────────────────────────────────

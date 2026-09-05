@@ -1,8 +1,8 @@
 /**
  * Shared money rounding for the whole backend.
  *
- * Extracted verbatim from payrolls.service.ts so payroll and the loan engine
- * cannot drift apart. A second rounding convention in a payroll codebase is how
+ * Extracted verbatim from payrolls.service.ts so every module that touches
+ * money cannot drift apart. A second rounding convention in a payroll codebase is how
  * you get a 1-paisa reconciliation break that nobody can trace — if you need
  * different behaviour, change it HERE and accept that payroll output moves.
  */
@@ -22,8 +22,8 @@ export const DEFAULT_MINOR_SCALE = 100;
 /**
  * Convert a major-unit amount to integer minor units.
  *
- * All loan interest/amortization arithmetic runs in minor units so that
- * `sum(principalComponents) === principal` is an EQUALITY, not a tolerance.
+ * Instalment/amortization arithmetic runs in minor units so that
+ * `sum(components) === total` is an EQUALITY, not a tolerance.
  */
 export const toMinor = (n: number, scale = DEFAULT_MINOR_SCALE): number =>
   Math.round((n + Number.EPSILON) * scale);

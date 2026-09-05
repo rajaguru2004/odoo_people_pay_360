@@ -164,12 +164,10 @@ describe('Payroll — module hub summary (e2e)', () => {
         }),
       );
 
-      // The three sections that are allowed to be absent must be null, never {}
-      // or 0 — the client renders an em dash for null and is forbidden from
-      // printing an all-clear over it.
-      for (const key of ['readiness', 'wps'] as const) {
-        expect(d[key] === null || typeof d[key] === 'object').toBe(true);
-      }
+      // A section that is allowed to be absent must be null, never {} or 0 —
+      // the client renders an em dash for null and is forbidden from printing
+      // an all-clear over it.
+      expect(d.readiness === null || typeof d.readiness === 'object').toBe(true);
       // Money is nullable on both sides.
       expect(d.money.net === null || typeof d.money.net === 'number').toBe(true);
       expect(
@@ -203,11 +201,10 @@ describe('Payroll — module hub summary (e2e)', () => {
       const d = await dataOf();
       const EARNINGS = [
         'baseSalary', 'allowances', 'bonus', 'overtimePay',
-        'foodAllowance', 'siteAllowance', 'reimbursement', 'leaveEncashment',
+        'foodAllowance', 'siteAllowance', 'leaveEncashment',
       ];
       const DEDUCTIONS = [
-        'deduction', 'insurance', 'tax',
-        'advanceLoanDeduction', 'garnishment', 'otherRecovery',
+        'deduction', 'insurance', 'tax', 'garnishment', 'otherRecovery',
       ];
       expect(d.composition.earnings.map((r: any) => r.key)).toEqual(EARNINGS);
       expect(d.composition.deductions.map((r: any) => r.key)).toEqual(DEDUCTIONS);

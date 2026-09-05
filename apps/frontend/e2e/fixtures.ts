@@ -49,8 +49,8 @@ const IGNORED_CONSOLE: RegExp[] = [
    * request that rode on it is retried and succeeds, which is why it lands as a
    * console line and never as a non-2xx response. It is a property of the
    * machine's timing, so it attaches to whichever spec was open when the timer
-   * expired, and it took down a loan approval case that never touched the
-   * network path in question.
+   * expired, and it took down an approval case that never touched the network
+   * path in question.
    */
   /Failed to load resource: net::ERR_HTTP2_PING_FAILED/i,
 ];

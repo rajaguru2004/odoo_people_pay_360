@@ -40,9 +40,7 @@ export class CreatePayrollDto {
     required: false,
     enum: ['REGULAR', 'OFF_CYCLE', 'BONUS', 'ADJUSTMENT', 'FINAL_SETTLEMENT'],
     description:
-      'What kind of run this is. Only the types listed in loan_recover_on_run_types ' +
-      'recover loan instalments, so a BONUS or ADJUSTMENT (retro/arrears) run cannot ' +
-      'charge an EMI a second time. Defaults to REGULAR.',
+      'What kind of run this is. Defaults to REGULAR.',
   })
   @IsOptional()
   @IsIn(['REGULAR', 'OFF_CYCLE', 'BONUS', 'ADJUSTMENT', 'FINAL_SETTLEMENT'])
@@ -134,8 +132,8 @@ export class UnlockPayrollDto {
   @ApiProperty({
     example: 'Overtime hours were wrong for 3 employees',
     description:
-      'Why the payroll is being reversed. Recorded on the payroll and on every ' +
-      'REVERSAL ledger entry, so a restated payslip is always explainable.',
+      'Why the payroll is being reversed. Recorded on the payroll, so a ' +
+      'restated payslip is always explainable.',
   })
   @IsString()
   @Length(5, 500)

@@ -64,8 +64,8 @@ function monthWindow(year: number, month: number): HubWindow {
  * string. That also means there is no `anchor=2026-13-45` to validate, which is
  * the trap the attendance hub had to close.
  *
- * The current month is deliberately partial: a KPI reading "reimbursed this
- * month" on the 3rd should say what has actually been reimbursed by the 3rd.
+ * The current month is deliberately partial: a KPI reading "spend this
+ * month" on the 3rd should say what has actually been spent by the 3rd.
  * The delta against a *whole* previous month is therefore unflattering early in
  * a month, and the cards label the window rather than pretending otherwise.
  */
@@ -105,12 +105,12 @@ export function buildSeriesBuckets(
  * Drop dated rows into the buckets.
  *
  * One `findMany` of two columns bucketed in JS beats `months × n` count
- * queries: a year of reimbursements is a few thousand rows, and thirty-six
- * round trips is thirty-six round trips.
+ * queries: a year of rows is a few thousand rows, and thirty-six round trips
+ * is thirty-six round trips.
  *
  * A row whose date falls outside the window is ignored, never clamped into the
- * first bucket — a claim paid two years ago is not spend in the oldest month on
- * the chart.
+ * first bucket — a record dated two years ago is not activity in the oldest
+ * month on the chart.
  */
 export function tallyByMonth<B extends { key: string }>(
   buckets: B[],

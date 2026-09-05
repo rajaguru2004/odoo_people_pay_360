@@ -9,7 +9,7 @@
  */
 
 export interface DocumentSubjectRequest {
-  /** The record the document describes: a payrollItemId, a loanId, a settlementId. */
+  /** The record the document describes: a payrollItemId, a settlementId. */
   subjectId: string | null;
   /** Whom it is about. Null for company-wide artefacts. */
   employeeId: string | null;

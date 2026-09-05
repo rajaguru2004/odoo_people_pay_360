@@ -142,7 +142,7 @@ describe('Payroll edge — concurrency (PE-CONC)', () => {
   });
 
   it('PE-CONC-03: two simultaneous unlocks reverse the run exactly once', async () => {
-    // Unlock is compensating: it reverses loan recoveries and restores balances.
+    // Unlock is compensating: it reverses recoveries and restores balances.
     // Applying it twice would credit the employee twice.
     const id = await makeRun(fx.periodAt(32));
     await post(id, 'submit');

@@ -57,7 +57,7 @@ tables.
 The calculator reads exactly four properties off a component — `code`, `name`,
 `type`, `sequence` — plus the line's `amount`. `isTaxable` and `isGratuityBase`
 are stored and **read by nothing**; they are the inputs a tax calculator and a
-gratuity calculator will need (§7.7, §7.3).
+gratuity calculator will need (§7.4, §7.2).
 
 **If a component's `type` changes:** it cannot. `UpdateSalaryComponentDto` omits
 both `code` and `type`, because turning an earning into a deduction would change
@@ -156,7 +156,7 @@ period.** The filter is `not: TERMINATED` on the employee's *current* status, so
 somebody terminated before the run is generated drops out of it — including a
 run for a month they worked. That is a known sharp edge of the current filter,
 not a decision the code states a reason for; the final-settlement run type that
-would answer it properly is out of scope (§7.10).
+would answer it properly is out of scope (§7.7).
 
 **If an employee has no department or branch:** the cost report buckets them
 under the literal string `Unassigned` and reports `id: null`. A real bucket, not
@@ -386,18 +386,7 @@ is a change to `calculatePayslip`'s earning split.
 HRM's `payroll-edge-leave` and `payroll-edge-overtime` specs stay deferred:
 they assert against models that do not exist.
 
-### 7.2 WPS wage files
-
-No wage-protection-system export. The contract: a fixed-width or CSV file per
-run, per bank, over `APPROVED`/`PAID` payslips only, requiring an employer
-establishment id, each employee's bank IBAN and a labour-card number — **none of
-which exist as columns** on `Company`, `Employee` or anywhere else.
-
-**When it lands:** it belongs beside `payroll-export.service.ts`, reading the
-same locked-run set the reports read, and it must read the payslip's snapshotted
-lines rather than the structure behind them.
-
-### 7.3 Gratuity / end-of-service
+### 7.2 Gratuity / end-of-service
 
 `SalaryComponent.isGratuityBase` exists, is settable through the API, and is
 **read by nothing**. It is the input a gratuity accrual needs: the subset of
@@ -407,19 +396,7 @@ earning components that count toward the accrual base.
 own table rather than a component. HRM's `gratuity-liability` report is the shape
 to aim at; it was left out here for exactly this reason.
 
-### 7.4 Advances and loans
-
-`LOAN_REPAY` exists as an ordinary `DEDUCTION` component. That means an amount
-somebody types into a structure and which then repeats every month forever —
-there is no principal, no balance, no schedule and no stopping condition.
-
-**The contract:** a loan module owns the balance and the instalment schedule, and
-hands payroll a per-employee, per-period deduction amount at generation time.
-Payroll writes it as a normal `DEDUCTION` line and reports the amount back so the
-balance can be decremented **only for runs that reach `PAID`** — a cancelled run
-must not repay a loan. Nothing exists today to carry that acknowledgement.
-
-### 7.5 Garnishments
+### 7.3 Garnishments
 
 Court-ordered deductions with statutory priority ordering and a protected-earnings
 floor. Nothing in `calculatePayslip` orders deductions by priority — they are
@@ -429,13 +406,7 @@ summed — and `netPay` floors at zero rather than at a protected minimum.
 `payroll-calc.util.ts`, because they change what the net is, not merely what is
 displayed.
 
-### 7.6 Reimbursements
-
-Expense claims paid through payroll. They are `EARNING` lines that must **not**
-be prorated by LOP — an expense already incurred is not reduced by absence — and
-usually not taxable. The same earning-split change §7.1 describes for overtime.
-
-### 7.7 Statutory tax and social-insurance calculators
+### 7.4 Statutory tax and social-insurance calculators
 
 `SOCIAL_SEC_EE` and `SOCIAL_SEC_ER` are catalogue components with a typed amount.
 Nothing computes them from a rate, a ceiling or a nationality rule, and
@@ -446,13 +417,13 @@ statutory line amounts from the taxable earning subset (`isTaxable: true`), and
 hands them to `calculatePayslip` as `DEDUCTION` and `EMPLOYER_CONTRIBUTION`
 lines. Payroll must not grow a rate table.
 
-### 7.8 Leave encashment and carry-forward
+### 7.5 Leave encashment and carry-forward
 
 Both are leave-balance concepts. Encashment is an `EARNING` line the leave module
 computes; carry-forward never reaches payroll at all. Neither is representable
 without a leave balance.
 
-### 7.9 Run versioning and unlock-relock
+### 7.6 Run versioning and unlock-relock
 
 HRM has `POST /payrolls/:id/lock`, `/unlock`, `/create-revision` and
 `GET /:id/history`. None ships here. `PayrollRunStatus` has no version column and
@@ -471,7 +442,7 @@ reason: it compares versions.
 constraint, and `RECALCULABLE` in `payroll-runs.service.ts` is the one list that
 decides what may still move.
 
-### 7.10 Payroll batches, calendar periods, cut-off enforcement, run types
+### 7.7 Payroll batches, calendar periods, cut-off enforcement, run types
 
 HRM has `payroll-batches/`, `payroll-calendar/` and a `PayrollRunType` enum
 (`REGULAR`, `OFF_CYCLE`, `BONUS`, …). None ships here.
@@ -488,14 +459,14 @@ HRM has `payroll-batches/`, `payroll-calendar/` and a `PayrollRunType` enum
   each need one, and the `@@unique([periodStart, periodEnd])` constraint would
   have to include it, or a bonus run for August collides with August's payroll.
 
-### 7.11 Bank transfer files
+### 7.8 Bank transfer files
 
-Distinct from WPS: a payment instruction file for a specific bank. Same missing
-inputs — no IBAN on `Employee`, no employer account on `Company`. `markPaid` is
-currently a status change a human makes after paying by other means; there is no
-reconciliation with anything a bank returns.
+A payment instruction file for a specific bank. Missing inputs — no IBAN on
+`Employee`, no employer account on `Company`. `markPaid` is currently a status
+change a human makes after paying by other means; there is no reconciliation
+with anything a bank returns.
 
-### 7.12 Notifications
+### 7.9 Notifications
 
 No `MailModule` and no `NotificationsModule` in this repo. Four events would want
 one: a run reaching `CALCULATED` (tell the approver), a run rejected (tell the
@@ -508,7 +479,7 @@ before the month is two months old).
 `payroll-runs.service.ts`, **outside** the `$transaction` — a mail failure must
 not roll back an approval.
 
-### 7.13 The approval engine
+### 7.10 The approval engine
 
 Approval here is one conditional `updateMany`, ADMIN-only, with no delegation, no
 multi-tier chain, no threshold rules and no bulk approve. That is sufficient for
@@ -519,7 +490,7 @@ The conditional-update idiom must survive it — whatever decides *who* may appr
 the write itself has to keep the expected status in its `where`, or two approvals
 racing both win and the second overwrites the first approver's name.
 
-### 7.14 Audit logging
+### 7.11 Audit logging
 
 The repo has an `AuditLog` model, and exactly one thing writes to it:
 `auth.service.ts` records a `LOGIN` row. There is no `@AuditResource` decorator
@@ -535,7 +506,7 @@ transitions.
 surfaces. `PayrollHubController` and `PayrollReportsController` are read-only and
 should not carry it.
 
-### 7.15 Percentage-of-basic salary rules
+### 7.12 Percentage-of-basic salary rules
 
 Not a missing module — a deliberate decision, recorded here because it is the one
 place "match HRM" and "what a payroll clerk expects" differ. Every

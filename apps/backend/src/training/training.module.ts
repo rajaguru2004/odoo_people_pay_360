@@ -11,9 +11,6 @@ import { TrainingService } from './training.service';
 import { TrainingNeedsService } from './training-needs.service';
 
 /**
- * Like travel, training is an extension of reimbursements — it imports that
- * module instead of modelling its own expenses.
- *
  * OpenRouterToolsClient is provided directly (the same way AppraisalModule does)
  * so training-needs matching can reuse the configured LLM without depending on
  * the whole copilot module.

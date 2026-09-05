@@ -79,24 +79,6 @@ export class CreateLibraryItemDto {
   payBasis?: 'MONTHLY' | 'DAILY' | null;
 
   @ApiProperty({
-    example: 'PAUSE',
-    required: false,
-    nullable: true,
-    enum: ['CONTINUE', 'PAUSE', 'EXTEND'],
-    description:
-      'LEAVE_TYPE only. What happens to loan recovery while an employee is on ' +
-      'this leave: CONTINUE deducts as normal, PAUSE skips the cycle, EXTEND ' +
-      'pushes the whole schedule out by one. Payroll has always read this ' +
-      'column (strictest-wins across overlapping leave types) and no DTO ' +
-      'carried it, so the rule could only be set in the database. null leaves ' +
-      'the deployment-wide `loan_unpaid_leave_policy` in charge.',
-  })
-  @IsOptional()
-  @ValidateIf((_o, value) => value !== null) // null is a deliberate "clear it"
-  @IsIn(['CONTINUE', 'PAUSE', 'EXTEND'])
-  loanDeductionPolicy?: 'CONTINUE' | 'PAUSE' | 'EXTEND' | null;
-
-  @ApiProperty({
     example: 50,
     required: false,
     description:
