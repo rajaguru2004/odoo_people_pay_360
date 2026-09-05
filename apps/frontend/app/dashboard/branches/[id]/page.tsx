@@ -1,302 +1,340 @@
 'use client';
+import { getApiErrorMessage } from '@/lib/apiError';
 
-import { use } from 'react';
-import Link from 'next/link';
+import { use, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
+import { useTranslations } from 'next-intl';
 import {
   Building2,
-  Clock,
-  Crosshair,
+  Users,
   MapPin,
+  Clock,
+  Globe,
   Navigation,
-  Pencil,
+  Crosshair,
+  Edit,
   Trash2,
   User,
-  Users,
+  IdCard,
 } from 'lucide-react';
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { Button } from '@/components/ui/Button';
-import { Card, CardBody, CardHeader } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
-import { StatCard } from '@/components/common/StatCard';
+import { motion } from 'framer-motion';
+import PageActionRow from '@/components/common/PageActionRow';
 import { usePageHeader } from '@/hooks/usePageHeader';
+import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import { useBranch, useDeleteBranch } from '@/hooks/useBranches';
-import { useAuthStore } from '@/store/authStore';
-import { apiErrorMessage } from '@/utils/apiError';
-import { fullName } from '@/utils/formatters';
-import { hasPermission } from '@/utils/permissions';
+import { Branch } from '@/types/branch';
 
-const WEEKDAY_LABELS: Record<number, string> = {
-  1: 'Monday',
-  2: 'Tuesday',
-  3: 'Wednesday',
-  4: 'Thursday',
-  5: 'Friday',
-  6: 'Saturday',
-  7: 'Sunday',
-};
-
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-4 border-b border-surface-border-light py-2 last:border-0">
-      <dt className="text-sm text-text-muted">{label}</dt>
-      <dd className="text-sm font-medium text-text-heading text-end">{value}</dd>
-    </div>
-  );
-}
-
-function BranchDetailContent({ id }: { id: string }) {
+export default function BranchDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const role = useAuthStore((s) => s.user?.role);
-  const canManage = hasPermission(role, 'MANAGE_DEPARTMENTS');
+  const t = useTranslations('branchDetailPage');
+  const tc = useTranslations('common');
+  const { id } = use(params);
 
   const { data, isLoading, isError } = useBranch(id);
-  const branch = data?.data;
+  const branch: Branch | undefined = data?.data;
   const deleteBranch = useDeleteBranch();
 
-  // Declared above the early returns so the hook order never changes; it falls
-  // back to the section name until the record has loaded.
-  usePageHeader(branch?.name ?? 'Branch', branch?.code);
+  // The one heading for this route, rendered by TopHeader, and the record crumb
+  // the global breadcrumb trail names the branch with. Declared above the
+  // loading/not-found early-returns so the hook order never changes; it falls
+  // back to the section label until the branch has loaded.
+  usePageHeader(branch?.name ?? t('breadcrumbBranches'), branch?.code ?? undefined);
 
-  if (isLoading) {
-    return <Card className="p-6 text-sm text-text-muted">Loading branch…</Card>;
-  }
-
-  if (isError || !branch) {
-    return (
-      <Card className="p-6 text-sm text-status-error">
-        That branch could not be read. It may have been retired.
-      </Card>
-    );
-  }
+  useEffect(() => {
+    if (isError) {
+      alert(t('noBranchFound'));
+      router.push('/dashboard/branches');
+    }
+  }, [isError, router, t]);
 
   const handleDelete = async () => {
-    if (!window.confirm(`Retire ${branch.name}? Attendance history keeps resolving.`)) return;
+    if (!window.confirm(t('confirmDelete'))) return;
     try {
-      const result = await deleteBranch.mutateAsync(id);
-      toast.success(result.data?.deleted ? `${branch.name} deleted` : `${branch.name} retired`);
+      await deleteBranch.mutateAsync(id);
+      alert(t('deleteSuccess'));
       router.push('/dashboard/branches');
-    } catch (error) {
-      toast.error(apiErrorMessage(error, 'The branch could not be removed'));
+    } catch (error: any) {
+      alert(getApiErrorMessage(error, t('deleteFailed')));
     }
   };
 
-  /**
-   * The office window as ONE wall clock, printed once.
-   *
-   * Start and end are not two independent facts to the reader — "when is this
-   * place open" is a single question, and splitting the answer across two rows
-   * makes them scan for the other half.
-   */
-  const officeWindow =
+  if (isLoading) {
+    return (
+      <div className="max-w-7xl mx-auto space-y-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-6 bg-slate-200 rounded w-48">{/* neutral */}</div>
+          <div className="h-40 bg-slate-100 rounded-xl">{/* neutral */}</div>
+          <div className="grid grid-cols-2 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-40 bg-slate-100 rounded-xl">{/* neutral */}</div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!branch) return null;
+
+  // Config fields fall back to the global default when unset.
+  const orInherit = (v: string | number | null | undefined) =>
+    v !== null && v !== undefined && String(v).trim() !== '' ? String(v) : t('inheritsGlobal');
+  const orNotSet = (v: string | number | null | undefined) =>
+    v !== null && v !== undefined && String(v).trim() !== '' ? String(v) : t('notSet');
+
+  const officeHours =
     branch.officeStartTime && branch.officeEndTime
       ? `${branch.officeStartTime} – ${branch.officeEndTime}`
-      : 'Company default';
+      : t('inheritsGlobal');
 
-  const offDays = branch.weeklyOffDays.length
-    ? branch.weeklyOffDays.map((day) => WEEKDAY_LABELS[day] ?? String(day)).join(', ')
-    : 'Company default';
-
-  const address = [
-    branch.addressLine,
-    branch.city,
-    branch.state,
-    branch.postalCode,
-    branch.country,
-  ].filter(Boolean);
-
-  const departments = branch.departments ?? [];
-  const headcount = branch._count?.employees ?? 0;
+  const addressRows: { label: string; value?: string }[] = [
+    { label: t('addressLineLabel'), value: branch.addressLine || undefined },
+    { label: t('cityLabel'), value: branch.city || undefined },
+    { label: t('stateLabel'), value: branch.state || undefined },
+    { label: t('countryLabel'), value: branch.country || undefined },
+    { label: t('postalCodeLabel'), value: branch.postalCode || undefined },
+  ];
+  const hasAddress = addressRows.some((r) => r.value);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Badge tone={branch.isActive ? 'success' : 'error'}>
-          {branch.isActive ? 'Open' : 'Retired'}
-        </Badge>
-
-        {canManage && (
-          <div className="flex items-center gap-2">
-            <Link href={`/dashboard/branches/${id}/edit`}>
-              <Button variant="outline" size="sm">
-                <Pencil className="h-4 w-4" aria-hidden />
-                Edit
-              </Button>
-            </Link>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={handleDelete}
-              isLoading={deleteBranch.isPending}
-            >
-              <Trash2 className="h-4 w-4" aria-hidden />
-              Retire
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {branch.description && <p className="text-sm text-text-body">{branch.description}</p>}
-
-      {/* The office window is deliberately NOT repeated here: it is one wall
-          clock, and printing it twice on a page invites the reader to check
-          whether the two agree. It belongs with the rest of the calendar. */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard
-          label="Headcount"
-          value={headcount}
-          hint="People posted here"
-          icon={<Users className="h-5 w-5" aria-hidden />}
-        />
-        <StatCard
-          label="Departments"
-          value={departments.length}
-          icon={<Building2 className="h-5 w-5" aria-hidden />}
-        />
-        <StatCard
-          label="Geofence"
-          value={branch.geofencingEnabled ? 'On' : 'Off'}
-          hint={
-            branch.geofenceRadiusM != null ? `${branch.geofenceRadiusM} m radius` : 'No radius set'
-          }
-          icon={<Navigation className="h-5 w-5" aria-hidden />}
-        />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader
-            title="Working calendar"
-            subtitle="Anything unset here follows the company setting."
+    <ProtectedRoute requiredRoles={['ADMIN', 'HR_MANAGER']}>
+      <div className="max-w-7xl mx-auto">
+        {/* Back navigation and actions only. The global PageBreadcrumbs in
+            DashboardLayout already renders this route's trail — with the branch
+            named through usePageHeader above — so the hand-rolled trail that used
+            to sit here was a second trail answering the same question. */}
+        <div className="mb-6">
+          <PageActionRow
+            onBack={() => router.back()}
+            action={
+              <div className="flex gap-2">
+                <button
+                  data-testid="branch-detail-edit"
+                  onClick={() => router.push(`/dashboard/branches/${id}/edit`)}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-surface-card border-2 border-surface-border text-text-body rounded-[--radius-button] hover:bg-surface-page hover:border-surface-border/90 transition-all font-semibold shadow-sm hover:shadow-md cursor-pointer"
+                >
+                  <Edit size={18} /> {t('editBtn')}
+                </button>
+                <button
+                  data-testid="branch-detail-delete"
+                  onClick={handleDelete}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-status-error-bg text-status-error border-2 border-status-error/20 rounded-[--radius-button] hover:bg-status-error hover:text-white transition-all font-semibold shadow-sm hover:shadow-md cursor-pointer"
+                >
+                  <Trash2 size={18} /> {t('deleteBtn')}
+                </button>
+              </div>
+            }
           />
-          <CardBody>
-            <dl>
-              <Row label="Timezone" value={branch.timezone ?? 'Company default'} />
-              <Row
-                label="Office window"
-                value={
-                  <span className="inline-flex items-center gap-1.5 tabular-nums">
-                    <Clock className="h-4 w-4 text-text-muted" aria-hidden />
-                    {officeWindow}
+        </div>
+
+        {/* Header Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-r from-brand-primary to-brand-primary-dark rounded-[--radius-card] p-8 mb-6 text-text-on-brand shadow-2xl relative overflow-hidden"
+        >
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute top-0 end-0 w-96 h-96 bg-white rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2"></div>
+            <div className="absolute bottom-0 start-0 w-96 h-96 bg-white rounded-full blur-3xl transform -translate-x-1/2 translate-y-1/2"></div>
+          </div>
+          <div className="relative z-10">
+            <div className="flex items-start gap-6 mb-6">
+              <div className="w-24 h-24 rounded-[--radius-card] bg-white/20 backdrop-blur-sm flex items-center justify-center border-2 border-white/30 shadow-xl">
+                <Building2 size={48} className="text-text-on-brand" />
+              </div>
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  {/* h2, not h1: the page's single heading slot belongs to TopHeader. */}
+                  <h2 data-testid="branch-detail-name" className="text-4xl font-bold">{branch.name}</h2>
+                  <span
+                    className={`px-4 py-1.5 rounded-[--radius-badge] text-sm font-bold ${
+                      branch.isActive
+                        ? 'bg-status-success-bg text-status-success border border-status-success/20'
+                        : 'bg-status-error-bg text-status-error border border-status-error/20'
+                    }`}
+                  >
+                    {branch.isActive ? tc('active') : tc('inactive')}
                   </span>
-                }
-              />
-              <Row
-                label="Grace"
-                value={
-                  branch.graceMinutes != null
-                    ? `${branch.graceMinutes} minutes`
-                    : 'Company default'
-                }
-              />
-              <Row label="Weekly off" value={offDays} />
-            </dl>
-          </CardBody>
-        </Card>
+                </div>
+                <p className="text-brand-primary-light font-bold text-xl mb-4">
+                  {t('codeLabel')}
+                  {branch.code}
+                </p>
+                {branch.description && (
+                  <p className="text-white/90 max-w-3xl leading-relaxed text-lg">{branch.description}</p>
+                )}
+              </div>
+            </div>
 
-        <Card>
-          <CardHeader title="Address" subtitle="Where the location physically is." />
-          <CardBody>
-            {address.length > 0 ? (
-              <p className="flex items-start gap-2 text-sm text-text-body">
-                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" aria-hidden />
-                <span>{address.join(', ')}</span>
-              </p>
+            {/* Quick Stats in Header */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+              <div className="bg-white/10 backdrop-blur-sm rounded-[--radius-card] p-4 border border-white/20">
+                <Users className="text-white/80 mb-2" size={24} />
+                <p data-testid="branch-detail-staff" className="text-3xl font-bold mb-1">{branch._count?.employees || 0}</p>
+                <p className="text-white/80 text-sm font-medium">{t('statStaff')}</p>
+              </div>
+              <div className="bg-white/10 backdrop-blur-sm rounded-[--radius-card] p-4 border border-white/20">
+                <Globe className="text-white/80 mb-2" size={24} />
+                <p data-testid="branch-detail-timezone" className="text-lg font-bold mb-1 truncate">{orInherit(branch.timezone)}</p>
+                <p className="text-white/80 text-sm font-medium">{t('statTimezone')}</p>
+              </div>
+              <div className="bg-white/10 backdrop-blur-sm rounded-[--radius-card] p-4 border border-white/20">
+                <Clock className="text-white/80 mb-2" size={24} />
+                <p data-testid="branch-detail-hours" className="text-lg font-bold mb-1 truncate">{officeHours}</p>
+                <p className="text-white/80 text-sm font-medium">{t('statOfficeHours')}</p>
+              </div>
+              <div className="bg-white/10 backdrop-blur-sm rounded-[--radius-card] p-4 border border-white/20">
+                <Navigation className="text-white/80 mb-2" size={24} />
+                <p className="text-lg font-bold mb-1">
+                  {branch.geofencingEnabled ? t('geofenceEnabled') : t('geofenceDisabled')}
+                </p>
+                <p className="text-white/80 text-sm font-medium">{t('statGeofence')}</p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Info grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Address */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="bg-surface-card rounded-[--radius-card] p-6 border border-surface-border shadow-sm"
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-12 h-12 rounded-[--radius-card] bg-gradient-to-br from-brand-accent to-brand-accent-dark flex items-center justify-center shadow-lg">
+                <MapPin className="text-text-on-accent" size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-text-heading">{t('addressHeading')}</h3>
+            </div>
+            {hasAddress ? (
+              <div className="space-y-3">
+                {addressRows
+                  .filter((r) => r.value)
+                  .map((row) => (
+                    <div key={row.label} className="flex items-center justify-between gap-4 py-2 border-b border-surface-border-light last:border-0">
+                      <span className="text-sm text-text-muted font-medium">{row.label}</span>
+                      <span className="text-sm text-text-heading font-semibold text-end">{row.value}</span>
+                    </div>
+                  ))}
+              </div>
             ) : (
-              <p className="text-sm text-text-muted">No address recorded.</p>
+              <p className="text-sm text-text-muted">{t('noAddress')}</p>
             )}
+          </motion.div>
 
-            <dl className="mt-4">
-              <Row label="Phone" value={branch.phone ?? '—'} />
-              <Row label="Email" value={branch.email ?? '—'} />
-              <Row label="CR number" value={branch.crNumber ?? '—'} />
-              <Row label="VAT number" value={branch.vatNumber ?? '—'} />
-            </dl>
-          </CardBody>
-        </Card>
+          {/* Work configuration */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-surface-card rounded-[--radius-card] p-6 border border-surface-border shadow-sm"
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-12 h-12 rounded-[--radius-card] bg-gradient-to-br from-brand-primary to-brand-primary-dark flex items-center justify-center shadow-lg">
+                <Clock className="text-text-on-brand" size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-text-heading">{t('workConfigHeading')}</h3>
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-4 py-2 border-b border-surface-border-light">
+                <span className="text-sm text-text-muted font-medium">{t('timezoneLabel')}</span>
+                <span className="text-sm text-text-heading font-semibold text-end">{orInherit(branch.timezone)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4 py-2 border-b border-surface-border-light">
+                <span className="text-sm text-text-muted font-medium">{t('officeStartLabel')}</span>
+                <span className="text-sm text-text-heading font-semibold text-end">{orInherit(branch.officeStartTime)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4 py-2">
+                <span className="text-sm text-text-muted font-medium">{t('officeEndLabel')}</span>
+                <span className="text-sm text-text-heading font-semibold text-end">{orInherit(branch.officeEndTime)}</span>
+              </div>
+            </div>
+          </motion.div>
 
-        <Card>
-          <CardHeader title="Manager" subtitle="Who signs for this location." />
-          <CardBody>
-            {branch.manager ? (
-              <div className="flex items-center gap-3">
-                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-primary/10 text-brand-primary">
-                  <User className="h-5 w-5" aria-hidden />
+          {/* Geofence */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="bg-surface-card rounded-[--radius-card] p-6 border border-surface-border shadow-sm"
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-12 h-12 rounded-[--radius-card] bg-gradient-to-br from-brand-accent to-brand-accent-dark flex items-center justify-center shadow-lg">
+                <Navigation className="text-text-on-accent" size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-text-heading">{t('geofenceHeading')}</h3>
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-4 py-2 border-b border-surface-border-light">
+                <span className="text-sm text-text-muted font-medium">{t('geofenceStatusLabel')}</span>
+                <span
+                  className={`px-3 py-1 rounded-[--radius-badge] text-xs font-bold ${
+                    branch.geofencingEnabled
+                      ? 'bg-status-success-bg text-status-success border border-status-success/20'
+                      : 'bg-surface-page text-text-muted border border-surface-border'
+                  }`}
+                >
+                  {branch.geofencingEnabled ? t('geofenceEnabled') : t('geofenceDisabled')}
                 </span>
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-text-heading">
-                    {fullName(branch.manager)}
-                  </p>
-                  <p className="truncate text-sm text-text-muted">
-                    {branch.manager.position ?? branch.manager.employeeCode}
-                  </p>
+              </div>
+              <div className="flex items-center justify-between gap-4 py-2 border-b border-surface-border-light">
+                <span className="flex items-center gap-1.5 text-sm text-text-muted font-medium">
+                  <Crosshair size={14} /> {t('latitudeLabel')}
+                </span>
+                <span className="text-sm text-text-heading font-semibold text-end">{orNotSet(branch.latitude)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4 py-2 border-b border-surface-border-light">
+                <span className="flex items-center gap-1.5 text-sm text-text-muted font-medium">
+                  <Crosshair size={14} /> {t('longitudeLabel')}
+                </span>
+                <span className="text-sm text-text-heading font-semibold text-end">{orNotSet(branch.longitude)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4 py-2">
+                <span className="text-sm text-text-muted font-medium">{t('radiusLabel')}</span>
+                <span className="text-sm text-text-heading font-semibold text-end">
+                  {branch.geofenceRadiusM != null
+                    ? `${branch.geofenceRadiusM}${t('metersSuffix')}`
+                    : t('notSet')}
+                </span>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Manager */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="bg-surface-card rounded-[--radius-card] p-6 border border-surface-border shadow-sm"
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-12 h-12 rounded-[--radius-card] bg-gradient-to-br from-brand-primary to-brand-primary-light flex items-center justify-center shadow-lg">
+                <User className="text-text-on-brand" size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-text-heading">{t('managerHeading')}</h3>
+            </div>
+            {branch.manager ? (
+              <div className="flex items-center gap-4 p-4 bg-brand-primary-light/10 rounded-[--radius-card] border border-brand-primary/20">
+                <div className="w-14 h-14 rounded-[--radius-card] bg-gradient-to-br from-brand-primary to-brand-primary-dark flex items-center justify-center text-text-on-brand font-bold text-xl shadow-lg">
+                  {branch.manager.fullName.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-text-heading">{branch.manager.fullName}</p>
+                  <div className="flex items-center gap-1.5 text-sm text-text-body mt-1">
+                    <IdCard size={14} className="text-text-muted" />
+                    <span className="font-medium">{branch.manager.employeeCode}</span>
+                  </div>
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-text-muted">
-                Nobody manages this location yet, so nothing routed by branch has an approver.
-              </p>
+              <p className="text-sm text-text-muted">{t('noManager')}</p>
             )}
-
-            <dl className="mt-4">
-              <Row
-                label="Fence centre"
-                value={
-                  branch.latitude != null && branch.longitude != null ? (
-                    <span className="inline-flex items-center gap-1.5 tabular-nums">
-                      <Crosshair className="h-4 w-4 text-text-muted" aria-hidden />
-                      {branch.latitude}, {branch.longitude}
-                    </span>
-                  ) : (
-                    'Not set'
-                  )
-                }
-              />
-            </dl>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader
-            title="Units here"
-            subtitle={`${departments.length} reporting to this location`}
-          />
-          <CardBody>
-            {departments.length > 0 ? (
-              <ul className="space-y-2">
-                {departments.map((department) => (
-                  <li key={department.id}>
-                    <Link
-                      href={`/dashboard/departments/${department.id}`}
-                      className="flex items-center justify-between gap-3 rounded-[var(--radius-button)] border border-surface-border-light px-3 py-2 text-sm transition-colors hover:bg-surface-page"
-                    >
-                      <span className="truncate font-medium text-text-heading">
-                        {department.name}
-                      </span>
-                      <span className="shrink-0 text-xs uppercase tracking-wide text-text-muted">
-                        {department.code}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-text-muted">No department sits at this location.</p>
-            )}
-          </CardBody>
-        </Card>
+          </motion.div>
+        </div>
       </div>
-    </div>
-  );
-}
-
-export default function BranchDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
-
-  return (
-    <ProtectedRoute requiredPermission="VIEW_DEPARTMENTS">
-      <BranchDetailContent id={id} />
     </ProtectedRoute>
   );
 }

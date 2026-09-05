@@ -1,116 +1,239 @@
 import axiosInstance from '@/lib/axios';
-import { ApiResponse } from '@/types/api';
-import type {
-  Attendance,
-  AttendanceListQuery,
-  AttendanceSummary,
-  BulkAttendancePayload,
-  BulkAttendanceResult,
-  CheckInPayload,
-  CreateAttendancePayload,
-  EmployeeAttendanceHistory,
-  MonthlyAttendanceReport,
-  MonthlyReportQuery,
-  TodayBoard,
-  UpdateAttendancePayload,
-} from '@/types/attendance';
 import type { AttendanceHubSummary, HubPeriod } from '@/types/attendanceHub';
+import { ApiResponse } from '@/types/api';
+import {
+  Attendance,
+  CheckInData,
+  AttendanceReport,
+  AttendanceCorrection,
+  CreateCorrectionData,
+  AttendanceStatistics
+} from '@/types/attendance';
+
+interface QueryAttendanceParams {
+  employeeId?: string;
+  startDate?: string;
+  endDate?: string;
+  month?: number;
+  year?: number;
+  page?: number;
+  limit?: number;
+}
 
 class AttendanceService {
-  list(query: AttendanceListQuery = {}): Promise<ApiResponse<Attendance[]>> {
-    return axiosInstance.get('/attendances', { params: query });
+  // Check-in/out
+  async checkIn(): Promise<ApiResponse<Attendance>> {
+    return axiosInstance.post('/attendances/check-in');
   }
 
-  /**
-   * The board for today: the header totals and one record per active employee,
-   * INCLUDING those who have not punched — an absence has to be visible before
-   * anybody can explain it.
-   *
-   * Resolved per branch, so two offices in different zones each get their own
-   * calendar day rather than the server's.
-   */
-  today(): Promise<ApiResponse<TodayBoard>> {
+  async checkOut(): Promise<ApiResponse<Attendance>> {
+    return axiosInstance.post('/attendances/check-out');
+  }
+
+  async lunchCheckIn(): Promise<ApiResponse<Attendance>> {
+    return axiosInstance.post('/attendances/lunch-check-in');
+  }
+
+  async lunchCheckOut(): Promise<ApiResponse<Attendance>> {
+    return axiosInstance.post('/attendances/lunch-check-out');
+  }
+
+  async getLunchStatus(): Promise<ApiResponse<{
+    isOnLunchBreak: boolean;
+    lunchCheckOutTime: string | null;
+    lunchDurationMinutes: number;
+    hasTakenLunchToday: boolean;
+  }>> {
+    return axiosInstance.get('/attendances/lunch-status');
+  }
+
+  async getTodayAttendance(): Promise<ApiResponse<Attendance | null>> {
     return axiosInstance.get('/attendances/today');
   }
 
-  summary(params: {
-    startDate: string;
-    endDate: string;
-    departmentId?: string;
-    branchId?: string;
-  }): Promise<ApiResponse<AttendanceSummary>> {
-    return axiosInstance.get('/attendances/summary', { params });
-  }
-
-  /**
-   * One calendar month of the workforce for the attendance log grid.
-   *
-   * Not the paginated list narrowed to a month: this answers for everyone,
-   * including the people with no record at all, and derives each absence from
-   * the working calendar rather than counting rows that happen to say ABSENT.
-   */
-  monthlyReport(
-    query: MonthlyReportQuery = {},
-  ): Promise<ApiResponse<MonthlyAttendanceReport>> {
-    return axiosInstance.get('/attendances/monthly-report', { params: query });
-  }
-
-  hubSummary(
-    period: HubPeriod = 'month',
-    anchor?: string,
-  ): Promise<ApiResponse<AttendanceHubSummary>> {
-    return axiosInstance.get('/attendances/hub-summary', {
-      params: { period, ...(anchor ? { anchor } : {}) },
+  // My attendances (uses JWT — no employeeId needed)
+  async getMyAttendances(month?: number, year?: number): Promise<ApiResponse<Attendance[]> & {
+    summary: {
+      totalDays: number;
+      presentDays: number;
+      lateDays: number;
+      earlyLeaveDays: number;
+      totalWorkHours: number;
+    };
+  }> {
+    return axiosInstance.get('/attendances/my', {
+      params: { month, year }
     });
   }
 
+  // Employee attendances
+  async getEmployeeAttendances(employeeId: string, month?: number, year?: number): Promise<ApiResponse<Attendance[]> & {
+    summary: {
+      totalDays: number;
+      presentDays: number;
+      lateDays: number;
+      earlyLeaveDays: number;
+      totalWorkHours: number;
+    };
+  }> {
+    return axiosInstance.get(`/attendances/employee/${employeeId}`, {
+      params: { month, year }
+    });
+  }
+
+  // Reports and statistics
+  async getMonthlyReport(month: number, year: number): Promise<ApiResponse<AttendanceReport>> {
+    return axiosInstance.get('/attendances/report', {
+      params: { month, year }
+    });
+  }
+
+  async getStatistics(month?: number, year?: number): Promise<ApiResponse<AttendanceStatistics>> {
+    return axiosInstance.get('/attendances/statistics', {
+      params: { month, year }
+    });
+  }
+
+  // Get all employees' today attendance (for admin)
+  async getTodayAllAttendances(): Promise<ApiResponse<Attendance[]>> {
+    return axiosInstance.get('/attendances/today/all');
+  }
+
+  // Attendance Corrections
+  async getCorrections(params?: { status?: string; employeeId?: string }): Promise<ApiResponse<AttendanceCorrection[]>> {
+    return axiosInstance.get('/attendance-corrections', { params });
+  }
+
+  async getPendingCorrections(): Promise<ApiResponse<AttendanceCorrection[]>> {
+    return axiosInstance.get('/attendance-corrections/pending');
+  }
+
+  async getMyCorrections(): Promise<ApiResponse<AttendanceCorrection[]>> {
+    return axiosInstance.get('/attendance-corrections/my-requests');
+  }
+
+  async getMyCorrectionUsage(): Promise<any> {
+    return axiosInstance.get('/attendance-corrections/my-usage');
+  }
+
+  async getCorrectionById(id: string): Promise<ApiResponse<AttendanceCorrection>> {
+    return axiosInstance.get(`/attendance-corrections/${id}`);
+  }
+
+  async createCorrection(data: CreateCorrectionData): Promise<ApiResponse<AttendanceCorrection>> {
+    return axiosInstance.post('/attendance-corrections', data);
+  }
+
+  async approveCorrection(id: string, notes?: string): Promise<ApiResponse<AttendanceCorrection>> {
+    return axiosInstance.post(`/attendance-corrections/${id}/approve`, notes ? { notes } : {});
+  }
+
+  async rejectCorrection(id: string, rejectedReason: string): Promise<ApiResponse<AttendanceCorrection>> {
+    return axiosInstance.post(`/attendance-corrections/${id}/reject`, { rejectedReason });
+  }
+
+  async cancelCorrection(id: string): Promise<ApiResponse<AttendanceCorrection>> {
+    return axiosInstance.delete(`/attendance-corrections/${id}`);
+  }
+
+  // Attendance Management (Admin only)
+  async validateAttendance(month: number, year: number): Promise<ApiResponse<any>> {
+    return axiosInstance.get('/attendances/validate', {
+      params: { month, year }
+    });
+  }
+
+  async autoMarkAbsent(): Promise<ApiResponse<any>> {
+    return axiosInstance.post('/attendances/auto-mark-absent');
+  }
+
+  async createManualAttendance(data: {
+    employeeId: string;
+    date: string;
+    checkIn?: string;
+    checkOut?: string;
+    status?: string;
+    notes?: string;
+  }): Promise<ApiResponse<any>> {
+    return axiosInstance.post('/attendances/manual', data);
+  }
+
+  // Period-based overview (for the Attendance Overview page)
+  async getOverview(
+    period: 'today' | 'week' | 'month' | 'custom',
+    date?: string,
+    startDate?: string,
+    endDate?: string,
+  ): Promise<ApiResponse<{
+    period: string;
+    stats: {
+      totalEmployees: number;
+      present: number;
+      late: number;
+      absent: number;
+      earlyLeave: number;
+      notCheckedOut: number;
+      avgWorkHours: number;
+      presentRate: number;
+      lateRate: number;
+      lateUsers?: string[];
+      absentUsers?: string[];
+      earlyLeaveUsers?: string[];
+      notCheckedOutUsers?: string[];
+      notCheckedInUsers?: string[];
+    };
+    trendData: Array<{
+      date: string;
+      attendanceRate: number;
+      lateRate: number;
+      present: number;
+      absent: number;
+      total: number;
+    }>;
+    recentCheckIns: any[];
+    departmentBreakdown: Array<{
+      department: string;
+      present: number;
+      late: number;
+      absent: number;
+      total: number;
+    }>;
+  }>> {
+    return axiosInstance.get('/attendances/overview', { params: { period, date, startDate, endDate } });
+  }
+
   /**
-   * One person's history WITH its totals — not a bare list of rows.
-   *
-   * The counts travel with the records because the server derives them from the
-   * working calendar; counting the rows on the client would disagree with the
-   * report screens on any day the calendar says nobody was expected.
+   * The module hub's single aggregate. One request instead of the four the hub
+   * used to make, and the only place that knows what "expected" means.
    */
-  forEmployee(
-    employeeId: string,
-    params: { startDate?: string; endDate?: string } = {},
-  ): Promise<ApiResponse<EmployeeAttendanceHistory>> {
-    return axiosInstance.get(`/attendances/employee/${employeeId}`, { params });
+  async getHubSummary(
+    period: HubPeriod,
+    anchor?: string,
+  ): Promise<ApiResponse<AttendanceHubSummary>> {
+    return axiosInstance.get('/attendances/hub-summary', {
+      params: { period, anchor },
+    });
   }
 
-  get(id: string): Promise<ApiResponse<Attendance>> {
+  // Period-based paginated list (for the Attendance Overview table)
+  async getAttendanceList(params: {
+    period?: 'today' | 'week' | 'month' | 'custom';
+    page?: number;
+    limit?: number;
+    status?: string;
+    departmentId?: string;
+    search?: string;
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<ApiResponse<any>> {
+    return axiosInstance.get('/attendances/list', { params });
+  }
+
+  async getAttendanceById(id: string): Promise<ApiResponse<Attendance>> {
     return axiosInstance.get(`/attendances/${id}`);
-  }
-
-  checkIn(payload: CheckInPayload = {}): Promise<ApiResponse<Attendance>> {
-    return axiosInstance.post('/attendances/check-in', payload);
-  }
-
-  checkOut(payload: CheckInPayload = {}): Promise<ApiResponse<Attendance>> {
-    return axiosInstance.post('/attendances/check-out', payload);
-  }
-
-  create(payload: CreateAttendancePayload): Promise<ApiResponse<Attendance>> {
-    return axiosInstance.post('/attendances', payload);
-  }
-
-  update(
-    id: string,
-    payload: UpdateAttendancePayload,
-  ): Promise<ApiResponse<Attendance>> {
-    return axiosInstance.patch(`/attendances/${id}`, payload);
-  }
-
-  remove(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
-    return axiosInstance.delete(`/attendances/${id}`);
-  }
-
-  /** Reports per-row outcomes; one bad id does not fail the batch. */
-  bulk(
-    payload: BulkAttendancePayload,
-  ): Promise<ApiResponse<BulkAttendanceResult>> {
-    return axiosInstance.post('/attendances/bulk', payload);
   }
 }
 
 export default new AttendanceService();
+

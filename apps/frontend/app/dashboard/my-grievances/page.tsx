@@ -1,294 +1,285 @@
 'use client';
 
-import { useState } from 'react';
-import { Ban, Lock, MessageSquareWarning, Plus, X } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { MessageSquareWarning, Loader2, Plus, X, Lock, Ban } from 'lucide-react';
 import { toast } from 'sonner';
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { Textarea } from '@/components/ui/Textarea';
-import { EmptyState } from '@/components/common/EmptyState';
+import PageActionRow from '@/components/common/PageActionRow';
+import { useConfirm } from '@/hooks/useConfirm';
 import { usePageHeader } from '@/hooks/usePageHeader';
-import {
-  useGrievances,
-  useRaiseGrievance,
-  useWithdrawGrievance,
-} from '@/hooks/useGrievances';
-import { useLibraryItems } from '@/hooks/useLibraryItems';
-import { useEmployees } from '@/hooks/useEmployees';
-import { apiErrorMessage } from '@/utils/apiError';
-import { formatDate } from '@/utils/formatDate';
-import { fullName } from '@/utils/formatters';
-import type { CreateGrievanceData, GrievanceStatus } from '@/types/grievance';
+import grievanceService from '@/services/grievanceService';
+import libraryService from '@/services/libraryService';
+import MasterEmptyHint from '@/components/common/MasterEmptyHint';
+import employeeService from '@/services/employeeService';
+import { CreateGrievanceData, Grievance, GrievanceStatus } from '@/types/grievance';
 
-const STATUS_TONE: Record<
-  GrievanceStatus,
-  'neutral' | 'success' | 'warning' | 'error' | 'info'
-> = {
-  OPEN: 'warning',
-  ACKNOWLEDGED: 'info',
-  INVESTIGATING: 'info',
-  RESOLVED: 'success',
-  CLOSED: 'neutral',
-  WITHDRAWN: 'neutral',
+const STATUS_STYLE: Record<GrievanceStatus, string> = {
+  OPEN: 'bg-status-warning-bg/40 text-status-warning',
+  ACKNOWLEDGED: 'bg-status-info-bg/40 text-status-info',
+  INVESTIGATING: 'bg-brand-primary-light/20 text-brand-primary',
+  RESOLVED: 'bg-status-success-bg/40 text-status-success',
+  CLOSED: 'bg-surface-page text-text-muted',
+  WITHDRAWN: 'bg-surface-page text-text-muted',
 };
 
-/** The statuses a complainant may still take a case back from. */
-const WITHDRAWABLE = ['OPEN', 'ACKNOWLEDGED'];
+const inputCls =
+  'w-full h-12 md:h-10 px-3 border border-surface-border rounded-lg text-base md:text-sm bg-surface-card focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/30';
 
-const EMPTY_FORM: CreateGrievanceData = {
-  category: '',
-  subject: '',
-  description: '',
-};
+function fmtDate(d?: string | null) {
+  if (!d) return '—';
+  try {
+    return new Date(d).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return String(d);
+  }
+}
 
-function MyGrievancesScreen() {
-  const { data, isLoading, isError, error } = useGrievances();
-  const categories = useLibraryItems({ type: 'GRIEVANCE_CATEGORY', activeOnly: true });
-  const people = useEmployees({ status: 'ACTIVE', limit: 200, sortBy: 'firstName' });
-  const raise = useRaiseGrievance();
-  const withdraw = useWithdrawGrievance();
-
+/** ESS: raise and track a grievance. */
+export default function MyGrievancesPage() {
+  const [rows, setRows] = useState<Grievance[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [employees, setEmployees] = useState<
+    { id: string; fullName: string; employeeCode: string }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<CreateGrievanceData>(EMPTY_FORM);
+  const [form, setForm] = useState<CreateGrievanceData>({
+    category: '',
+    subject: '',
+    description: '',
+  });
+  const { confirm, ConfirmDialog } = useConfirm();
 
-  const rows = data?.data ?? [];
+  // The one heading for this route, rendered by TopHeader.
+  usePageHeader('My Grievances', 'Raise a concern and follow how it is handled');
 
-  usePageHeader('My grievances', 'Raise a concern and follow how it is handled');
+  const load = useCallback(async () => {
+    try {
+      const res = await grievanceService.getAll();
+      setRows(Array.isArray(res.data) ? res.data : []);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to load your grievances');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [cats, emps] = await Promise.all([
+          libraryService.getAll('GRIEVANCE_CATEGORY', true),
+          employeeService.getDirectory(),
+        ]);
+        setCategories((cats.data || []).map((c: any) => c.label));
+        setEmployees(
+          (emps.data || []).map((e: any) => ({
+            id: e.id,
+            fullName: e.fullName,
+            employeeCode: e.employeeCode,
+          })),
+        );
+      } catch {
+        // Non-fatal.
+      }
+    })();
+  }, []);
 
   const submit = async () => {
     if (!form.category || !form.subject.trim() || !form.description.trim()) {
-      toast.warning('A category, a subject and a description are all needed');
+      toast.warning('Category, subject and description are required');
       return;
     }
+    setSaving(true);
     try {
-      await raise.mutateAsync({
-        ...form,
-        subject: form.subject.trim(),
-        description: form.description.trim(),
-      });
-      toast.success('Raised. HR will pick it up.');
+      await grievanceService.create(form);
+      toast.success('Grievance raised. HR will pick it up.');
       setShowForm(false);
-      setForm(EMPTY_FORM);
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not raise that grievance.'));
+      setForm({ category: '', subject: '', description: '' });
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to raise the grievance');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const takeBack = async (id: string) => {
+  const withdraw = async (row: Grievance) => {
+    const ok = await confirm({
+      title: 'Withdraw grievance',
+      message: 'This closes the case. You can raise a new one later if you need to.',
+      type: 'warning',
+      confirmText: 'Withdraw',
+    });
+    if (!ok) return;
     try {
-      await withdraw.mutateAsync(id);
+      await grievanceService.withdraw(row.id);
       toast.success('Withdrawn');
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not withdraw that grievance.'));
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to withdraw');
     }
   };
 
   return (
-    <div className="space-y-5" data-testid="ess-my-grievances">
-      <div className="flex justify-end">
-        <Button
-          onClick={() => setShowForm((open) => !open)}
-          data-testid="grievance-open-form"
-        >
-          <Plus className="h-4 w-4" aria-hidden />
-          Raise a grievance
-        </Button>
-      </div>
+    <div className="p-4 md:p-6 space-y-6" data-testid="ess-my-grievances">
+      <PageActionRow
+        action={
+          <button
+            onClick={() => setShowForm((s) => !s)}
+            className="inline-flex h-12 md:h-10 w-full md:w-auto justify-center items-center gap-2 rounded-lg bg-brand-primary px-4 text-sm font-medium text-text-on-brand touch-manipulation"
+          >
+            <Plus size={16} /> Raise a grievance
+          </button>
+        }
+      />
 
       {showForm && (
-        <Card className="p-5">
+        <div className="rounded-2xl border border-surface-border bg-surface-card p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-text-heading">
-              New grievance
-            </h2>
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              aria-label="Close the grievance form"
-              className="text-text-muted hover:text-text-body"
-            >
-              <X className="h-4 w-4" aria-hidden />
+            <h3 className="text-sm font-semibold text-text-heading">New grievance</h3>
+            <button onClick={() => setShowForm(false)} className="text-text-muted">
+              <X size={18} />
             </button>
           </div>
-
+          {categories.length === 0 && (
+            <MasterEmptyHint what="grievance categories" className="mb-3" />
+          )}
           <div className="grid gap-3 md:grid-cols-2">
-            <Select
-              label="Category"
-              placeholder="Choose a category…"
+            <select
+              className={inputCls}
               value={form.category}
-              onChange={(event) =>
-                setForm({ ...form, category: event.target.value })
-              }
-              data-testid="grievance-category"
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
             >
-              {(categories.data?.data ?? []).map((item) => (
-                <option key={item.id} value={item.label}>
-                  {item.label}
+              <option value="">Category…</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
                 </option>
               ))}
-            </Select>
-            <Select
-              label="Is this about a particular person?"
-              placeholder="No — it is not about one person"
+            </select>
+            <select
+              className={inputCls}
               value={form.againstEmployeeId ?? ''}
-              onChange={(event) =>
-                setForm({
-                  ...form,
-                  againstEmployeeId: event.target.value || undefined,
-                })
+              onChange={(e) =>
+                setForm({ ...form, againstEmployeeId: e.target.value || undefined })
               }
-              data-testid="grievance-against"
             >
-              {(people.data?.data ?? []).map((person) => (
-                <option key={person.id} value={person.id}>
-                  {fullName(person)} ({person.employeeCode})
+              <option value="">This is not about a specific person</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.fullName} ({e.employeeCode})
                 </option>
               ))}
-            </Select>
-            <div className="md:col-span-2">
-              <Input
-                label="Subject"
-                placeholder="A line that says what this is about"
-                value={form.subject}
-                onChange={(event) =>
-                  setForm({ ...form, subject: event.target.value })
-                }
-                data-testid="grievance-subject"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <Textarea
-                label="What happened?"
-                rows={5}
-                value={form.description}
-                onChange={(event) =>
-                  setForm({ ...form, description: event.target.value })
-                }
-                data-testid="grievance-description"
-              />
-            </div>
+            </select>
+            <input
+              className={`${inputCls} md:col-span-2`}
+              placeholder="Subject"
+              value={form.subject}
+              onChange={(e) => setForm({ ...form, subject: e.target.value })}
+            />
+            <textarea
+              className="md:col-span-2 rounded-lg border border-surface-border px-3 py-2.5 text-base md:text-sm focus:border-brand-primary focus:outline-none"
+              rows={5}
+              placeholder="What happened?"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
             <label className="flex items-center gap-2 text-sm text-text-body md:col-span-2">
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded-sm border-surface-border accent-brand-primary"
                 checked={form.isConfidential ?? false}
-                onChange={(event) =>
-                  setForm({ ...form, isConfidential: event.target.checked })
+                onChange={(e) =>
+                  setForm({ ...form, isConfidential: e.target.checked })
                 }
               />
-              Handle this confidentially
+              Handle confidentially
             </label>
           </div>
-
-          <p className="mt-3 text-xs text-text-muted">
-            If you name a person, they can never see this grievance — whatever
-            their role.
+          <p className="mt-2 text-xs text-text-muted">
+            If you name a person, they will never be able to see this grievance —
+            whatever their role.
           </p>
-
           <div className="mt-4 flex justify-end">
-            <Button
-              onClick={() => void submit()}
-              isLoading={raise.isPending}
-              data-testid="grievance-submit"
+            <button
+              onClick={submit}
+              disabled={saving}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand-primary px-4 text-sm font-medium text-white disabled:opacity-50"
             >
-              Submit
-            </Button>
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />} Submit
+            </button>
           </div>
-        </Card>
+        </div>
       )}
 
-      {isLoading && (
-        <Card className="p-6">
-          <p className="text-sm text-text-muted">Loading your grievances…</p>
-        </Card>
-      )}
-
-      {isError && (
-        <Card className="p-6">
-          <p className="text-sm text-status-error">
-            {apiErrorMessage(error, 'Could not load your grievances.')}
-          </p>
-        </Card>
-      )}
-
-      {!isLoading && !isError && rows.length === 0 && (
-        <Card>
-          <EmptyState
-            icon={<MessageSquareWarning className="h-6 w-6" aria-hidden />}
-            title="Nothing raised"
-            description="A grievance you raise goes to HR with a trail of what is done about it, and you can follow it here."
-          />
-        </Card>
-      )}
-
-      <div className="space-y-3">
-        {rows.map((row) => (
-          <Card
-            key={row.id}
-            className="p-4"
-            data-testid={`my-grievance-row-${row.id}`}
-          >
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <MessageSquareWarning
-                    className="h-4 w-4 text-brand-primary"
-                    aria-hidden
-                  />
-                  <p className="text-sm font-semibold text-text-heading">
-                    {row.subject}
+      {loading ? (
+        <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-8 text-text-muted shadow-sm">
+          <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="rounded-2xl border border-surface-border bg-surface-card p-10 text-center text-text-muted shadow-sm">
+          Nothing raised.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <div
+              key={row.id}
+              className="rounded-2xl border border-surface-border bg-surface-card p-4 shadow-sm"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <MessageSquareWarning size={15} className="text-brand-primary" />
+                    <p className="text-sm font-semibold text-text-heading">
+                      {row.subject}
+                    </p>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[row.status]}`}
+                    >
+                      {row.status}
+                    </span>
+                    {row.isConfidential && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-surface-page px-2 py-0.5 text-[11px] text-text-muted">
+                        <Lock size={10} /> Confidential
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-text-muted">
+                    {row.category} · raised {fmtDate(row.createdAt)}
                   </p>
-                  <Badge tone={STATUS_TONE[row.status]}>{row.status}</Badge>
-                  {row.isConfidential && (
-                    <Badge>
-                      <Lock className="me-1 h-3 w-3" aria-hidden />
-                      Confidential
-                    </Badge>
+                  <p className="mt-2 text-sm text-text-body">{row.description}</p>
+                  {row.resolution && (
+                    <p className="mt-2 rounded-lg bg-status-success-bg/40 px-3 py-2 text-sm text-status-success">
+                      <span className="font-semibold">Resolution:</span>{' '}
+                      {row.resolution}
+                    </p>
                   )}
                 </div>
-                <p className="mt-1 text-xs text-text-muted">
-                  {row.category} · raised {formatDate(row.createdAt)}
-                </p>
-                <p className="mt-2 whitespace-pre-wrap text-sm text-text-body">
-                  {row.description}
-                </p>
-                {row.resolution && (
-                  <p className="mt-2 rounded-[var(--radius-input)] bg-status-success-bg px-3 py-2 text-sm text-status-success">
-                    <span className="font-semibold">Resolution:</span>{' '}
-                    {row.resolution}
-                  </p>
+
+                {['OPEN', 'ACKNOWLEDGED'].includes(row.status) && (
+                  <button
+                    onClick={() => withdraw(row)}
+                    className="inline-flex h-11 md:h-9 items-center gap-1.5 rounded-lg border border-surface-border px-3 text-base md:text-sm font-medium text-text-muted hover:bg-surface-page"
+                  >
+                    <Ban size={14} /> Withdraw
+                  </button>
                 )}
               </div>
-
-              {WITHDRAWABLE.includes(row.status) && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void takeBack(row.id)}
-                  isLoading={withdraw.isPending}
-                  aria-label={`Withdraw ${row.subject}`}
-                  data-testid={`grievance-withdraw-${row.id}`}
-                >
-                  <Ban className="h-4 w-4" aria-hidden />
-                  Withdraw
-                </Button>
-              )}
             </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
+          ))}
+        </div>
+      )}
 
-export default function MyGrievancesPage() {
-  return (
-    <ProtectedRoute>
-      <MyGrievancesScreen />
-    </ProtectedRoute>
+      <ConfirmDialog />
+    </div>
   );
 }

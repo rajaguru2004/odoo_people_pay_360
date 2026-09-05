@@ -1,290 +1,607 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import Link from 'next/link';
-import { Plus, Users } from 'lucide-react';
-import { toast } from 'sonner';
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import EmployeeCardView from '@/components/employees/EmployeeCardView';
-import EmployeeFilterPanel from '@/components/employees/EmployeeFilterPanel';
-import EmployeeStatsBar from '@/components/employees/EmployeeStatsBar';
-import EmployeeTableView, {
-  type EmployeeSortColumn,
-} from '@/components/employees/EmployeeTableView';
-import EmployeeViewSwitcher, {
-  type EmployeeViewType,
-} from '@/components/employees/EmployeeViewSwitcher';
-import {
-  employeeStatusLabel,
-  EMPTY_EMPLOYEE_FILTERS,
-  type EmployeeFilters,
-} from '@/components/employees/employeeFacts';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { EmptyState } from '@/components/common/EmptyState';
-import { Pagination } from '@/components/common/Pagination';
-import { useBranches } from '@/hooks/useBranches';
-import { useDebounce } from '@/hooks/useDebounce';
-import { useDepartments } from '@/hooks/useDepartments';
-import { useEmployees, useEmployeeStatusCounts } from '@/hooks/useEmployees';
-import { usePageHeader } from '@/hooks/usePageHeader';
-import { useAuthStore } from '@/store/authStore';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { Search, Filter, Plus, Download, X, FileSpreadsheet } from 'lucide-react';
 import employeeService from '@/services/employeeService';
-import { apiErrorMessage } from '@/utils/apiError';
-import { datedStem, exportWorkbook } from '@/utils/exportSheet';
-import { fullName } from '@/utils/formatters';
-import { hasPermission } from '@/utils/permissions';
-import type { Employee, EmployeeListQuery } from '@/types/employee';
+import departmentService from '@/services/departmentService';
+import libraryService from '@/services/libraryService';
+import { Employee } from '@/types/employee';
+import { Department } from '@/types/department';
+import { useBranchStore } from '@/store/branchStore';
 
-const PAGE_SIZE = 20;
+// RBAC
+import ProtectedRoute from '@/components/auth/ProtectedRoute';
+import { usePermission } from '@/hooks/usePermission';
 
-/** The API's own ceiling, so a page of the export is one request. */
-const EXPORT_PAGE_SIZE = 200;
-
-/**
- * How many rows an export will pull before it stops asking for more.
- *
- * A spreadsheet is written in the browser from rows fetched over the wire, so
- * an unbounded loop on a large workforce is a tab that appears to hang. The cap
- * is high enough that no realistic directory reaches it, and the export says so
- * when it does rather than quietly handing over a truncated file.
- */
-const EXPORT_ROW_CAP = 2000;
-
-function EmployeeDirectory() {
-  const role = useAuthStore((s) => s.user?.role);
-
-  const [view, setView] = useState<EmployeeViewType>('table');
-  const [filters, setFilters] = useState<EmployeeFilters>(EMPTY_EMPLOYEE_FILTERS);
-  const [sortBy, setSortBy] = useState<EmployeeSortColumn>('employeeCode');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [page, setPage] = useState(1);
-  const [exporting, setExporting] = useState(false);
-
-  // Debounced so typing does not fire a request per keystroke.
-  const debouncedSearch = useDebounce(filters.search, 300);
-
-  /**
-   * Narrowing the list invalidates where the reader is in it.
-   *
-   * Done in the handler rather than in an effect on the query: an effect would
-   * render page 4 of the new, shorter result first — an empty table that reads
-   * as "no matches" — and only then correct itself.
-   */
-  const narrow = (next: EmployeeFilters) => {
-    setFilters(next);
-    setPage(1);
-  };
-
-  /** Everything except the status, which the stats bar deliberately ignores. */
-  const scope = useMemo(
-    () => ({
-      search: debouncedSearch || undefined,
-      departmentId: filters.departmentId || undefined,
-      branchId: filters.branchId || undefined,
-    }),
-    [debouncedSearch, filters.departmentId, filters.branchId],
-  );
-
-  const query = useMemo<EmployeeListQuery>(
-    () => ({
-      ...scope,
-      page,
-      limit: PAGE_SIZE,
-      status: filters.status || undefined,
-      sortBy,
-      sortOrder,
-    }),
-    [scope, page, filters.status, sortBy, sortOrder],
-  );
-
-  const { data, isLoading, isError } = useEmployees(query);
-  const headcount = useEmployeeStatusCounts(scope);
-  const departments = useDepartments();
-  const branches = useBranches();
-
-  const employees = data?.data ?? [];
-  const total = data?.meta?.total;
-
-  usePageHeader(
-    'Employees',
-    total === undefined ? undefined : `${total} record${total === 1 ? '' : 's'}`,
-  );
-
-  const handleSort = (column: EmployeeSortColumn) => {
-    if (column === sortBy) {
-      setSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortBy(column);
-      setSortOrder('asc');
-    }
-    setPage(1);
-  };
-
-  /**
-   * Write out everything the filters currently match, not the page on screen.
-   *
-   * The list is paginated server-side, so exporting `employees` would hand over
-   * twenty rows and call it the directory. The pages are pulled in sequence
-   * rather than in parallel: the loop has to read each response's `totalPages`
-   * before it knows whether to ask for another.
-   */
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      const rows: Employee[] = [];
-      let current = 1;
-      let pages = 1;
-
-      do {
-        const response = await employeeService.list({
-          ...query,
-          page: current,
-          limit: EXPORT_PAGE_SIZE,
-        });
-        rows.push(...(response.data ?? []));
-        pages = response.meta?.totalPages ?? 1;
-        current += 1;
-      } while (current <= pages && rows.length < EXPORT_ROW_CAP);
-
-      const capped = rows.length >= EXPORT_ROW_CAP && current <= pages;
-
-      await exportWorkbook(datedStem('employees'), [
-        {
-          name: 'Employees',
-          rows: rows.map((employee) => ({
-            Code: employee.employeeCode,
-            'First name': employee.firstName,
-            'Last name': employee.lastName,
-            Position: employee.position,
-            Department: employee.department?.name,
-            Branch: employee.branch?.name,
-            Status: employeeStatusLabel(employee.status),
-            'Work email': employee.workEmail,
-            'Personal email': employee.personalEmail,
-            Phone: employee.phone,
-            // Date-only columns, written as the stored calendar day. Putting
-            // one through an instant parse on the way to a cell moves it a day
-            // west of Greenwich.
-            'Hire date': employee.hireDate?.slice(0, 10),
-            'Exit date': employee.exitDate?.slice(0, 10),
-            'Date of birth': employee.dateOfBirth?.slice(0, 10),
-            Gender: employee.gender,
-            Nationality: employee.nationality,
-            'National ID': employee.nationalId,
-            'Line manager': employee.manager ? fullName(employee.manager) : null,
-            Supervisor: employee.supervisor ? fullName(employee.supervisor) : null,
-            Timezone: employee.timezone,
-            Address: employee.address,
-          })),
-        },
-      ]);
-
-      if (capped) {
-        toast.warning(
-          `The export stopped at ${EXPORT_ROW_CAP} rows. Narrow the filters to reach the rest.`,
-        );
-      }
-    } catch (error) {
-      toast.error(apiErrorMessage(error, 'The export could not be written'));
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const filtered = Boolean(
-    debouncedSearch || filters.status || filters.departmentId || filters.branchId,
-  );
-
-  // The pager draws nothing for a single page, so the card around it in the
-  // grid view would otherwise be an empty bordered strip under the last row.
-  const showPager = (data?.meta?.totalPages ?? 1) > 1;
-
-  return (
-    <div className="space-y-5">
-      {/* Hidden for a role that cannot create, exactly as the rail hides the
-          nav entry. The server refuses the POST either way — this is about not
-          offering an action that is going to be turned down. */}
-      {hasPermission(role, 'CREATE_EMPLOYEE') && (
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <Link href="/dashboard/employees/new">
-            <Button>
-              <Plus className="h-4 w-4" aria-hidden />
-              New employee
-            </Button>
-          </Link>
-        </div>
-      )}
-
-      <EmployeeStatsBar headcount={headcount} />
-
-      <EmployeeFilterPanel
-        filters={filters}
-        onChange={narrow}
-        departments={departments.data?.data ?? []}
-        branches={branches.data?.data ?? []}
-        onExport={() => void handleExport()}
-        exporting={exporting}
-        trailing={<EmployeeViewSwitcher view={view} onChange={setView} />}
-      />
-
-      {isLoading && (
-        <Card className="p-6 text-sm text-text-muted">Loading employees…</Card>
-      )}
-
-      {isError && (
-        <Card className="p-6 text-sm text-status-error">
-          Could not load the directory. Is the API running?
-        </Card>
-      )}
-
-      {!isLoading && !isError && employees.length === 0 && (
-        <Card>
-          <EmptyState
-            icon={<Users className="h-6 w-6" aria-hidden />}
-            title={filtered ? 'No matches' : 'No records yet'}
-            description={
-              filtered
-                ? 'Nothing matches that search. Try a different name, code or filter.'
-                : 'Create the first employee record to get started.'
-            }
-          />
-        </Card>
-      )}
-
-      {/* Exactly one view renders at a time. Keeping the other mounted behind a
-          hidden class would print every name twice, which is a real problem for
-          anyone reading the page with assistive technology. */}
-      {employees.length > 0 && view === 'table' && (
-        <Card>
-          <EmployeeTableView
-            employees={employees}
-            sortBy={sortBy}
-            sortOrder={sortOrder}
-            onSort={handleSort}
-          />
-          <Pagination meta={data?.meta} onPageChange={setPage} />
-        </Card>
-      )}
-
-      {employees.length > 0 && view === 'cards' && (
-        <div className="space-y-5">
-          <EmployeeCardView employees={employees} />
-          {showPager && (
-            <Card>
-              <Pagination meta={data?.meta} onPageChange={setPage} />
-            </Card>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+// New Components
+import EmployeeViewSwitcher, { ViewType } from '@/components/employees/EmployeeViewSwitcher';
+import EmployeeFilterPanel, { FilterState } from '@/components/employees/EmployeeFilterPanel';
+import QuickFilterChips from '@/components/employees/QuickFilterChips';
+import EmployeeTableView from '@/components/employees/EmployeeTableView';
+import EmployeeCardView from '@/components/employees/EmployeeCardView';
+import EmployeeKanbanView from '@/components/employees/EmployeeKanbanView';
+import EmployeeStatsBar from '@/components/employees/EmployeeStatsBar';
+import ExportModal from '@/components/employees/ExportModal';
+import ImportModal from '@/components/employees/ImportModal';
+import ColumnPicker, { loadSelectedColumns } from '@/components/employees/ColumnPicker';
+import { useProfileTemplate } from '@/hooks/useProfileTemplate';
+import { listColumnCandidates } from '@/components/dynamic-form/fieldValue';
 
 export default function EmployeesPage() {
+  const router = useRouter();
+  const { can, isAdmin, isHRManager } = usePermission();
+  // Mirrors the backend's @Roles on /employees/statistics.
+  const canViewStatistics = isAdmin() || isHRManager();
+  const t = useTranslations('employeesListPage');
+  const tc = useTranslations('common');
+  // Multi-branch: re-scope the list + stats when the active branch changes.
+  const selectedBranchId = useBranchStore((s) => s.selectedBranchId);
+
+  // Force component version - change this to force reload
+  const COMPONENT_VERSION = 'v2.0.0';
+
+  // Data State
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [positions, setPositions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalEmployees, setTotalEmployees] = useState(0); // Real total from statistics
+  const [statistics, setStatistics] = useState<any>(null); // Full statistics data
+
+  // UI State
+  const [currentView, setCurrentView] = useState<ViewType>('table');
+  const limit = currentView === 'kanban' ? 1000 : 20;
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+
+  // Extra list columns come from the active employee template; which of them are
+  // shown is a per-user preference (see ColumnPicker), not template config.
+  const { data: listTemplate } = useProfileTemplate({ mode: 'EDIT' });
+  const columnCandidates = useMemo(
+    () => listColumnCandidates(listTemplate?.fields ?? []),
+    [listTemplate],
+  );
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  useEffect(() => {
+    // Read after mount: localStorage does not exist during SSR.
+    setSelectedColumns(loadSelectedColumns());
+  }, []);
+  const extraColumns = useMemo(
+    () =>
+      selectedColumns
+        .map((k) => columnCandidates.find((f) => f.fieldKey === k))
+        .filter((f): f is NonNullable<typeof f> => Boolean(f)),
+    [selectedColumns, columnCandidates],
+  );
+  const [showImportModal, setShowImportModal] = useState(false);
+
+  // Filter State
+  const [filters, setFilters] = useState<FilterState>({
+    departments: [],
+    positions: [],
+    statuses: [],
+    dateRange: {},
+  });
+
+  // Debounce search term - reduced to 300ms for faster response
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Fetch departments and positions (company-wide, not branch-scoped)
+  useEffect(() => {
+    fetchDepartments();
+    fetchPositions();
+  }, []);
+
+  // Refetch branch-scoped statistics and reset to page 1 on branch switch (also runs on mount).
+  useEffect(() => {
+    fetchStatistics();
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBranchId]);
+
+  // Reset page when filter changes
+  useEffect(() => {
+    setPage(1);
+  }, [filters]);
+
+  // Reset page when view changes
+  useEffect(() => {
+    setPage(1);
+  }, [currentView]);
+
+  const fetchDepartments = async () => {
+    try {
+      const response = await departmentService.getAll();
+      setDepartments(response.data);
+    } catch (error) {
+      console.error('Failed to fetch departments:', error);
+    }
+  };
+
+  const fetchPositions = async () => {
+    try {
+      const response = await libraryService.getAll('POSITION', true);
+      if (response?.success) {
+        setPositions(response.data.map((p: any) => p.label));
+      } else {
+        // fallback
+        const uniquePositions = Array.from(new Set(employees.map(e => e.position)));
+        setPositions(uniquePositions.length > 0 ? uniquePositions : ['Manager', 'Employee']);
+      }
+    } catch (error) {
+      console.error('Failed to fetch positions:', error);
+      const uniquePositions = Array.from(new Set(employees.map(e => e.position)));
+      setPositions(uniquePositions.length > 0 ? uniquePositions : ['Manager', 'Employee']);
+    }
+  };
+
+  const fetchStatistics = async () => {
+    // `/employees/statistics` is ADMIN and HR only, while the directory itself
+    // is open to MANAGER as well. Asking for it as a manager guaranteed a 403
+    // on every visit — a logged error, an empty stats bar, and nothing the user
+    // could do about it. Checked here rather than swallowed in the catch so the
+    // request is not made at all.
+    if (!canViewStatistics) return;
+    try {
+      const response = await employeeService.getStatistics();
+      setTotalEmployees(response.data?.total || 0);
+      setStatistics(response.data); // Store full statistics
+    } catch (error) {
+      console.error('Failed to fetch statistics:', error);
+    }
+  };
+
+  const fetchEmployees = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      const timestamp = new Date().toISOString();
+      console.log(`=== FETCH EMPLOYEES START [${timestamp}] ===`);
+      console.log('COMPONENT VERSION:', COMPONENT_VERSION);
+      console.log('Filters:', JSON.stringify(filters, null, 2));
+
+      const hasClientSideFilters =
+        filters.departments.length > 1 ||
+        filters.positions.length > 1 ||
+        filters.statuses.length > 1 ||
+        !!(filters.dateRange?.from || filters.dateRange?.to);
+
+      // Build API params with backend-supported filters
+      const params: any = {
+        page: hasClientSideFilters ? 1 : page,
+        limit: hasClientSideFilters ? 1000 : Math.min(limit, 1000),
+        search: debouncedSearch || undefined,
+      };
+
+      // Backend supports these filters directly
+      if (filters.departments.length === 1) {
+        params.departmentId = filters.departments[0];
+      }
+
+      if (filters.statuses.length === 1) {
+        params.status = filters.statuses[0];
+      }
+
+      if (filters.positions.length === 1) {
+        params.position = filters.positions[0];
+      }
+
+      console.log('API Params:', JSON.stringify(params, null, 2));
+
+      const response = await employeeService.getAll(params);
+
+      if (!response || !response.data) {
+        console.error('Invalid response:', response);
+        setEmployees([]);
+        setTotal(0);
+        return;
+      }
+
+      console.log('API Response:', response.data.length, 'employees');
+
+      // Client-side filtering for multi-select (backend only supports single value)
+      let filteredData = response.data;
+
+      // Apply multi-department filter (if more than 1 selected)
+      if (filters.departments.length > 1) {
+        console.log('Client-side filtering by departments:', filters.departments);
+        const beforeCount = filteredData.length;
+        filteredData = filteredData.filter(emp =>
+          filters.departments.includes(emp.departmentId)
+        );
+        console.log(`Department filter: ${beforeCount} -> ${filteredData.length}`);
+      }
+
+      // Apply multi-position filter (if more than 1 selected)
+      if (filters.positions.length > 1) {
+        const beforeCount = filteredData.length;
+        filteredData = filteredData.filter(emp =>
+          filters.positions.includes(emp.position)
+        );
+        console.log(`Position filter: ${beforeCount} -> ${filteredData.length}`);
+      }
+
+      // Apply multi-status filter (if more than 1 selected)
+      if (filters.statuses.length > 1) {
+        const beforeCount = filteredData.length;
+        filteredData = filteredData.filter(emp =>
+          filters.statuses.includes(emp.status)
+        );
+        console.log(`Status filter: ${beforeCount} -> ${filteredData.length}`);
+      }
+
+      // Apply date range filter (backend doesn't support this)
+      if (filters.dateRange?.from) {
+        const beforeCount = filteredData.length;
+        filteredData = filteredData.filter(emp =>
+          new Date(emp.startDate) >= new Date(filters.dateRange.from!)
+        );
+        console.log(`Date from filter: ${beforeCount} -> ${filteredData.length}`);
+      }
+
+      if (filters.dateRange?.to) {
+        const beforeCount = filteredData.length;
+        filteredData = filteredData.filter(emp =>
+          new Date(emp.startDate) <= new Date(filters.dateRange.to!)
+        );
+        console.log(`Date to filter: ${beforeCount} -> ${filteredData.length}`);
+      }
+
+      console.log('Final filtered count:', filteredData.length);
+      console.log('=== FETCH EMPLOYEES END ===');
+
+      if (hasClientSideFilters) {
+        const startIndex = (page - 1) * limit;
+        const paginatedData = filteredData.slice(startIndex, startIndex + limit);
+        setEmployees(paginatedData);
+        setTotal(filteredData.length);
+      } else {
+        setEmployees(filteredData);
+        setTotal(response.meta?.total || filteredData.length);
+      }
+    } catch (error) {
+      console.error('Failed to fetch employees:', error);
+      setEmployees([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, limit, debouncedSearch, filters, COMPONENT_VERSION, selectedBranchId]);
+
+  useEffect(() => {
+    fetchEmployees();
+    fetchPositions();
+  }, [fetchEmployees]);
+
+  const handleQuickFilter = (quickFilter: any) => {
+    setFilters(prev => ({
+      ...prev,
+      ...quickFilter,
+    }));
+    setPage(1);
+  };
+
+  const clearAllFilters = () => {
+    setFilters({
+      departments: [],
+      positions: [],
+      statuses: [],
+      dateRange: {},
+    });
+    setSearchTerm('');
+    setPage(1);
+  };
+
+  const hasDateRangeFilter = () => {
+    return !!(filters.dateRange?.from || filters.dateRange?.to);
+  };
+
+  const activeFilterCount =
+    filters.departments.length +
+    filters.positions.length +
+    filters.statuses.length +
+    (hasDateRangeFilter() ? 1 : 0);
+
+  const totalPages = Math.ceil(total / limit);
+
   return (
     <ProtectedRoute requiredPermission="VIEW_EMPLOYEES">
-      <EmployeeDirectory />
+      <>
+        <div className="space-y-4">
+          {/* Action Bar */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            {/* Left side - Primary action */}
+            <div className="flex items-center gap-3">
+              {can('CREATE_EMPLOYEE') && (
+                <button
+                  data-testid="emp-new"
+                  onClick={() => router.push('/dashboard/employees/new')}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-brand-primary text-white rounded-xl hover:shadow-2xl hover:scale-105 transition-all font-semibold shadow-lg shadow-brand-primary/30"
+                >
+                  <Plus size={20} />
+                  {t('moreStaff')}
+                </button>
+              )}
+              {can('CREATE_EMPLOYEE') && (
+                <button
+                  data-testid="employees-import-open"
+                  onClick={() => setShowImportModal(true)}
+                  className="flex items-center gap-2 px-5 py-2.5 border border-surface-border text-text-body bg-surface-card rounded-xl hover:bg-surface-page font-semibold hover:border-brand-primary hover:text-brand-primary transition-all shadow-xs"
+                >
+                  <FileSpreadsheet size={20} className="text-text-muted group-hover:text-brand-primary" />
+                  {t('importExcel')}
+                </button>
+              )}
+              {currentView === 'table' && (
+                <ColumnPicker
+                  candidates={columnCandidates}
+                  selected={selectedColumns}
+                  onChange={setSelectedColumns}
+                />
+              )}
+              {/* Gated like Import directly above. It previously was not, so a
+                  MANAGER — who sees a department-scoped directory on screen —
+                  was still offered "download the list" with no permission check
+                  in front of it (finding P3). The export endpoint applies its
+                  own scoping, so this is about not offering an action the role
+                  is not entitled to, rather than about the file's contents. */}
+              {can('CREATE_EMPLOYEE') && (
+              <button
+                data-testid="emp-export-open"
+                onClick={() => setShowExportModal(true)}
+                className="flex items-center gap-2 px-5 py-2.5 border border-surface-border text-text-body bg-surface-card rounded-xl hover:bg-surface-page font-semibold hover:border-brand-primary hover:text-brand-primary transition-all shadow-xs"
+                title={t('exportListTitle')}
+              >
+                <Download size={20} className="text-text-muted group-hover:text-brand-primary" />
+                {tc('export')}
+              </button>
+              )}
+            </div>
+          </div>
+
+          {/* Stats Bar */}
+          <EmployeeStatsBar
+            employees={employees}
+            departmentCount={departments.length}
+            totalEmployees={currentView === 'kanban' ? employees.length : totalEmployees}
+            statistics={currentView === 'kanban' ? null : statistics}
+          />
+
+          {/* Toolbar */}
+          <div className="bg-surface-card rounded-2xl border border-surface-border p-5 space-y-4 shadow-lg">
+            {/* Search & Actions Row */}
+            <div className="flex flex-col md:flex-row gap-3">
+              {/* Search */}
+              <div className="flex-1 relative group">
+                <Search className="absolute start-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-brand-primary transition-colors" size={20} />
+                <input
+                  data-testid="emp-search"
+                  type="text"
+                  placeholder={t('searchPlaceholder')}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full ps-12 pe-10 py-3 border border-surface-border bg-surface-card text-text-body rounded-xl focus:outline-none focus:ring-4 focus:ring-brand-primary/20 focus:border-brand-primary text-sm font-medium transition-all"
+                />
+                {searchTerm && (
+                  <button
+                    data-testid="emp-search-clear"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute end-3 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-text-body hover:bg-surface-page rounded-full transition-all"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
+              {/* View Switcher */}
+              <EmployeeViewSwitcher
+                currentView={currentView}
+                onViewChange={setCurrentView}
+              />
+
+              {/* Filter Button */}
+              <button
+                data-testid="emp-filter-open"
+                onClick={() => setShowFilterPanel(true)}
+                className={`
+                flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm transition-all
+                ${activeFilterCount > 0
+                    ? 'bg-brand-primary text-white shadow-lg shadow-brand-primary/30 hover:shadow-xl hover:scale-105'
+                    : 'border border-surface-border text-text-body hover:bg-surface-page hover:border-brand-primary'
+                  }
+              `}
+              >
+                <Filter size={18} />
+                {t('filter')}
+                {activeFilterCount > 0 && (
+                  <span className="px-2 py-0.5 bg-surface-card text-brand-primary rounded-full text-xs font-bold shadow-md">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Quick Filters */}
+            <QuickFilterChips onFilterSelect={handleQuickFilter} />
+
+            {/* Active Filters Display */}
+            {activeFilterCount > 0 && (
+              <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-surface-border">
+                <span className="text-xs font-semibold text-text-muted">{t('filtersApplying')}</span>
+
+                {filters.departments.map(deptId => {
+                  const dept = departments.find(d => d.id === deptId);
+                  return dept ? (
+                    <span key={deptId} className="inline-flex items-center gap-1 px-2 py-1 bg-brand-primary-light text-brand-primary rounded text-xs font-medium">
+                      {dept.name}
+                      <button onClick={() => setFilters(prev => ({
+                        ...prev,
+                        departments: prev.departments.filter(d => d !== deptId)
+                      }))}>
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ) : null;
+                })}
+
+                {filters.positions.map(pos => (
+                  <span key={pos} className="inline-flex items-center gap-1 px-2 py-1 bg-brand-primary-light/50 text-brand-primary rounded text-xs font-medium">
+                    {pos}
+                    <button onClick={() => setFilters(prev => ({
+                      ...prev,
+                      positions: prev.positions.filter(p => p !== pos)
+                    }))}>
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+
+                {filters.statuses.map(status => (
+                  <span key={status} className="inline-flex items-center gap-1 px-2 py-1 bg-status-success-bg text-status-success rounded text-xs font-medium">
+                    {status}
+                    <button onClick={() => setFilters(prev => ({
+                      ...prev,
+                      statuses: prev.statuses.filter(s => s !== status)
+                    }))}>
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+
+                <button
+                  data-testid="emp-filter-clear"
+                  onClick={clearAllFilters}
+                  className="text-xs text-text-muted hover:text-text-body font-medium underline"
+                >
+                  {t('deleteAll')}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Content Area */}
+          <div className="bg-surface-card rounded-2xl border border-surface-border overflow-hidden shadow-lg">
+            {currentView === 'table' && (
+              <EmployeeTableView
+                employees={employees}
+                onView={(id) => router.push(`/dashboard/employees/${id}`)}
+                loading={loading}
+                extraColumns={extraColumns}
+              />
+            )}
+
+            {currentView === 'card' && (
+              <div className="p-4">
+                <EmployeeCardView
+                  employees={employees}
+                  onView={(id) => router.push(`/dashboard/employees/${id}`)}
+                />
+              </div>
+            )}
+
+            {currentView === 'kanban' && (
+              <div className="p-4">
+                <EmployeeKanbanView
+                  employees={employees}
+                  onView={(id) => router.push(`/dashboard/employees/${id}`)}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && currentView !== 'kanban' && (
+            <div className="flex items-center justify-between bg-surface-card rounded-xl border border-surface-border px-5 py-4 shadow-lg">
+              {/* The "N of M" counter. With multi-select filters the list is
+                  filtered CLIENT-side over a capped fetch, so this number and
+                  the rows have to be asserted together — see finding P5. */}
+              <p data-testid="emp-count" className="text-sm text-text-muted font-medium">
+                {t('paginationSummary', {
+                  start: (page - 1) * limit + 1,
+                  end: Math.min(page * limit, total),
+                  total,
+                })}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  data-testid="emp-page-prev"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-4 py-2 border border-surface-border rounded-lg hover:bg-surface-page hover:border-brand-primary disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold transition-all"
+                >
+                  {t('previousPage')}
+                </button>
+                {[...Array(Math.min(5, totalPages))].map((_, i) => {
+                  const pageNum = i + 1;
+                  return (
+                    <button
+                      key={pageNum}
+                      data-testid={`emp-page-${pageNum}`}
+                      onClick={() => setPage(pageNum)}
+                      className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${page === pageNum
+                        ? 'bg-brand-primary text-white shadow-lg shadow-brand-primary/30'
+                        : 'border border-surface-border hover:bg-surface-page hover:border-brand-primary'
+                        }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+                <button
+                  data-testid="emp-page-next"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="px-4 py-2 border border-surface-border rounded-lg hover:bg-surface-page hover:border-brand-primary disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold transition-all"
+                >
+                  {t('nextPage')}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Filter Panel */}
+        {showFilterPanel && (
+          <EmployeeFilterPanel
+            filters={filters}
+            onFiltersChange={setFilters}
+            departments={departments}
+            positions={positions}
+            onClose={() => setShowFilterPanel(false)}
+          />
+        )}
+
+        {/* Export Modal */}
+        {showExportModal && (
+          <ExportModal
+            filters={filters}
+            onClose={() => setShowExportModal(false)}
+          />
+        )}
+
+        {/* Import Modal */}
+        {showImportModal && (
+          <ImportModal
+            onClose={() => {
+              setShowImportModal(false);
+              fetchEmployees();
+              fetchStatistics();
+            }}
+          />
+        )}
+      </>
     </ProtectedRoute>
   );
 }

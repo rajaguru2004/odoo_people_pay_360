@@ -1,98 +1,217 @@
 /**
- * `GET /payroll/hub-summary?months=6|12` — the Payroll hub payload.
+ * The contract of `GET /payrolls/hub-summary`.
  *
- * One aggregate answers the whole landing page rather than the page fanning out
- * to the list endpoints and counting rows off them: a queue longer than one
- * page would otherwise be under-reported on the very card whose job is to say
- * how much work is waiting.
+ * Mirrors `apps/backend/src/payrolls/payroll-hub.service.ts`. Two conventions
+ * run through the whole shape and the page depends on both:
  *
- * **Money counts APPROVED and PAID runs only.** A draft total is an intention,
- * not a payroll, and a card that added the two would tell the reader the
- * company had spent money it has not agreed to spend.
- *
- * **Every rate is `null`, never `0`, when there was nothing to divide by.** No
- * previous period and a period that genuinely did not move are different
- * claims; the frontend renders `null` as an em dash.
+ *  - **`null` means unknown, never zero.** A section the server could not
+ *    compute — no wage file has ever been produced, a branch with no banking
+ *    country — arrives as `null`. The page renders an em dash for it and is
+ *    forbidden from printing an all-clear over it.
+ *  - **Money means LOCKED.** Every figure under `money`, `composition` and the
+ *    `net` of a trend bucket comes from locked runs only, because a DRAFT total
+ *    is money that has not moved. Non-locked work shows up as *counts* — runs
+ *    in progress, employees in an open run — never as an amount.
  */
 
-import type { PayrollPeriod, PayrollRunStatus } from './payroll';
-import type { TrendMonths } from './organizationHub';
+/** The trailing windows the trend panel offers. Anything else is refused with 400. */
+export type PayrollTrendMonths = 6 | 12;
 
-export type { TrendMonths };
+/** Every state a payroll run can be in. Matches the `PayrollStatus` enum. */
+export const PAYROLL_RUN_STATUSES = [
+  'DRAFT',
+  'PENDING_APPROVAL',
+  'APPROVED',
+  'REJECTED',
+  'LOCKED',
+] as const;
+export type PayrollRunStatus = (typeof PAYROLL_RUN_STATUSES)[number];
 
-/** The run pipeline, one count per status. Counted in the database. */
-export type PayrollRunStatusCounts = Record<PayrollRunStatus, number>;
+/** The earning columns of a payslip, in the order the panel lists them. */
+export const PAYROLL_EARNING_KEYS = [
+  'baseSalary',
+  'allowances',
+  'bonus',
+  'overtimePay',
+  'foodAllowance',
+  'siteAllowance',
+  'reimbursement',
+  'leaveEncashment',
+] as const;
 
-export interface PayrollHubRuns {
-  byStatus: PayrollRunStatusCounts;
-  /**
-   * The run that has been waiting longest for a decision, or null when nothing
-   * is. It is the single most actionable thing on the page, which is why it
-   * arrives already chosen rather than derived from a page of the list.
-   */
-  oldestAwaitingApproval: {
-    id: string;
-    /** Server-formatted (`Aug 2026`). The browser does no calendar maths. */
-    label: string;
-    calculatedAt: string;
-  } | null;
+/** The deduction columns. The first six are `register`'s definition verbatim. */
+export const PAYROLL_DEDUCTION_KEYS = [
+  'deduction',
+  'insurance',
+  'tax',
+  'advanceLoanDeduction',
+  'garnishment',
+  'otherRecovery',
+] as const;
+
+export type PayrollMoneyKey =
+  | (typeof PAYROLL_EARNING_KEYS)[number]
+  | (typeof PAYROLL_DEDUCTION_KEYS)[number];
+
+export interface PayrollCompositionRow {
+  key: PayrollMoneyKey;
+  amount: number;
 }
 
-export interface PayrollHubMoney {
-  currency: string;
-  gross: number;
-  net: number;
-  deductions: number;
-  /** Employer contributions — recorded, never paid to anybody. Outside net. */
-  employerCost: number;
-  previousNet: number;
-  /**
-   * Movement against the previous period, or null when there is no previous
-   * period to compare against. 0 would claim pay held exactly steady.
-   */
-  changePct: number | null;
+export interface PayrollHubEmployee {
+  id: string;
+  employeeCode: string;
+  fullName: string;
 }
 
-export interface PayrollHubEmployees {
-  paid: number;
-  /** In a run that has not been paid yet. */
-  inOpenRun: number;
-  active: number;
-  /**
-   * Nobody can be paid without one, so this is the number that blocks the next
-   * run. `withoutStructureNames` is a capped SAMPLE — never read its length as
-   * the count.
-   */
-  withoutStructure: number;
-  withoutStructureNames: string[];
-}
-
-export interface PayrollHubAttention {
-  code: string;
-  severity: 'BLOCKER' | 'WARNING' | 'INFO';
-  /** The true total. `names` is a capped sample of it. */
-  count: number;
-  names: string[];
-  message: string;
-}
-
-export interface PayrollHubTrendBucket {
-  /** Arrives formatted. */
+export interface PayrollHubRunRef {
+  id: string;
+  month: number;
+  year: number;
+  /** `Aug 2026` — already formatted by the server, so the browser does no calendar maths. */
   label: string;
-  /** Date-only — `formatDateOnly`. */
-  periodStart: string;
-  gross: number;
-  net: number;
-  employeeCount: number;
+}
+
+export interface PayrollPendingRun extends PayrollHubRunRef {
+  submittedAt: string | null;
+}
+
+export interface PayrollTrendBucket {
+  /** `YYYY-MM`, stable across locales and safe as a React key. */
+  key: string;
+  label: string;
+  month: number;
+  year: number;
+  /**
+   * `null` when no run in this month is locked. Drawing 0 would put a
+   * floor-height bar on the chart that reads as "we paid nobody that month",
+   * which is a different and much louder claim than "not finalised yet".
+   */
+  net: number | null;
+  /** Gross for the month — the same eight earning columns `composition` sums. */
+  gross: number | null;
+  /** The statutory employee contribution (SPF / EPF / CPF, per country). */
+  statutory: number | null;
+  employees: number;
+  runs: number;
+  lockedRuns: number;
+  locked: boolean;
+}
+
+export interface PayrollReadiness {
+  /**
+   * `run` when the anchor month holds payslips — the people actually about to
+   * be paid. `active` when it does not, so the panel can say it is describing
+   * the workforce rather than a run.
+   */
+  population: 'run' | 'active';
+  total: number;
+  ready: number;
+  /**
+   * `null` when nobody could be judged — a branch with no banking country has
+   * no required fields, so "100% ready" there would be a fabricated all-clear.
+   */
+  readyRate: number | null;
+  noBankRecord: number;
+  incompleteFields: number;
+  pendingChange: number;
+  bankInactive: number;
+  countryNotAllowed: number;
+  /** Counted, excluded from `readyRate`, and named as unknown on the panel. */
+  unknown: number;
+  names: PayrollHubEmployee[];
 }
 
 export interface PayrollHubSummary {
-  period: PayrollPeriod;
-  /** The same window one step back; every delta on the page reads this. */
-  previousPeriod: PayrollPeriod;
-  runs: PayrollHubRuns;
-  money: PayrollHubMoney;
-  employees: PayrollHubEmployees;
-  attention: PayrollHubAttention[];
-  trend: PayrollHubTrendBucket[];
+  months: PayrollTrendMonths;
+  anchor: {
+    month: number;
+    year: number;
+    label: string;
+    /**
+     * Which rule picked the period. Runs are generated after a month ends, so
+     * the hub anchors on the newest month that actually holds one — and says
+     * so, rather than leaving the reader to guess why it is showing July.
+     */
+    resolvedFrom: 'latest-run' | 'current-month';
+    previous: { month: number; year: number; label: string };
+  };
+  runs: {
+    /** Counts by status inside the trend window — what the pipeline donut draws. */
+    windowByStatus: Partial<Record<PayrollRunStatus, number>>;
+    /**
+     * Every run ever, at any status. Load-bearing for one distinction the page
+     * cannot otherwise draw: "every run is locked" and "there are no runs at
+     * all" both leave `inProgress` at 0, and only one of them is good news.
+     */
+    total: number;
+    locked: number;
+    /**
+     * Unwindowed queue counts. A queue is what is waiting NOW: an open run from
+     * four months ago is exactly the one somebody needs to be told about, so
+     * these deliberately do not follow the 6M/12M toggle.
+     */
+    inProgress: number;
+    pendingApproval: number;
+    approvedNotLocked: number;
+    draft: number;
+    rejected: number;
+    oldestPendingAt: string | null;
+    draftForClosedPeriod: number;
+    pending: PayrollPendingRun[];
+    rejectedRuns: PayrollHubRunRef[];
+  };
+  money: {
+    net: number | null;
+    previousNet: number | null;
+    /**
+     * Gross, the statutory line, and total deductions for the anchor, each with
+     * the previous month beside it. Same locked-only rule as `net`: a month
+     * with nothing locked is `null`, never 0.
+     */
+    gross: number | null;
+    previousGross: number | null;
+    statutory: number | null;
+    previousStatutory: number | null;
+    deductions: number | null;
+    previousDeductions: number | null;
+    currency: string;
+  };
+  employees: {
+    paid: number;
+    inOpenRun: number;
+    active: number;
+    notInAnyRun: number;
+    names: PayrollHubEmployee[];
+  };
+  readiness: PayrollReadiness | null;
+  trend: PayrollTrendBucket[];
+  composition: {
+    earnings: PayrollCompositionRow[];
+    deductions: PayrollCompositionRow[];
+    grossReported: number;
+    deductionsTotal: number;
+    net: number | null;
+    /**
+     * `Σearnings − Σdeductions − Σnet`. Non-zero means the payslip columns do
+     * not reconcile with what was actually paid — the panel prints it rather
+     * than hiding it inside a rounded bar.
+     */
+    residual: number;
+  };
+  carryForward: { outstanding: number };
+  settlements: { draft: number; awaitingPayment: number; openPayout: number } | null;
+  wps: {
+    lastFileAt: string | null;
+    lastFileStatus: string | null;
+    lastFileName: string | null;
+    rejected: number;
+  } | null;
+  /**
+   * Legacy company-wide runs (`branchId = null`). `Payroll` is `'direct'` in the
+   * branch scope map, so these are invisible to every scoped query — including
+   * every other figure in this payload. Surfaced so the page can say "N runs are
+   * not shown here" instead of letting them vanish.
+   */
+  unscopedLegacyRuns: number;
 }

@@ -1,4 +1,4 @@
-// API Response Types — mirrors the backend's TransformInterceptor envelope.
+// API Response Types
 export interface ApiResponse<T = any> {
   success: boolean;
   data: T;
@@ -9,6 +9,7 @@ export interface ApiResponse<T = any> {
 
 export interface PaginationMeta {
   total: number;
+  totalUnfiltered?: number;
   page: number;
   limit: number;
   totalPages: number;
@@ -24,10 +25,10 @@ export interface ApiError {
   /**
    * The untouched response body.
    *
-   * The axios interceptor flattens an error into the fields above, which
-   * silently drops anything else the endpoint attached. Keeping the original
-   * here means an endpoint that returns a structured report alongside its
-   * message loses nothing on the way to the screen.
+   * The interceptor flattens an error into the fields above, which silently drops
+   * anything else the endpoint attached — e.g. the WPS generate route returns the
+   * full pre-flight report alongside its message so the screen can refresh without
+   * a second round trip. Keep the original here so nothing is lost.
    */
   details?: any;
 }

@@ -1,11 +1,14 @@
 /**
  * `GET /employees/hub-summary` — the People hub's one payload.
  *
- * Work permits are deliberately absent. `/legal-documents/*` can answer 403 for
- * a role that may not see them, and the hub is built to quieten two permit
- * cards while the rest of the page keeps working — folding them in here would
- * let one module's 403 blank the whole screen.
+ * Mirrors `apps/backend/src/employees/people-hub.service.ts`.
+ *
+ * Work permits are deliberately absent. `/legal-documents/*` answers 403 for
+ * some roles, and the hub is built to quieten two permit cards while the rest
+ * of the page keeps working — folding them in here would let one module's 403
+ * blank the whole dashboard.
  */
+
 export type { TrendMonths } from './organizationHub';
 
 export interface PeopleTrendBucket {
@@ -22,6 +25,7 @@ export interface PeopleHubSummary {
   headcount: {
     active: number;
     inactive: number;
+    /** Raw rows — `Employee.status` is free text, not an enum. */
     byStatus: Array<{ status: string; count: number }>;
   };
   lifecycle: {
@@ -57,13 +61,12 @@ export interface PeopleHubSummary {
     }>;
   };
   terminations: { awaitingApproval: number; thisMonth: number };
-  /** Mutually exclusive and summing to the workforce. */
+  /** Mutually exclusive and summing to the workforce: active/probation/notice/inactive. */
   statusSplit: Array<{ key: string; label: string; count: number }>;
   trend: {
     months: number;
     buckets: PeopleTrendBucket[];
     netChange: number;
-    /** Leavers over average headcount; null when there is nothing to divide by. */
     turnoverRate: number | null;
   };
 }

@@ -1,330 +1,348 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { DateTime } from 'luxon';
-import { toast } from 'sonner';
-import { BarChart3, Download } from 'lucide-react';
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { usePageHeader } from '@/hooks/usePageHeader';
-import { useAttendanceSummary } from '@/hooks/useAttendance';
-import { useBranches } from '@/hooks/useBranches';
-import { useDepartments } from '@/hooks/useDepartments';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { EmptyState } from '@/components/common/EmptyState';
-import { StatCard } from '@/components/common/StatCard';
-import {
-  BarOverviewChart,
-  PanelHeader,
-  type BarOverviewItem,
-} from '@/components/module-landing/primitives';
-import { chartAxis, formatHours, formatRate } from '@/components/attendance/attendanceFormat';
-import { formatDateOnly } from '@/utils/formatDate';
-import { apiErrorMessage } from '@/utils/apiError';
+import { useEffect, useState } from 'react';
+import { Download, Calendar, Clock, TrendingDown, Search } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { useTranslations } from 'next-intl';
+import attendanceService from '@/services/attendanceService';
+import holidayService from '@/services/holidayService';
+import { useAuthStore } from '@/store/authStore';
+import { useGlobalSearchStore } from '@/store/globalSearchStore';
+import * as XLSX from 'xlsx';
+import { ChevronLeftIcon, ChevronRightIcon } from '@/components/common/icons/directional';
 
-/** A day key in the reader's own calendar — a report range has no time of day. */
-function dayKey(offsetDays = 0): string {
-  return DateTime.now().plus({ days: offsetDays }).toISODate() ?? '';
+export function getAttendanceStatus(present: number, late: number, earlyLeave: number, t: (key: string) => string) {
+  if (present === 0) return { band: 'none', label: t('noRecords'), cls: 'text-text-muted bg-surface-border-light' };
+  if (late > 5 || earlyLeave > 5) return { band: 'risk', label: t('atRisk'), cls: 'text-status-error bg-status-error/10' };
+  if (late > 2 || earlyLeave > 2) return { band: 'attention', label: t('needsAttention'), cls: 'text-status-warning bg-status-warning/10' };
+  return { band: 'good', label: t('goodStanding'), cls: 'text-status-success bg-status-success/10' };
 }
 
-function AttendanceReports() {
-  const [from, setFrom] = useState(() => dayKey(-29));
-  const [to, setTo] = useState(() => dayKey());
-  const [departmentId, setDepartmentId] = useState('');
-  const [branchId, setBranchId] = useState('');
-  const [exporting, setExporting] = useState(false);
+export default function AttendanceReportsPage() {
+  const t = useTranslations('reportsPage');
+  const tc = useTranslations('common');
+  const { user } = useAuthStore();
+  const [report, setReport] = useState<any>(null);
+  const [statistics, setStatistics] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [workingDays, setWorkingDays] = useState(0);
+  const [search, setSearch] = useState('');
+  const globalQuery = useGlobalSearchStore((s) => s.query);
+  const setGlobalQuery = useGlobalSearchStore((s) => s.setQuery);
 
-  const departments = useDepartments();
-  const branches = useBranches();
+  // The header search box is shared app-wide; mirror it into this page's
+  // own filter so typing there also filters the summary table below.
+  useEffect(() => {
+    setSearch(globalQuery);
+  }, [globalQuery]);
 
-  const { data, isLoading, isError } = useAttendanceSummary({
-    startDate: from,
-    endDate: to,
-    departmentId: departmentId || undefined,
-    branchId: branchId || undefined,
-  });
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    setGlobalQuery(value);
+  };
 
-  const summary = data?.data;
-  const totals = summary?.totals;
+  const monthLabel = new Date(year, month - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
 
-  usePageHeader(
-    'Attendance reports',
-    summary ? `${formatDateOnly(from)} – ${formatDateOnly(to)}` : undefined,
+  useEffect(() => {
+    fetchReport();
+  }, [month, year]);
+
+  const fetchReport = async () => {
+    if (!user?.employeeId) return;
+    try {
+      setLoading(true);
+      const [reportResponse, statsResponse, workDaysResponse] = await Promise.all([
+        attendanceService.getMonthlyReport(month, year),
+        attendanceService.getStatistics(month, year),
+        // Branch weekly-off + holiday aware, so this matches payroll's denominator.
+        holidayService.calculateWorkDays(month, year),
+      ]);
+      setReport({ data: reportResponse.data, meta: reportResponse.meta });
+      setStatistics(statsResponse.data);
+      setWorkingDays(workDaysResponse.data?.workDays ?? 0);
+    } catch (error) {
+      console.error('Failed to fetch report:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePreviousMonth = () => {
+    if (month === 1) { setMonth(12); setYear(year - 1); } else { setMonth(month - 1); }
+  };
+  const handleNextMonth = () => {
+    if (month === 12) { setMonth(1); setYear(year + 1); } else { setMonth(month + 1); }
+  };
+
+  const filteredData = (report?.data ?? []).filter((item: any) =>
+    item.employee.fullName.toLowerCase().includes(search.toLowerCase()) ||
+    (item.employee.department?.name ?? '').toLowerCase().includes(search.toLowerCase())
   );
 
-  /** One bar per day, split into what the day was made of. */
-  const { items, axis } = useMemo(() => {
-    const daily = summary?.daily ?? [];
-    const rows: BarOverviewItem[] = daily.map((day) => ({
-      key: day.date,
-      label: formatDateOnly(day.date, 'dd LLL'),
-      value: day.present + day.late + day.absent + day.onLeave,
-      segments: [
-        {
-          key: 'present',
-          label: 'Present',
-          value: day.present,
-          color: 'color-mix(in srgb, var(--color-brand-primary) 90%, white)',
-        },
-        { key: 'late', label: 'Late', value: day.late, color: 'var(--color-status-warning)' },
-        { key: 'absent', label: 'Absent', value: day.absent, color: 'var(--color-status-error)' },
-        { key: 'onLeave', label: 'On leave', value: day.onLeave, color: 'var(--color-status-info)' },
-      ],
-      tooltipTitle: formatDateOnly(day.date),
-      tooltipRows: [
-        { label: 'Present', value: day.present },
-        { label: 'Late', value: day.late },
-        { label: 'Absent', value: day.absent },
-        { label: 'On leave', value: day.onLeave },
-        // Never coerced to a number: `null` means nothing was recorded that day,
-        // and 0% would report a total no-show.
-        { label: 'Attendance', value: formatRate(day.attendanceRate), emphasis: true },
-      ],
-    }));
-
-    return { items: rows, axis: chartAxis(Math.max(1, ...rows.map((r) => r.value))) };
-  }, [summary]);
-
-  const exportBook = async (format: 'csv' | 'xlsx') => {
-    if (!summary) return;
-    setExporting(true);
-    try {
-      // Loaded on demand: the spreadsheet writer is far larger than this screen,
-      // and most visits never press the button.
-      const XLSX = await import('xlsx');
-
-      const daily = summary.daily.map((day) => ({
-        Date: day.date,
-        Present: day.present,
-        Late: day.late,
-        'Half day': day.halfDay,
-        Absent: day.absent,
-        'On leave': day.onLeave,
-        Holiday: day.holiday,
-        Weekend: day.weekend,
-        'Work hours': day.workHours,
-        // Blank, not zero: a spreadsheet cell of 0 is a figure somebody will
-        // later average, and this one was never measured.
-        'Attendance %': day.attendanceRate ?? '',
-      }));
-
-      const byDepartment = summary.departments.map((department) => ({
-        Department: department.name,
-        Headcount: department.headcount,
-        Present: department.present,
-        Late: department.late,
-        Absent: department.absent,
-        'On leave': department.onLeave,
-        'Work hours': department.workHours,
-        'Attendance %': department.attendanceRate ?? '',
-      }));
-
-      const stem = `attendance-${summary.range.startDate}-to-${summary.range.endDate}`;
-
-      if (format === 'csv') {
-        const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(daily));
-        const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = `${stem}.csv`;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        URL.revokeObjectURL(url);
-      } else {
-        const book = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(daily), 'By day');
-        XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(byDepartment), 'By department');
-        XLSX.writeFile(book, `${stem}.xlsx`);
-      }
-    } catch (error) {
-      toast.error(apiErrorMessage(error, 'The export could not be written'));
-    } finally {
-      setExporting(false);
-    }
+  const handleExport = () => {
+    if (!report?.data) { alert(t('noDataToExport')); return; }
+    const rows: any[][] = [[
+      '#', tc('employee'), tc('employeeCode'), tc('department'),
+      t('colDaysPresent'), t('colAbsentDays'), t('colLateArrivals'), t('colEarlyDepartures'),
+      t('colAvgHrsDay'), t('colTotalHoursWorked'), tc('status'),
+    ]];
+    report.data.forEach((item: any, idx: number) => {
+      const present = item.summary.present || 0;
+      const absent = Math.max(0, workingDays - present);
+      const totalHours = item.summary.totalHours ? Number(item.summary.totalHours) : 0;
+      const avgHrs = present > 0 ? (totalHours / present).toFixed(1) : '0.0';
+      const status = getAttendanceStatus(present, item.summary.late || 0, item.summary.earlyLeave || 0, t);
+      rows.push([
+        idx + 1,
+        item.employee.fullName,
+        item.employee.employeeCode,
+        item.employee.department?.name || '--',
+        present,
+        absent,
+        item.summary.late || 0,
+        item.summary.earlyLeave || 0,
+        avgHrs,
+        totalHours.toFixed(1),
+        status.label,
+      ]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Attendance Report');
+    XLSX.writeFile(wb, `Attendance_Report_${month}_${year}.xlsx`);
   };
 
   return (
     <div className="space-y-5">
-      <Card className="p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="w-40">
-            <Input label="From" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </div>
-          <div className="w-40">
-            <Input label="To" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          </div>
-          <div className="w-52">
-            <Select
-              label="Department"
-              placeholder="Every department"
-              value={departmentId}
-              onChange={(e) => setDepartmentId(e.target.value)}
-            >
-              {(departments.data?.data ?? []).map((department) => (
-                <option key={department.id} value={department.id}>
-                  {department.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="w-52">
-            <Select
-              label="Branch"
-              placeholder="Every branch"
-              value={branchId}
-              onChange={(e) => setBranchId(e.target.value)}
-            >
-              {(branches.data?.data ?? []).map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-
-          <div className="ms-auto flex items-center gap-2">
-            <Button
-              variant="outline"
-              disabled={!summary || exporting}
-              onClick={() => void exportBook('csv')}
-            >
-              <Download className="h-4 w-4" aria-hidden />
-              Export CSV
-            </Button>
-            <Button disabled={!summary || exporting} onClick={() => void exportBook('xlsx')}>
-              <Download className="h-4 w-4" aria-hidden />
-              Export XLSX
-            </Button>
-          </div>
+      {/* Controls bar — month nav + export */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1 bg-surface-card border border-surface-border rounded-[--radius-button] px-1 py-1">
+          <button
+            data-testid="attrep-prev-month"
+            onClick={handlePreviousMonth}
+            className="p-1.5 hover:bg-surface-border-light rounded-[--radius-button] transition-colors text-text-muted"
+          >
+            <ChevronLeftIcon size={16} />
+          </button>
+          <span className="px-3 text-sm font-semibold text-text-heading min-w-[120px] text-center">
+            {monthLabel}
+          </span>
+          <button
+            data-testid="attrep-next-month"
+            onClick={handleNextMonth}
+            className="p-1.5 hover:bg-surface-border-light rounded-[--radius-button] transition-colors text-text-muted"
+          >
+            <ChevronRightIcon size={16} />
+          </button>
         </div>
-      </Card>
-
-      {isError && (
-        <Card className="p-6 text-sm text-status-error">
-          Could not build the report. Is the API running?
-        </Card>
-      )}
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Days worked"
-          value={totals ? totals.present + totals.late : '—'}
-          hint={totals ? `${totals.records} rows in range` : undefined}
-          icon={<BarChart3 className="h-5 w-5" aria-hidden />}
-        />
-        <StatCard
-          label="Turnout"
-          // An em dash, never 0%: `null` means nothing was expected in the
-          // window, which is not the same as nobody turning up.
-          value={formatRate(totals?.attendanceRate)}
-          hint="Of the days people were expected"
-        />
-        <StatCard
-          label="Late arrivals"
-          value={totals ? totals.late : '—'}
-          hint={totals ? `${Math.round(totals.lateMinutes)} minutes in total` : undefined}
-        />
-        <StatCard
-          label="Average day"
-          value={formatHours(totals?.avgWorkHours)}
-          hint={totals ? `${formatHours(totals.workHours)} worked in all` : undefined}
-        />
+        <button
+          data-testid="attrep-export"
+          onClick={handleExport}
+          className="flex items-center gap-2 px-4 py-2 bg-status-success text-text-on-brand rounded-[--radius-button] hover:bg-status-success/90 transition-colors text-sm font-medium shadow-sm"
+        >
+          <Download size={16} />
+          {t('exportExcel')}
+        </button>
       </div>
 
-      <Card className="p-6">
-        <PanelHeader
-          title="Turnout by day"
-          hint={
-            summary
-              ? `${formatDateOnly(summary.range.startDate)} – ${formatDateOnly(summary.range.endDate)}`
-              : undefined
-          }
-        />
-        {isLoading ? (
-          <div className="h-[260px] animate-pulse rounded-xl bg-surface-border/60" />
-        ) : items.length === 0 ? (
-          <p className="py-16 text-center text-sm text-text-muted">
-            Nothing was recorded in this range.
-          </p>
-        ) : (
-          <div className="h-[280px]">
-            <BarOverviewChart
-              items={items}
-              height="100%"
-              maxVal={axis.max}
-              yAxisTicks={axis.ticks}
-              minBarWidth={items.length > 16 ? 26 : undefined}
-              // The stacked card sits over the bands it describes and clips at
-              // the panel edge on the first and last day, so hover opens it.
-              openHighlightTooltip={false}
-            />
-          </div>
-        )}
-      </Card>
+      {/* Statistics Cards */}
+      {statistics && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-surface-card rounded-[--radius-card] p-6 border border-surface-border"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-status-info-bg/40 rounded-[--radius-input] flex items-center justify-center shrink-0">
+                <Calendar className="text-status-info" size={24} />
+              </div>
+              <div>
+                <p className="text-sm text-text-muted">{t('totalCheckIns')}</p>
+                <p data-testid="attrep-kpi-checkins" data-value={statistics.totalRecords} className="text-2xl font-bold text-text-heading">{statistics.totalRecords}</p>
+                <p className="text-xs text-text-muted mt-0.5">{t('acrossAllEmployees')}</p>
+              </div>
+            </div>
+          </motion.div>
 
-      <Card>
-        <div className="border-b border-surface-border-light px-5 py-4">
-          <h3 className="text-base font-semibold text-text-heading">By department</h3>
-          <p className="mt-0.5 text-sm text-text-muted">
-            Where the days were worked, and where they were not.
-          </p>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="bg-surface-card rounded-[--radius-card] p-6 border border-surface-border"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-status-warning-bg/40 rounded-[--radius-input] flex items-center justify-center shrink-0">
+                <Clock className="text-status-warning" size={24} />
+              </div>
+              <div>
+                <p className="text-sm text-text-muted">{t('lateArrivalRate')}</p>
+                <p data-testid="attrep-kpi-lateRate" data-value={statistics.lateRate} className="text-2xl font-bold text-status-warning">{statistics.lateRate}%</p>
+                <p className="text-xs text-text-muted mt-0.5">{t('checkedInAfterStart')}</p>
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-surface-card rounded-[--radius-card] p-6 border border-surface-border"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-status-error/10 rounded-[--radius-input] flex items-center justify-center shrink-0">
+                <TrendingDown className="text-status-error" size={24} />
+              </div>
+              <div>
+                <p className="text-sm text-text-muted">{t('earlyDepartureRate')}</p>
+                <p data-testid="attrep-kpi-earlyRate" data-value={statistics.earlyLeaveRate} className="text-2xl font-bold text-status-error">{statistics.earlyLeaveRate}%</p>
+                <p className="text-xs text-text-muted mt-0.5">{t('leftBeforeShiftEnd')}</p>
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="bg-surface-card rounded-[--radius-card] p-6 border border-surface-border"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-status-success-bg/30 rounded-[--radius-input] flex items-center justify-center shrink-0">
+                <Clock className="text-status-success" size={24} />
+              </div>
+              <div>
+                <p className="text-sm text-text-muted">{t('avgWorkHoursPerDay')}</p>
+                <p data-testid="attrep-kpi-avgHours" data-value={statistics.avgWorkHours} className="text-2xl font-bold text-status-success">{statistics.avgWorkHours}h</p>
+                <p className="text-xs text-text-muted mt-0.5">{t('companyWideAverage')}</p>
+              </div>
+            </div>
+          </motion.div>
         </div>
+      )}
 
-        {!isLoading && (summary?.departments.length ?? 0) === 0 && (
-          <EmptyState
-            title="No departments in range"
-            description="Widen the dates, or clear the branch filter."
-          />
-        )}
+      {/* Company-wide Report */}
+      {(user?.role === 'ADMIN' || user?.role === 'HR_MANAGER') && report && (
+        <div data-testid="attrep-summary" className="bg-surface-card rounded-[--radius-card] border border-surface-border overflow-hidden">
+          <div className="p-6 border-b border-surface-border">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-text-heading">{t('employeeAttendanceSummary')}</h3>
+                <p className="text-sm text-text-muted mt-1">
+                  {loading
+                    ? tc('loading')
+                    : <>{filteredData.length} {t('employeeCountSuffix', { count: filteredData.length })} — {monthLabel}</>}
+                </p>
+              </div>
+              <div className="relative">
+                <Search size={15} className="absolute start-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder={t('searchPlaceholder')}
+                  value={search}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="ps-9 pe-4 py-2 text-sm border border-surface-border rounded-[--radius-input] bg-surface-page text-text-body placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-primary/30 w-64"
+                />
+              </div>
+            </div>
+          </div>
 
-        {(summary?.departments.length ?? 0) > 0 && (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead className="border-b border-surface-border-light text-xs uppercase tracking-wide text-text-muted">
+            <table className="w-full">
+              <thead className="bg-surface-page border-b border-surface-border">
                 <tr>
-                  <th className="px-5 py-3 text-start font-medium">Department</th>
-                  <th className="px-5 py-3 text-start font-medium">People</th>
-                  <th className="px-5 py-3 text-start font-medium">Present</th>
-                  <th className="px-5 py-3 text-start font-medium">Late</th>
-                  <th className="px-5 py-3 text-start font-medium">Absent</th>
-                  <th className="px-5 py-3 text-start font-medium">On leave</th>
-                  <th className="px-5 py-3 text-start font-medium">Hours</th>
-                  <th className="px-5 py-3 text-start font-medium">Turnout</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase w-10">#</th>
+                  <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase">{tc('employee')}</th>
+                  <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase">{tc('department')}</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-text-muted uppercase">{t('colDaysPresent')}</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-text-muted uppercase">{t('colAbsentDays')}</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-text-muted uppercase">{t('colLateArrivals')}</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-text-muted uppercase">{t('colEarlyDepartures')}</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-text-muted uppercase">{t('colAvgHrsDay')}</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-text-muted uppercase">{t('colTotalHrsWorked')}</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-text-muted uppercase">{tc('status')}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-surface-border-light">
-                {(summary?.departments ?? []).map((department) => (
-                  <tr key={department.id} className="hover:bg-surface-border-light/60">
-                    <td className="px-5 py-3 font-medium text-text-heading">{department.name}</td>
-                    <td className="px-5 py-3 tabular-nums text-text-body">{department.headcount}</td>
-                    <td className="px-5 py-3 tabular-nums text-text-body">{department.present}</td>
-                    <td className="px-5 py-3 tabular-nums text-status-warning">{department.late}</td>
-                    <td className="px-5 py-3 tabular-nums text-status-error">{department.absent}</td>
-                    <td className="px-5 py-3 tabular-nums text-text-body">{department.onLeave}</td>
-                    <td className="px-5 py-3 tabular-nums text-text-body">
-                      {formatHours(department.workHours)}
-                    </td>
-                    <td className="px-5 py-3 font-semibold tabular-nums text-text-heading">
-                      {formatRate(department.attendanceRate)}
+              <tbody className="divide-y divide-surface-border">
+                {loading ? (
+                  [...Array(10)].map((_, i) => (
+                    <tr key={i} className="animate-pulse">
+                      {[...Array(10)].map((_, j) => (
+                        <td key={j} className="px-6 py-4">
+                          <div className="h-4 bg-surface-border-light rounded-[--radius-input]" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : filteredData.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="px-6 py-12 text-center text-text-muted">
+                      {search ? t('noEmployeesMatch') : t('noDataForPeriod')}
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredData.map((item: any, index: number) => {
+                    const present = item.summary.present || 0;
+                    const late = item.summary.late || 0;
+                    const earlyLeave = item.summary.earlyLeave || 0;
+                    const absent = Math.max(0, workingDays - present);
+                    const totalHours = item.summary.totalHours ? Number(item.summary.totalHours) : 0;
+                    const avgHrs = present > 0 ? (totalHours / present).toFixed(1) : '0.0';
+                    const status = getAttendanceStatus(present, late, earlyLeave, t);
+                    return (
+                      <motion.tr
+                        key={item.employee.id}
+                        data-testid={`attrep-row-${item.employee.id}`}
+                        data-standing={status.band}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: index * 0.02 }}
+                        className="hover:bg-surface-border-light/50 transition-colors"
+                      >
+                        <td className="px-4 py-4 text-center text-sm text-text-muted">{index + 1}</td>
+                        <td className="px-6 py-4">
+                          <p className="font-medium text-brand-primary">{item.employee.fullName}</p>
+                          <p className="text-xs text-text-muted">{item.employee.employeeCode}</p>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-text-body">
+                          {item.employee.department?.name || '--'}
+                        </td>
+                        <td className="px-6 py-4 text-center font-medium text-text-body">{present}</td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={`font-medium ${absent > 0 ? 'text-status-error' : 'text-text-muted'}`}>
+                            {absent}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={`font-medium ${late > 0 ? 'text-status-warning' : 'text-text-muted'}`}>
+                            {late}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={`font-medium ${earlyLeave > 0 ? 'text-status-error' : 'text-text-muted'}`}>
+                            {earlyLeave}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center text-sm font-medium text-text-body">{avgHrs}h</td>
+                        <td className="px-6 py-4 text-center font-medium text-status-success">
+                          {totalHours.toFixed(1)}h
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${status.cls}`}>
+                            {status.label}
+                          </span>
+                        </td>
+                      </motion.tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
-        )}
-      </Card>
+        </div>
+      )}
     </div>
-  );
-}
-
-export default function AttendanceReportsPage() {
-  return (
-    <ProtectedRoute requiredRoles={['ADMIN', 'HR_MANAGER', 'PAYROLL_OFFICER', 'MANAGER']}>
-      <AttendanceReports />
-    </ProtectedRoute>
   );
 }

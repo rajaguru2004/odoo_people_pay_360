@@ -15,15 +15,17 @@ export function directionForLocale(locale: Locale): 'ltr' | 'rtl' {
   return locale === 'ar' ? 'rtl' : 'ltr';
 }
 
+interface LocaleProviderProps {
+  children: ReactNode;
+}
+
 /**
- * Mirrors ThemeProvider: reads the active locale from Zustand, applies lang/dir
- * to <html> reactively, and provides the messages to the subtree.
- *
- * `dir` on <html> rather than on a wrapper is what makes Tailwind's logical
- * properties (`ps-*`, `me-*`, `start-*`) flip — which is why the components in
- * this project use those instead of `pl-*`/`mr-*`/`left-*`.
+ * Mirrors theme/provider.tsx's ThemeProvider: reads the active locale from
+ * Zustand, applies lang/dir to <html> reactively, and provides translated
+ * messages to the subtree. Mounted inside DashboardLayout only (Dashboard
+ * module PoC) — lifting it to the root layout later is a one-line move.
  */
-export function LocaleProvider({ children }: { children: ReactNode }) {
+export function LocaleProvider({ children }: LocaleProviderProps) {
   const locale = useLocaleStore((s) => s.locale);
   const messages = useMemo(() => MESSAGES[locale], [locale]);
 

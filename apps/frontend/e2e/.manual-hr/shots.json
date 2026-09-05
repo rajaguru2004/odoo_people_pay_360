@@ -1,0 +1,864 @@
+[
+  {
+    "name": "login",
+    "file": "shots/login.png",
+    "caption": "The sign-in screen",
+    "legend": [
+      "The work email address your account was created with",
+      "Your password",
+      "Signs you in"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "name": "console",
+    "file": "shots/console.png",
+    "caption": "The HR console, as it opens",
+    "legend": [
+      "Headcount in the selected branch",
+      "Joiners, leavers and the department split",
+      "What needs attention today"
+    ],
+    "missing": [
+      "Re-reads every figure on the page"
+    ],
+    "width": 1440,
+    "height": 1400
+  },
+  {
+    "name": "shell",
+    "file": "shots/shell.png",
+    "caption": "The parts of the console that never change",
+    "legend": [
+      "The sidebar — every screen your role can open",
+      "Search staff, departments and records",
+      "The BRANCH SELECTOR — everything below it is scoped to this branch",
+      "Switches the console to Arabic",
+      "Notifications and approval alerts",
+      "Your name, role and account menu"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "name": "approvals",
+    "file": "shots/approvals.png",
+    "caption": "The Approvals inbox",
+    "legend": [
+      "Requests waiting on your decision",
+      "What you have already decided",
+      "The empty state — nothing is routed to you"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1000
+  },
+  {
+    "name": "org-hub",
+    "file": "shots/org-hub.png",
+    "caption": "Organization — the landing dashboard",
+    "legend": [
+      "Headcount by department",
+      "Headcount by branch",
+      "Structure changes waiting for a decision"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1358
+  },
+  {
+    "name": "branches",
+    "file": "shots/branches.png",
+    "caption": "Branches",
+    "legend": [
+      "Opens the new-branch form",
+      "How many branches exist",
+      "Staff across all branches",
+      "Find a branch by name or code",
+      "One branch — its code, hours and headcount",
+      "Switch between cards and a table"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 832
+  },
+  {
+    "name": "branch-new",
+    "file": "shots/branch-new.png",
+    "caption": "Creating a branch",
+    "legend": [
+      "Short unique code, e.g. MCT",
+      "The name staff will see",
+      "Drives every timestamp recorded at this branch",
+      "Office start — lateness is measured against this",
+      "Office end",
+      "Weekly off days — Friday and Saturday in Oman"
+    ],
+    "missing": [
+      "Restrict check-in to a location"
+    ],
+    "width": 1440,
+    "height": 1500
+  },
+  {
+    "name": "departments",
+    "file": "shots/departments.png",
+    "caption": "Departments",
+    "legend": [
+      "Add a department or a team",
+      "Top-level departments",
+      "How many of them are teams",
+      "Show the structure as a chart",
+      "One department, with its manager and headcount"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1300
+  },
+  {
+    "name": "dept-tree",
+    "file": "shots/dept-tree.png",
+    "caption": "The organisation chart",
+    "legend": [
+      "A main department",
+      "A sub-department, nested under its parent",
+      "Back to the card list"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1100
+  },
+  {
+    "name": "dept-change-requests",
+    "file": "shots/dept-change-requests.png",
+    "caption": "Department change requests",
+    "legend": [
+      "Requests waiting for a decision",
+      "Filter the queue by outcome",
+      "The empty state — no requests have been raised"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1000
+  },
+  {
+    "name": "people-hub",
+    "file": "shots/people-hub.png",
+    "caption": "People — the landing dashboard",
+    "legend": [
+      "Headcount over time",
+      "Joiners, movers and leavers",
+      "Visas and permits approaching expiry"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1377
+  },
+  {
+    "name": "employees",
+    "file": "shots/employees.png",
+    "caption": "The employee directory",
+    "legend": [
+      "Start onboarding a new employee",
+      "Add many people at once from a spreadsheet",
+      "Headcount in the selected branch",
+      "Search by name, code, email or department",
+      "Filter by department, status or date",
+      "Table, cards or a board",
+      "Export the list"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1312
+  },
+  {
+    "name": "employee-new",
+    "file": "shots/employee-new.png",
+    "caption": "Onboarding — step 1, personal information",
+    "legend": [
+      "The five steps of onboarding",
+      "Full name, as it should appear on payslips and letters",
+      "Work email — this becomes the employee’s login",
+      "ID card number, or let the system generate one",
+      "National, GCC or expatriate — decides PASI liability"
+    ],
+    "missing": [
+      "Moves to the next step"
+    ],
+    "width": 1440,
+    "height": 1500
+  },
+  {
+    "name": "supervisor-teams",
+    "file": "shots/supervisor-teams.png",
+    "caption": "Teams",
+    "legend": [
+      "Create a team and name its supervisor"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "name": "contracts",
+    "file": "shots/contracts.png",
+    "caption": "Contracts",
+    "legend": [
+      "Draw up a new contract",
+      "The termination queue",
+      "Find a contract by employee or number",
+      "Filter by type, status or expiry",
+      "Export the list"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 975
+  },
+  {
+    "name": "contract-new",
+    "file": "shots/contract-new.png",
+    "caption": "Creating a contract",
+    "legend": [
+      "Who the contract is for",
+      "Indefinite, fixed-term or probation",
+      "When it takes effect",
+      "End date — required for a fixed term",
+      "Basic salary in OMR",
+      "Creates the contract"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1081
+  },
+  {
+    "name": "terminations",
+    "file": "shots/terminations.png",
+    "caption": "Terminations waiting for approval",
+    "legend": [
+      "How many are waiting",
+      "The queue, and the decided history beside it",
+      "Clearance — outstanding loans and assets block a leaver",
+      "Approves the termination",
+      "Sends it back"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 882
+  },
+  {
+    "name": "visa-reports",
+    "file": "shots/visa-reports.png",
+    "caption": "Visa and permit expiry",
+    "legend": [
+      "Documents expiring soon",
+      "Documents already expired",
+      "Narrow to a window — 30, 60 or 90 days",
+      "Export for the PRO or government relations team"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1100
+  },
+  {
+    "name": "time-hub",
+    "file": "shots/time-hub.png",
+    "caption": "Time & Attendance — the landing dashboard",
+    "legend": [
+      "Attendance across the branch",
+      "Who is in, late or absent right now",
+      "Where cover is thin today"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1400
+  },
+  {
+    "name": "attendance",
+    "file": "shots/attendance.png",
+    "caption": "Today’s attendance register",
+    "legend": [
+      "Today, this week, this month, or a range you choose",
+      "Present, late and absent counts",
+      "Filter the list to just the late arrivals",
+      "Find one person",
+      "Narrow to one department",
+      "Export the register",
+      "The monthly summary report"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1600
+  },
+  {
+    "name": "attendance-history",
+    "file": "shots/attendance-history.png",
+    "caption": "The monthly attendance log",
+    "legend": [
+      "The month being shown",
+      "Step back a month",
+      "Find one employee’s row",
+      "Export the whole grid"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1300
+  },
+  {
+    "name": "attendance-reports",
+    "file": "shots/attendance-reports.png",
+    "caption": "The attendance summary report",
+    "legend": [
+      "Check-ins recorded in the month",
+      "Late arrivals as a percentage",
+      "Average hours worked per day",
+      "Export to Excel"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1400
+  },
+  {
+    "name": "attendance-management",
+    "file": "shots/attendance-management.png",
+    "caption": "Logging attendance by hand",
+    "legend": [
+      "This screen is limited to HR managers and administrators",
+      "Mark a whole day’s absentees in one pass",
+      "Who the record is for",
+      "Which day",
+      "Present, absent, leave or holiday — nothing else",
+      "Check-in time; lateness is derived from it",
+      "Writes the record"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1208
+  },
+  {
+    "name": "face-management",
+    "file": "shots/face-management.png",
+    "caption": "Face registration",
+    "legend": [
+      "How many staff have enrolled a face",
+      "How many have not",
+      "Find an employee",
+      "Enrol this employee’s face"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1200
+  },
+  {
+    "name": "schedules-hub",
+    "file": "shots/schedules-hub.png",
+    "caption": "Schedules — the landing dashboard",
+    "legend": [
+      "How much of the roster is filled",
+      "Days with nobody rostered",
+      "How shifts are spread across staff"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1354
+  },
+  {
+    "name": "schedules-overview",
+    "file": "shots/schedules-overview.png",
+    "caption": "The monthly schedule",
+    "legend": [
+      "Staff scheduled this month",
+      "Days lost to approved leave",
+      "Narrow to one department",
+      "Move between months"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1400
+  },
+  {
+    "name": "shifts",
+    "file": "shots/shifts.png",
+    "caption": "Shift planning",
+    "legend": [
+      "Roster many people at once",
+      "Create a single shift calendar",
+      "Pick whose week you are looking at",
+      "Hours rostered for the selected person"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1400
+  },
+  {
+    "name": "leave-hub",
+    "file": "shots/leave-hub.png",
+    "caption": "Leave & Overtime — the landing dashboard",
+    "legend": [
+      "Requests waiting on you",
+      "Which types are being taken",
+      "Entitlement left across the branch"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1400
+  },
+  {
+    "name": "leaves",
+    "file": "shots/leaves.png",
+    "caption": "All leave requests",
+    "legend": [
+      "Waiting for a decision",
+      "Approved",
+      "Rejected",
+      "Filter by outcome",
+      "Filter by leave type",
+      "Find one employee’s requests"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1500
+  },
+  {
+    "name": "leaves-pending",
+    "file": "shots/leaves-pending.png",
+    "caption": "The leave approval queue",
+    "legend": [
+      "How many are waiting",
+      "Open a request to approve or reject it"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 828
+  },
+  {
+    "name": "leave-balances",
+    "file": "shots/leave-balances.png",
+    "caption": "Leave balances",
+    "legend": [
+      "The leave year being shown",
+      "Accrue this period’s entitlement for everybody",
+      "Reset balances to the policy defaults",
+      "Adjust one person’s balance"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1300
+  },
+  {
+    "name": "overtime-admin",
+    "file": "shots/overtime-admin.png",
+    "caption": "Overtime claims",
+    "legend": [
+      "Opens the overtime claim form",
+      "Claims by status",
+      "Filter to the claims still to decide"
+    ],
+    "missing": [
+      "Open a claim to approve or reject it"
+    ],
+    "width": 1440,
+    "height": 1109
+  },
+  {
+    "name": "payroll-overview",
+    "file": "shots/payroll-overview.png",
+    "caption": "Payroll — the landing dashboard",
+    "legend": [
+      "Where each run has reached",
+      "What still blocks payment",
+      "Oman compliance — WPS, PASI, overtime and end-of-service",
+      "Go to the runs themselves"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1600
+  },
+  {
+    "name": "payroll-manage",
+    "file": "shots/payroll-manage.png",
+    "caption": "Payroll runs",
+    "legend": [
+      "Generate a run for a month",
+      "A run still being worked on",
+      "A run that has been signed off",
+      "Send the draft for approval",
+      "Lock the run so it can no longer be changed"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 725
+  },
+  {
+    "name": "payroll-validate",
+    "file": "shots/payroll-validate.png",
+    "caption": "Pre-flight validation",
+    "legend": [
+      "The period to check",
+      "Runs the checks without generating anything"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1100
+  },
+  {
+    "name": "payroll-approvals",
+    "file": "shots/payroll-approvals.png",
+    "caption": "Payroll approvals",
+    "legend": [
+      "Runs still to be decided",
+      "Runs already signed off",
+      "Runs sent back"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1100
+  },
+  {
+    "name": "payroll-batches",
+    "file": "shots/payroll-batches.png",
+    "caption": "Payroll batches",
+    "legend": [
+      "Group approved payslips into a payment batch"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1000
+  },
+  {
+    "name": "salary-structure",
+    "file": "shots/salary-structure.png",
+    "caption": "Salary components",
+    "legend": [
+      "Add a component to an employee",
+      "Filter by kind — basic, allowance or bonus",
+      "Change an amount or its effective date"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1300
+  },
+  {
+    "name": "grades",
+    "file": "shots/grades.png",
+    "caption": "Salary grades",
+    "legend": [
+      "Create a band",
+      "The component template suggested for this band",
+      "Put an employee in this band"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 560
+  },
+  {
+    "name": "encashment",
+    "file": "shots/encashment.png",
+    "caption": "Leave encashment",
+    "legend": [
+      "Requests, policies and the year-end carry-forward",
+      "Whose leave is being encashed",
+      "Price it before committing",
+      "Raises the request"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 560
+  },
+  {
+    "name": "recoveries",
+    "file": "shots/recoveries.png",
+    "caption": "Recoveries",
+    "legend": [
+      "Who owes it",
+      "What kind of overpayment it is",
+      "The total to recover",
+      "Starts recovering it from payroll"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1100
+  },
+  {
+    "name": "payroll-reports",
+    "file": "shots/payroll-reports.png",
+    "caption": "Payroll reports",
+    "legend": [
+      "The full payroll register",
+      "Cost by department",
+      "PASI and other statutory returns",
+      "End-of-service liability",
+      "What changed since last month"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 560
+  },
+  {
+    "name": "finance-hub",
+    "file": "shots/finance-hub.png",
+    "caption": "Finance — the landing dashboard",
+    "legend": [
+      "What staff have claimed",
+      "How quickly claims are being settled",
+      "What is outstanding",
+      "Spend against budget"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1400
+  },
+  {
+    "name": "reimbursements-admin",
+    "file": "shots/reimbursements-admin.png",
+    "caption": "Reimbursement claims",
+    "legend": [
+      "Claims waiting for a decision",
+      "Every claim, whatever its state",
+      "Approves the claim for payment",
+      "Sends it back with a reason"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 653
+  },
+  {
+    "name": "travel-admin",
+    "file": "shots/travel-admin.png",
+    "caption": "Travel requests",
+    "legend": [
+      "Opens the trip request form",
+      "Filter by state",
+      "Approves the trip"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 560
+  },
+  {
+    "name": "loans-admin",
+    "file": "shots/loans-admin.png",
+    "caption": "Advances and loans",
+    "legend": [
+      "Requests waiting for a decision",
+      "Settle a loan early",
+      "Outstanding, overdue and portfolio reports",
+      "Approves the request"
+    ],
+    "missing": [
+      "The loan types and their rules"
+    ],
+    "width": 1440,
+    "height": 676
+  },
+  {
+    "name": "loan-reports",
+    "file": "shots/loan-reports.png",
+    "caption": "Loan reports",
+    "legend": [
+      "What is still owed",
+      "Instalments due this cycle",
+      "Instalments that were missed",
+      "The date the report is drawn to",
+      "Export to CSV"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 668
+  },
+  {
+    "name": "budgets",
+    "file": "shots/budgets.png",
+    "caption": "Budgets",
+    "legend": [
+      "Create a budget for a fiscal year",
+      "Spend against plan",
+      "Closes the budget to further commitments"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 560
+  },
+  {
+    "name": "talent-hub",
+    "file": "shots/talent-hub.png",
+    "caption": "Talent — the landing dashboard",
+    "legend": [
+      "How far appraisal has got",
+      "Training booked and completed",
+      "Cases still open"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1358
+  },
+  {
+    "name": "appraisal",
+    "file": "shots/appraisal.png",
+    "caption": "Appraisal",
+    "legend": [
+      "The period being appraised",
+      "Scores the selected group"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 560
+  },
+  {
+    "name": "training-admin",
+    "file": "shots/training-admin.png",
+    "caption": "Training",
+    "legend": [
+      "Sessions, nominations and the course catalogue",
+      "Put a course in the diary",
+      "Put someone on a session"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 560
+  },
+  {
+    "name": "rewards-disciplines",
+    "file": "shots/rewards-disciplines.png",
+    "caption": "Rewards and discipline",
+    "legend": [
+      "Record a commendation or a disciplinary case",
+      "The two registers, side by side"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 869
+  },
+  {
+    "name": "grievances-admin",
+    "file": "shots/grievances-admin.png",
+    "caption": "Grievances",
+    "legend": [],
+    "missing": [
+      "The case list"
+    ],
+    "width": 1440,
+    "height": 560
+  },
+  {
+    "name": "workplace-hub",
+    "file": "shots/workplace-hub.png",
+    "caption": "Workplace — the landing dashboard",
+    "legend": [
+      "What the company owns and who holds it",
+      "Letters waiting to be issued",
+      "Projects running and overdue"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1255
+  },
+  {
+    "name": "assets-admin",
+    "file": "shots/assets-admin.png",
+    "caption": "The asset register",
+    "legend": [
+      "Add an item to the register",
+      "Items currently issued to staff",
+      "Issued but not yet acknowledged by the holder",
+      "Filter by state",
+      "Find an item by tag or name"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 991
+  },
+  {
+    "name": "letters-admin",
+    "file": "shots/letters-admin.png",
+    "caption": "Letter requests",
+    "legend": [
+      "Filter by state",
+      "Generates and issues the letter",
+      "Refuses it, with a reason"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 560
+  },
+  {
+    "name": "projects-admin",
+    "file": "shots/projects-admin.png",
+    "caption": "Projects",
+    "legend": [
+      "Start a project",
+      "Projects running now",
+      "Filter by state",
+      "Find a project"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 599
+  },
+  {
+    "name": "system-hub",
+    "file": "shots/system-hub.png",
+    "caption": "System — the landing dashboard",
+    "legend": [
+      "Who is making the most changes",
+      "The full record of who changed what"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 657
+  },
+  {
+    "name": "settings-general",
+    "file": "shots/settings-general.png",
+    "caption": "Settings — the tabs, and General",
+    "legend": [
+      "Language, time zone and date format",
+      "Which alerts you receive",
+      "Change your password",
+      "The public holiday calendar",
+      "Who approves what, and in what order"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1000
+  },
+  {
+    "name": "settings-holidays",
+    "file": "shots/settings-holidays.png",
+    "caption": "Settings — Holidays",
+    "legend": [
+      "The Holidays tab — The public holidays this branch observes",
+      "Saves THIS tab, and only this tab"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 761
+  },
+  {
+    "name": "settings-approvals",
+    "file": "shots/settings-approvals.png",
+    "caption": "Settings — Approval hierarchy",
+    "legend": [
+      "The Approval hierarchy tab — Who decides each kind of request, and in what order",
+      "Saves THIS tab, and only this tab"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 1350
+  },
+  {
+    "name": "audit-logs",
+    "file": "shots/audit-logs.png",
+    "caption": "The audit log",
+    "legend": [
+      "Narrow by user, resource, action or date",
+      "Export the filtered records",
+      "Re-reads the log"
+    ],
+    "missing": [],
+    "width": 1440,
+    "height": 779
+  }
+]

@@ -3,24 +3,22 @@ node_modules
 
 # ── Build output ─────────────────────────────────────────────────────────────
 .next
-.next-*
 out
 
 # ── Vercel deployment artefacts ───────────────────────────────────────────────
 .vercel
 
-# ── Env files (NEXT_PUBLIC_* is injected via --build-arg, never baked from here)
+# ── Environment files (injected via docker-compose or --build-arg) ────────────
 .env.local
 .env.*
 !.env.example
 
+# ── Python cache (from any local tooling) ─────────────────────────────────────
+__pycache__
+
 # ── Test & coverage ───────────────────────────────────────────────────────────
 coverage
-e2e/.auth
-e2e/.results
-e2e/.report
 *.test.ts
-*.test.tsx
 *.spec.ts
 
 # ── Docs & tooling ────────────────────────────────────────────────────────────

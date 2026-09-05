@@ -1,32 +1,35 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import { usePageHeader } from '@/hooks/usePageHeader';
 import ModuleNavTiles, { type ModuleNavTilesProps } from './ModuleNavTiles';
 import { KpiRow, type KpiStat } from './StatCard';
-import { HeaderActionButtons, SegmentedTimeFilter } from './primitives';
+import { SegmentedTimeFilter, HeaderActionButtons } from './primitives';
 
 export interface ModuleLandingPageProps {
-  /** The nav group's labelKey — what the tiles and the trail resolve from. */
+  /** The nav group's labelKey — what the tiles and breadcrumbs resolve from. */
   moduleKey: string;
-  /** Already translated. Feeds the single heading slot in Topbar. */
+  /** Already translated. Feeds the single heading slot in TopHeader. */
   title: string;
   subtitle?: string;
   kpis?: KpiStat[];
   kpisLoading?: boolean;
-  /** Replaces the whole control row when a hub needs something else there. */
+  /** Custom header controls (time tabs, export, add new buttons). */
   headerControls?: ReactNode;
   /**
-   * The period tabs, stepper and action row. Defaults to **false**.
+   * The period tabs + stepper + action row. Defaults to **false**.
    *
-   * A hub that does not read a period must not draw one: the reader clicks
-   * Week, sees the same numbers, and concludes the data did not change. Opt in
-   * only alongside `timeFilter`/`onTimeFilterChange`.
+   * It used to default to true, which drew a `SegmentedTimeFilter` on all ten
+   * hubs while only Time & Attendance passed `timeFilter`/`onTimeFilterChange`.
+   * The other nine rendered tabs wired to nothing: they moved, and the page
+   * did not. A control that does not control anything is worse than no control,
+   * because the reader concludes the data did not change.
    */
   showControls?: boolean;
+  /** Labels for the period tabs. Defaults to Week / Month / Years. */
   timeFilterOptions?: string[];
-  /** Pass to control the tabs from the page, so the stepper and the charts agree. */
+  /** Pass to control the tabs from the page — the hub does, so ‹ › agree. */
   timeFilter?: string;
   onTimeFilterChange?: (period: string) => void;
   /** Sits beside the tabs: the period being viewed, and the ‹ › that move it. */
@@ -34,22 +37,21 @@ export interface ModuleLandingPageProps {
   onExport?: () => void;
   exportBusy?: boolean;
   onAddNew?: () => void;
-  /** Between the KPI row and the tiles: attention strips, charts, feeds. */
+  /** Rendered between the KPI row and the tiles: strips, charts, feeds. */
   insights?: ReactNode;
   /** Live counts on the tiles. */
   badges?: ModuleNavTilesProps['badges'];
   badgeTones?: ModuleNavTilesProps['badgeTones'];
-  /** Anything below the tiles — the long tail of module-specific panels. */
+  /** Anything below the tiles — the long tail of module-specific widgets. */
   children?: ReactNode;
 }
 
 /**
- * The shell every module hub shares: what needs attention, then where you can
- * go.
+ * The shape every module hub shares: what needs your attention, then where you
+ * can go.
  *
- * It declares the page heading through `usePageHeader` rather than painting one,
- * so a hub and a record page inside it look the same from the reader's side —
- * one title, in the bar, wherever they are.
+ * Upgraded to match the Sellora reference design with clean time tabs,
+ * action buttons, high-polish KPI stat cards, insights grid, and navigable tiles.
  */
 export default function ModuleLandingPage({
   moduleKey,
@@ -74,19 +76,21 @@ export default function ModuleLandingPage({
   const t = useTranslations('moduleLanding');
   usePageHeader(title, subtitle);
 
-  // The row draws while the figures are still loading, because the skeletons ARE
-  // the row: leaving it out until the data lands makes the page jump.
   const showKpis = kpisLoading || Boolean(kpis?.length);
 
   return (
     <div className="space-y-6">
+      {/* Top Header Filter & Actions Row (Sellora Style) */}
       {showControls && (
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-          {headerControls ?? (
+          {headerControls ? (
+            headerControls
+          ) : (
             <>
               <div className="flex flex-wrap items-center gap-3">
                 <SegmentedTimeFilter
-                  options={timeFilterOptions}
+                  options={timeFilterOptions ?? ['Week', 'Month', 'Years']}
+                  selected="Month"
                   value={timeFilter}
                   onChange={onTimeFilterChange}
                 />
@@ -102,14 +106,15 @@ export default function ModuleLandingPage({
         </div>
       )}
 
+      {/* KPI Stats Row */}
       {showKpis && <KpiRow stats={kpis ?? []} loading={kpisLoading} />}
 
+      {/* Insights (Attention Strip, Bar Overview, Donut Charts, Progress Meters) */}
       {insights}
 
+      {/* Explore Navigation Tiles */}
       <section className="pt-2">
-        <h2 className="mb-3.5 text-[15px] font-bold tracking-tight text-text-heading">
-          {t('exploreModule')}
-        </h2>
+        <h2 className="text-[15px] font-bold text-text-heading mb-3.5 tracking-tight">{t('exploreModule')}</h2>
         <ModuleNavTiles moduleKey={moduleKey} badges={badges} badgeTones={badgeTones} />
       </section>
 

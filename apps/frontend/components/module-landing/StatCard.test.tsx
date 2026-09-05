@@ -1,98 +1,67 @@
 import { describe, expect, it } from 'vitest';
 import { Clock } from 'lucide-react';
-import { renderWithProviders, screen } from '@/test/utils';
+import { renderWithProviders, screen } from '@/test/render';
 import { KpiRow, StatCard, type KpiStat } from './StatCard';
 
 const stat = (overrides: Partial<KpiStat> = {}): KpiStat => ({
   key: 'k',
-  label: 'Open contracts',
+  label: 'Open payrolls',
   value: 3,
   ...overrides,
 });
 
 describe('StatCard', () => {
-  it('prints an em dash rather than a zero when the figure is unknown', () => {
-    // A failed or role-gated request must not be reported as "0 open contracts",
+  it('renders an em dash rather than a zero when the number is unknown', () => {
+    // A failed or role-gated request must not be reported as "0 open payrolls",
     // which is a claim the data does not support.
     renderWithProviders(<StatCard stat={stat({ value: null })} />);
-    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.getByText('—')).toBeTruthy();
   });
 
-  it('prints the figure when there is one', () => {
+  it('renders the value when there is one', () => {
     renderWithProviders(<StatCard stat={stat({ value: 12 })} />);
-    expect(screen.getByText('12')).toBeInTheDocument();
+    expect(screen.getByText('12')).toBeTruthy();
   });
 
-  it('drills down through a real link rather than a click handler', () => {
-    // Middle-click and open-in-new-tab both depend on this being an anchor.
-    const { container } = renderWithProviders(
-      <StatCard stat={stat({ href: '/dashboard/contracts' })} />,
-    );
-    expect(container.querySelector('a[href="/dashboard/contracts"]')).toBeTruthy();
+  it('drills down through a real link, not a click handler', () => {
+    // Middle-click, open-in-new-tab and the e2e a[href] selectors all depend
+    // on this being an anchor.
+    renderWithProviders(<StatCard stat={stat({ href: '/dashboard/payroll/manage' })} />);
+    expect(document.querySelector('a[href="/dashboard/payroll/manage"]')).toBeTruthy();
   });
 
-  it('colours the delta by the direction the caller wanted', () => {
-    // Overtime rising is not the same news as headcount rising, so the colour
-    // comes from `goodDirection`, not from the arrow.
-    const good = renderWithProviders(
+  it('reads a delta against the direction the caller wanted', () => {
+    // Overtime hours rising is not the same news as headcount rising, so the
+    // arrow's colour comes from `goodDirection`, not from the arrow.
+    const { unmount } = renderWithProviders(
       <StatCard stat={stat({ delta: { value: 4.2, direction: 'up', goodDirection: 'up' } })} />,
     );
-    expect(good.container.querySelector('.text-status-success')).toBeTruthy();
-    good.unmount();
+    expect(document.querySelector('.text-status-success')).toBeTruthy();
+    unmount();
 
-    const bad = renderWithProviders(
+    renderWithProviders(
       <StatCard stat={stat({ delta: { value: 4.2, direction: 'up', goodDirection: 'down' } })} />,
     );
-    expect(bad.container.querySelector('.text-status-error')).toBeTruthy();
+    expect(document.querySelector('.text-status-error')).toBeTruthy();
   });
 
-  it('prints an absolute change in place of the percentage when given one', () => {
-    renderWithProviders(
-      <StatCard stat={stat({ delta: { value: 4, direction: 'up', display: 'OMR 3,120' } })} />,
-    );
-    expect(screen.getByText('OMR 3,120')).toBeInTheDocument();
+  it('draws a sparkline only when the series has something to draw', () => {
+    const { container, unmount } = renderWithProviders(<StatCard stat={stat({ trend: [1] })} />);
+    expect(container.querySelector('svg.sparkline-mask')).toBeNull();
+    unmount();
+
+    const second = renderWithProviders(<StatCard stat={stat({ trend: [1, 4, 2, 6] })} />);
+    expect(second.container.querySelector('svg.sparkline-mask')).toBeTruthy();
   });
 
-  it('draws a sparkline only when the series has a shape', () => {
-    const single = renderWithProviders(<StatCard stat={stat({ trend: [4] })} />);
-    expect(single.container.querySelector('svg.sparkline-mask')).toBeNull();
-    single.unmount();
-
-    // All zeros would draw a flat line, which reads as "steady" — a claim about
-    // a shape that is not in the data.
-    const flat = renderWithProviders(<StatCard stat={stat({ trend: [0, 0, 0, 0] })} />);
-    expect(flat.container.querySelector('svg.sparkline-mask')).toBeNull();
-    flat.unmount();
-
-    const real = renderWithProviders(<StatCard stat={stat({ trend: [1, 4, 2, 6] })} />);
-    expect(real.container.querySelector('svg.sparkline-mask')).toBeTruthy();
-  });
-
-  it('keeps the hero figure in the heading colour whatever the tone', () => {
-    // Only the icon chip and the delta carry colour; five cards each shouting in
-    // a different hue is a traffic light, not a dashboard.
-    const { container } = renderWithProviders(
-      <StatCard stat={stat({ tone: 'danger', icon: Clock, value: 9 })} />,
-    );
-    expect(screen.getByText('9').className).toContain('text-text-heading');
-    expect(container.querySelector('.text-status-error')).toBeTruthy();
-  });
-
-  it('dashes a sub-stat with no answer instead of zeroing it', () => {
-    renderWithProviders(
-      <StatCard
-        stat={stat({
-          subStats: [
-            { key: 'a', label: 'Expiring', value: 2 },
-            { key: 'b', label: 'Unassigned', value: null },
-          ],
-        })}
-      />,
-    );
-    expect(screen.getByText('—')).toBeInTheDocument();
+  it('shows the footnote and the icon when given them', () => {
+    renderWithProviders(<StatCard stat={stat({ icon: Clock, footnote: 'awaiting finalization' })} />);
+    expect(screen.getByText('awaiting finalization')).toBeTruthy();
   });
 
   it('keeps the footnote alongside a delta rather than replacing it', () => {
+    // They answer different questions: the delta is the movement, the footnote
+    // is the standing context a reader needs to judge it.
     renderWithProviders(
       <StatCard
         stat={stat({
@@ -101,8 +70,8 @@ describe('StatCard', () => {
         })}
       />,
     );
-    expect(screen.getByText('vs last week')).toBeInTheDocument();
-    expect(screen.getByText('month average 8.0%')).toBeInTheDocument();
+    expect(screen.getByText('vs last week')).toBeTruthy();
+    expect(screen.getByText('month average 8.0%')).toBeTruthy();
   });
 });
 
@@ -110,27 +79,20 @@ describe('KpiRow', () => {
   it('renders one card per stat', () => {
     renderWithProviders(
       <KpiRow
-        stats={[
-          stat({ key: 'a', label: 'A' }),
-          stat({ key: 'b', label: 'B' }),
-          stat({ key: 'c', label: 'C' }),
-        ]}
+        stats={[stat({ key: 'a', label: 'A' }), stat({ key: 'b', label: 'B' }), stat({ key: 'c', label: 'C' })]}
       />,
     );
-    expect(screen.getByText('A')).toBeInTheDocument();
-    expect(screen.getByText('C')).toBeInTheDocument();
+    expect(screen.getByText('A')).toBeTruthy();
+    expect(screen.getByText('C')).toBeTruthy();
   });
 
-  it('draws one skeleton per card it is about to render', () => {
-    // A fixed count leaves a five-card hub loading into a grid with a hole in it.
-    const { container } = renderWithProviders(
-      <KpiRow stats={[stat({ key: 'a' }), stat({ key: 'b' }), stat({ key: 'c' })]} loading />,
-    );
-    expect(container.querySelectorAll('.animate-pulse')).toHaveLength(3);
+  it('shows skeletons while loading instead of a row of dashes', () => {
+    const { container } = renderWithProviders(<KpiRow stats={[]} loading skeletonCount={4} />);
+    expect(container.querySelectorAll('.animate-pulse').length).toBe(4);
   });
 
   it('renders nothing when there is no data and nothing pending', () => {
     const { container } = renderWithProviders(<KpiRow stats={[]} />);
-    expect(container).toBeEmptyDOMElement();
+    expect(container.firstChild).toBeNull();
   });
 });

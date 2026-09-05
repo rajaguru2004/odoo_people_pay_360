@@ -1,46 +1,44 @@
 import axiosInstance from '@/lib/axios';
 import { ApiResponse } from '@/types/api';
-import type {
+import {
+  LetterDecisionResult,
   LetterRequest,
   LetterTemplate,
   RequestLetterData,
 } from '@/types/letter';
 
-/**
- * `warning` is a SIBLING of `data`, not a field in it.
- *
- * Issuing a letter for somebody who has left is allowed and is stated rather
- * than refused, and the interceptor passes a handler-built envelope through
- * untouched — so the warning survives the unwrap exactly where the server put
- * it. Typed here because the only mistake available is reading it off `.data`.
- */
-export interface LetterDecisionResult extends ApiResponse<LetterRequest> {
-  warning?: string;
-}
-
 class LetterService {
-  listTemplates(activeOnly = true): Promise<ApiResponse<LetterTemplate[]>> {
+  async listTemplates(activeOnly = true): Promise<ApiResponse<LetterTemplate[]>> {
     return axiosInstance.get('/letters/templates', { params: { activeOnly } });
   }
 
-  myRequests(): Promise<ApiResponse<LetterRequest[]>> {
+  async getMyRequests(): Promise<ApiResponse<LetterRequest[]>> {
     return axiosInstance.get('/letters/my-requests');
   }
 
-  list(status?: string): Promise<ApiResponse<LetterRequest[]>> {
+  async getAll(status?: string): Promise<ApiResponse<LetterRequest[]>> {
     return axiosInstance.get('/letters', { params: status ? { status } : {} });
   }
 
-  /** A template flagged `requiresApproval: false` comes back already ISSUED. */
-  request(payload: RequestLetterData): Promise<ApiResponse<LetterRequest>> {
-    return axiosInstance.post('/letters', payload);
+  /** Templates flagged requiresApproval:false come back already ISSUED. */
+  async request(data: RequestLetterData): Promise<ApiResponse<LetterRequest>> {
+    return axiosInstance.post('/letters', data);
   }
 
-  issue(id: string): Promise<LetterDecisionResult> {
+  /**
+   * Resolves with the WHOLE envelope, `warning` included.
+   *
+   * `lib/axios.ts` returns `response.data` from its success interceptor, so a
+   * top-level `warning` survives the unwrap untouched — there is nothing to
+   * lift and nothing to reshape here. It is typed rather than left implicit
+   * because the only mistake available is reading it off `.data`, where it has
+   * never been (R66).
+   */
+  async issue(id: string): Promise<LetterDecisionResult> {
     return axiosInstance.post(`/letters/${id}/issue`, {});
   }
 
-  reject(id: string, reason: string): Promise<LetterDecisionResult> {
+  async reject(id: string, reason: string): Promise<LetterDecisionResult> {
     return axiosInstance.post(`/letters/${id}/reject`, { reason });
   }
 }

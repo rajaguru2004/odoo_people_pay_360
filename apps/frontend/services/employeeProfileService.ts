@@ -1,30 +1,69 @@
-import axiosInstance from '@/lib/axios';
-import { ApiResponse } from '@/types/api';
-import type {
-  EmployeeProfile,
-  UpdateEmployeeProfilePayload,
-} from '@/types/employeeProfile';
+import api from '@/lib/axios';
+import { EmployeeProfile, EmployeeDocument } from '@/types/employee-profile';
 
-/**
- * A person's own record.
- *
- * Deliberately separate from `employeeService`, which is HR's door onto the
- * same rows: `PATCH /employees/:id` asserts facts about somebody and is refused
- * to everyone but ADMIN and HR, while `PATCH /employees/:id/profile` is a person
- * maintaining their own contact details and is open to them. Merging the two
- * services would hide which one a screen is actually allowed to call.
- */
-class EmployeeProfileService {
-  get(employeeId: string): Promise<ApiResponse<EmployeeProfile>> {
-    return axiosInstance.get(`/employees/${employeeId}/profile`);
-  }
+export const employeeProfileService = {
+  // Get employee profile
+  async getProfile(employeeId: string) {
+    const response = await api.get(`/employees/${employeeId}/profile`);
+    return response.data;
+  },
 
-  update(
+  // Update employee profile
+  async updateProfile(employeeId: string, data: Partial<EmployeeProfile>) {
+    const response = await api.patch(`/employees/${employeeId}/profile`, data);
+    return response.data;
+  },
+
+  // Upload avatar
+  async uploadAvatar(employeeId: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await api.post(`/employees/${employeeId}/avatar`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total) {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          console.log('Upload progress:', percentCompleted);
+        }
+      },
+    });
+    return response.data;
+  },
+
+  // Upload document
+  async uploadDocument(
     employeeId: string,
-    payload: UpdateEmployeeProfilePayload,
-  ): Promise<ApiResponse<EmployeeProfile>> {
-    return axiosInstance.patch(`/employees/${employeeId}/profile`, payload);
-  }
-}
+    file: File,
+    documentType: string,
+    description?: string
+  ) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('documentType', documentType);
+    if (description) formData.append('description', description);
+    const response = await api.post(`/employees/${employeeId}/documents`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
 
-export default new EmployeeProfileService();
+  // Get documents
+  async getDocuments(employeeId: string, type?: string) {
+    const params = type ? { type } : {};
+    const response = await api.get(`/employees/${employeeId}/documents`, { params });
+    return response.data;
+  },
+
+  // Delete document
+  async deleteDocument(employeeId: string, documentId: string) {
+    const response = await api.delete(`/employees/${employeeId}/documents/${documentId}`);
+    return response.data;
+  },
+
+  // Get profile completion stats
+  async getProfileCompletionStats() {
+    const response = await api.get('/employees/stats/profile-completion');
+    return response.data;
+  },
+};

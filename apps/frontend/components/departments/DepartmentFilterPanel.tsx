@@ -1,156 +1,169 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
-import { Download, Search, SlidersHorizontal, X } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Select } from '@/components/ui/Select';
-import {
-  activeDepartmentFilterCount,
-  EMPTY_DEPARTMENT_FILTERS,
-  type DepartmentFilters,
-} from './departmentFacts';
-import type { Branch } from '@/types/branch';
+import { Search, X, Filter, Download, SlidersHorizontal } from 'lucide-react';
+import { useState } from 'react';
+import { useTranslations } from 'next-intl';
+
+interface DepartmentFilterPanelProps {
+  searchTerm: string;
+  onSearchChange: (value: string) => void;
+  statusFilter: string;
+  onStatusChange: (value: string) => void;
+  managerFilter: string;
+  onManagerChange: (value: string) => void;
+  typeFilter: string;
+  onTypeChange: (value: string) => void;
+  activeFilterCount: number;
+  onClearFilters: () => void;
+  onExport?: () => void;
+  resultCount: number;
+  totalCount: number;
+}
 
 export default function DepartmentFilterPanel({
-  filters,
-  onChange,
-  branches,
-  shown,
-  total,
+  searchTerm,
+  onSearchChange,
+  statusFilter,
+  onStatusChange,
+  managerFilter,
+  onManagerChange,
+  typeFilter,
+  onTypeChange,
+  activeFilterCount,
+  onClearFilters,
   onExport,
-  exporting,
-  trailing,
-}: {
-  filters: DepartmentFilters;
-  onChange: (filters: DepartmentFilters) => void;
-  branches: Branch[];
-  shown: number;
-  total: number;
-  onExport: () => void;
-  exporting: boolean;
-  /** The view switcher, so search and view sit on one toolbar. */
-  trailing?: ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  const count = activeDepartmentFilterCount(filters);
-  const set = (patch: Partial<DepartmentFilters>) => onChange({ ...filters, ...patch });
+  resultCount,
+  totalCount,
+}: DepartmentFilterPanelProps) {
+  const t = useTranslations('departmentFilterPanel');
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   return (
-    <Card className="space-y-4 p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="relative w-full lg:max-w-md">
-          <label htmlFor="department-search" className="sr-only">
-            Search departments
-          </label>
-          <Search
-            className="pointer-events-none absolute inset-y-0 start-3 my-auto h-4 w-4 text-text-muted"
-            aria-hidden
-          />
+    <div className="bg-surface-card rounded-[--radius-card] border-2 border-surface-border p-5 space-y-4 shadow-lg">
+      {/* Search & Actions Row */}
+      <div className="flex flex-col md:flex-row gap-3">
+        {/* Search */}
+        <div className="flex-1 relative group">
+          <Search className="absolute start-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-brand-primary transition-colors" size={20} />
           <input
-            id="department-search"
-            data-testid="department-search"
-            type="search"
-            value={filters.search}
-            onChange={(event) => set({ search: event.target.value })}
-            placeholder="Name, code or branch"
-            className="w-full rounded-[var(--radius-input)] border border-surface-border bg-surface-card py-2 pe-3 ps-9 text-sm text-text-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
+            type="text"
+            placeholder={t('searchPlaceholder')}
+            data-testid="dept-search"
+            value={searchTerm}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="w-full ps-12 pe-10 py-3 border-2 border-surface-border rounded-[--radius-input] focus:outline-none focus:ring-4 focus:ring-brand-primary/20 focus:border-brand-primary text-sm font-medium transition-all text-text-body bg-surface-card"
           />
+          {searchTerm && (
+            <button
+              onClick={() => onSearchChange('')}
+              className="absolute end-3 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-text-body hover:bg-slate-100 rounded-full transition-all" /* neutral */
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant={open || count > 0 ? 'primary' : 'outline'}
-            size="sm"
-            aria-expanded={open}
-            aria-controls="department-filters"
-            onClick={() => setOpen((value) => !value)}
+        {/* Action Buttons */}
+        <div className="flex gap-2">
+          <button
+            data-testid="dept-filter-toggle"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className={`flex items-center gap-2 px-4 py-3 rounded-[--radius-button] font-semibold text-sm transition-all ${
+              showAdvanced || activeFilterCount > 0
+                ? 'bg-brand-primary text-text-on-brand shadow-lg shadow-brand-primary/30'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200' /* neutral */
+            }`}
           >
-            <SlidersHorizontal className="h-4 w-4" aria-hidden />
-            Filters
-            {count > 0 && (
-              <span className="rounded-[var(--radius-badge)] bg-surface-card px-1.5 text-xs font-semibold tabular-nums text-brand-primary">
-                {count}
+            <SlidersHorizontal size={18} />
+            <span className="hidden sm:inline">{t('filter')}</span>
+            {activeFilterCount > 0 && (
+              <span className="px-2 py-0.5 bg-surface-card text-brand-primary rounded-[--radius-badge] text-xs font-bold shadow-md">
+                {activeFilterCount}
               </span>
             )}
-          </Button>
-          <Button variant="outline" size="sm" onClick={onExport} isLoading={exporting}>
-            <Download className="h-4 w-4" aria-hidden />
-            Export
-          </Button>
-          {trailing}
+          </button>
+
+          {onExport && (
+            <button
+              onClick={onExport}
+              className="flex items-center gap-2 px-4 py-3 bg-status-success text-white rounded-[--radius-button] hover:bg-status-success/90 font-semibold text-sm transition-all shadow-lg shadow-status-success/30"
+            >
+              <Download size={18} />
+              <span className="hidden sm:inline">{t('export')}</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {open && (
-        <div
-          id="department-filters"
-          className="grid gap-3 border-t border-surface-border-light pt-4 sm:grid-cols-2 lg:grid-cols-4"
-        >
-          <Select
-            label="Status"
-            value={filters.status}
-            onChange={(event) =>
-              set({ status: event.target.value as DepartmentFilters['status'] })
-            }
-          >
-            <option value="open">Open only</option>
-            <option value="closed">Closed only</option>
-            <option value="all">Open and closed</option>
-          </Select>
-
-          <Select
-            label="Branch"
-            placeholder="Every location"
-            value={filters.branchId}
-            onChange={(event) => set({ branchId: event.target.value })}
-          >
-            {branches.map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {branch.name}
-              </option>
-            ))}
-          </Select>
-
-          <Select
-            label="Head"
-            value={filters.head}
-            onChange={(event) => set({ head: event.target.value as DepartmentFilters['head'] })}
-          >
-            <option value="all">With or without</option>
-            <option value="headed">Has a head</option>
-            <option value="headless">Nobody in charge</option>
-          </Select>
-
-          <Select
-            label="Level"
-            value={filters.level}
-            onChange={(event) => set({ level: event.target.value as DepartmentFilters['level'] })}
-          >
-            <option value="all">Any level</option>
-            <option value="top">Top level</option>
-            <option value="sub">Reports upward</option>
-          </Select>
-
-          {count > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="justify-start"
-              onClick={() => onChange({ ...EMPTY_DEPARTMENT_FILTERS, search: filters.search })}
+      {/* Advanced Filters */}
+      {showAdvanced && (
+        <div className="pt-4 border-t border-surface-border space-y-3">
+          <div className="flex items-center gap-2 mb-3">
+            <Filter size={16} className="text-brand-primary" />
+            <span className="text-sm font-bold text-text-heading">{t('advancedFilters')}</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Status Filter */}
+            <div>
+              <label className="block text-xs font-semibold text-text-muted mb-1.5">{t('status')}</label>
+              <select
+                data-testid="dept-filter-status"
+                value={statusFilter}
+                onChange={(e) => onStatusChange(e.target.value)}
+                className="w-full px-3 py-2 border-2 border-surface-border rounded-[--radius-input] text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary transition-all text-text-body bg-surface-card"
+              >
+                <option value="all">{t('all')}</option>
+                <option value="active">{t('active')}</option>
+                <option value="inactive">{t('inactive')}</option>
+              </select>
+            </div>
+            {/* Manager Filter */}
+            <div>
+              <label className="block text-xs font-semibold text-text-muted mb-1.5">{t('managementLabel')}</label>
+              <select
+                data-testid="dept-filter-manager"
+                value={managerFilter}
+                onChange={(e) => onManagerChange(e.target.value)}
+                className="w-full px-3 py-2 border-2 border-surface-border rounded-[--radius-input] text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary transition-all text-text-body bg-surface-card"
+              >
+                <option value="all">{t('all')}</option>
+                <option value="assigned">{t('managed')}</option>
+                <option value="unassigned">{t('unmanaged')}</option>
+              </select>
+            </div>
+            {/* Type Filter */}
+            <div>
+              <label className="block text-xs font-semibold text-text-muted mb-1.5">{t('type')}</label>
+              <select
+                data-testid="dept-filter-type"
+                value={typeFilter}
+                onChange={(e) => onTypeChange(e.target.value)}
+                className="w-full px-3 py-2 border-2 border-surface-border rounded-[--radius-input] text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary transition-all text-text-body bg-surface-card"
+              >
+                <option value="all">{t('all')}</option>
+                <option value="ceo">{t('leadership')}</option>
+                <option value="main">{t('mainDepartment')}</option>
+                <option value="sub">{t('department')}</option>
+              </select>
+            </div>
+          </div>
+          {activeFilterCount > 0 && (
+            <button
+              data-testid="dept-filter-clear"
+              onClick={onClearFilters}
+              className="w-full md:w-auto px-4 py-2 bg-status-error-bg text-status-error rounded-[--radius-button] text-sm font-semibold hover:bg-status-error/10 transition-colors border border-status-error/20"
             >
-              <X className="h-4 w-4" aria-hidden />
-              Clear {count} filter{count === 1 ? '' : 's'}
-            </Button>
+              {t('clearFilterCount', { count: activeFilterCount })}
+            </button>
           )}
         </div>
       )}
-
-      <p className="border-t border-surface-border-light pt-3 text-sm text-text-muted">
-        Showing <span className="font-medium tabular-nums text-text-body">{shown}</span> of{' '}
-        <span className="font-medium tabular-nums text-text-body">{total}</span>{' '}
-        {total === 1 ? 'unit' : 'units'}
-      </p>
-    </Card>
+      {/* Result Count */}
+      <div className="flex items-center justify-between text-sm pt-2 border-t border-surface-border-light">
+        <span className="text-text-muted font-medium">
+          {t('displayCount', { shown: resultCount, total: totalCount })}
+        </span>
+      </div>
+    </div>
   );
 }

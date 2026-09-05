@@ -1,553 +1,609 @@
 'use client';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useForm, useWatch } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { toast } from 'sonner';
-import { Building2, Clock, MapPin, Navigation, Phone, X } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Card } from '@/components/ui/Card';
+import {
+  Building2,
+  MapPin,
+  Clock,
+  Navigation,
+  X,
+  AlertCircle,
+  CheckCircle2,
+  Info,
+} from 'lucide-react';
+import { motion } from 'framer-motion';
+import { useTranslations } from 'next-intl';
+import PageActionRow from '@/components/common/PageActionRow';
 import { usePageHeader } from '@/hooks/usePageHeader';
 import { useBranch, useCreateBranch, useUpdateBranch } from '@/hooks/useBranches';
-import { useEmployees } from '@/hooks/useEmployees';
-import { apiErrorMessage } from '@/utils/apiError';
-import { fullName } from '@/utils/formatters';
-import type { CreateBranchPayload } from '@/types/branch';
+import { COUNTRIES } from '@/lib/countries';
 
-/**
- * ISO weekday numbers, 1 = Monday — the convention `Branch.weeklyOffDays`
- * stores, so nothing here has to translate between two numberings.
- */
-const WEEKDAYS = [
-  { value: 1, short: 'Mon', long: 'Monday' },
-  { value: 2, short: 'Tue', long: 'Tuesday' },
-  { value: 3, short: 'Wed', long: 'Wednesday' },
-  { value: 4, short: 'Thu', long: 'Thursday' },
-  { value: 5, short: 'Fri', long: 'Friday' },
-  { value: 6, short: 'Sat', long: 'Saturday' },
-  { value: 7, short: 'Sun', long: 'Sunday' },
-];
+function buildBranchSchema(t: (key: string) => string) {
+  const rangedNumber = (min: number, max: number, msg: string) =>
+    z
+      .string()
+      .optional()
+      .refine(
+        (v) => !v || v.trim() === '' || (!Number.isNaN(Number(v)) && Number(v) >= min && Number(v) <= max),
+        { message: msg },
+      );
 
-/**
- * Every optional field is a STRING here, not a number or a null.
- *
- * A branch's calendar and geofence columns are nullable and mean "inherit the
- * company value" when unset, so the form has to be able to express "left
- * blank". Numbers are parsed on submit, where blank becomes `undefined` and the
- * field is simply not sent.
- */
-const numericInRange = (min: number, max: number, message: string) =>
-  z
-    .string()
-    .optional()
-    .refine(
-      (value) =>
-        !value ||
-        value.trim() === '' ||
-        (!Number.isNaN(Number(value)) && Number(value) >= min && Number(value) <= max),
-      { message },
-    );
-
-const branchSchema = z
-  .object({
-    code: z.string().trim().min(1, 'A code is required').max(32, 'At most 32 characters'),
-    name: z.string().trim().min(1, 'A name is required').max(255, 'At most 255 characters'),
+  return z.object({
+    code: z.string().min(1, t('zodCodeRequired')).max(50, t('zodCodeMax')),
+    name: z.string().min(1, t('zodNameRequired')).max(255, t('zodNameMax')),
     description: z.string().optional(),
     isActive: z.boolean().optional(),
-
     addressLine: z.string().optional(),
     city: z.string().optional(),
     state: z.string().optional(),
-    country: z
-      .string()
-      .optional()
-      .refine((value) => !value || value.trim() === '' || value.trim().length === 2, {
-        message: 'Use the two-letter country code',
-      }),
+    country: z.string().optional(),
     postalCode: z.string().optional(),
-
-    phone: z.string().optional(),
-    email: z
-      .string()
-      .optional()
-      .refine((value) => !value || value.trim() === '' || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value), {
-        message: 'Enter a valid email address',
-      }),
-    crNumber: z.string().optional(),
-    vatNumber: z.string().optional(),
-    managerId: z.string().optional(),
-
     timezone: z.string().optional(),
     officeStartTime: z.string().optional(),
     officeEndTime: z.string().optional(),
-    graceMinutes: numericInRange(0, 240, 'Between 0 and 240 minutes'),
-    weeklyOffDays: z.array(z.number()),
-
-    geofencingEnabled: z.boolean(),
-    latitude: numericInRange(-90, 90, 'Between -90 and 90'),
-    longitude: numericInRange(-180, 180, 'Between -180 and 180'),
-    // The bounds are the server's: below ten metres GPS noise alone would push
-    // somebody outside their own office.
-    geofenceRadiusM: numericInRange(10, 50_000, 'Between 10 and 50,000 metres'),
-  })
-  /**
-   * The server refuses an enabled fence with no centre, and so does this.
-   *
-   * Not to duplicate the rule for its own sake: a form that lets you press Save
-   * spends a round trip to be told something it already knew, and the reader
-   * loses the field they were on while the page re-renders the error.
-   */
-  .refine((values) => !values.geofencingEnabled || !!values.latitude?.trim(), {
-    message: 'A geofence needs a latitude',
-    path: ['latitude'],
-  })
-  .refine((values) => !values.geofencingEnabled || !!values.longitude?.trim(), {
-    message: 'A geofence needs a longitude',
-    path: ['longitude'],
+    weeklyOffDays: z.string().optional(),
+    geofencingEnabled: z.boolean().optional(),
+    latitude: rangedNumber(-90, 90, t('zodLatRange')),
+    longitude: rangedNumber(-180, 180, t('zodLngRange')),
+    geofenceRadiusM: z
+      .string()
+      .optional()
+      .refine((v) => !v || v.trim() === '' || (!Number.isNaN(Number(v)) && Number(v) > 0), {
+        message: t('zodRadiusPositive'),
+      }),
   });
+}
 
-export type BranchFormValues = z.infer<typeof branchSchema>;
+type BranchFormData = z.infer<ReturnType<typeof buildBranchSchema>>;
 
-const EMPTY: BranchFormValues = {
-  code: '',
-  name: '',
-  description: '',
-  isActive: true,
-  addressLine: '',
-  city: '',
-  state: '',
-  country: '',
-  postalCode: '',
-  phone: '',
-  email: '',
-  crNumber: '',
-  vatNumber: '',
-  managerId: '',
-  timezone: '',
-  officeStartTime: '',
-  officeEndTime: '',
-  graceMinutes: '',
-  weeklyOffDays: [],
-  geofencingEnabled: false,
-  latitude: '',
-  longitude: '',
-  geofenceRadiusM: '',
-};
+interface BranchFormProps {
+  mode: 'create' | 'edit';
+  branchId?: string;
+}
 
-function Section({
-  icon,
-  title,
-  description,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
+const baseInput =
+  'w-full px-4 py-3.5 border-2 rounded-[--radius-input] font-medium transition-all text-text-body';
+
+const WEEK_DAYS = [
+  { value: '0', label: 'Sun' },
+  { value: '1', label: 'Mon' },
+  { value: '2', label: 'Tue' },
+  { value: '3', label: 'Wed' },
+  { value: '4', label: 'Thu' },
+  { value: '5', label: 'Fri' },
+  { value: '6', label: 'Sat' },
+];
+
+const fieldClass = (hasError?: boolean) =>
+  `${baseInput} ${
+    hasError
+      ? 'border-status-error bg-status-error-bg/35 focus:border-status-error focus:ring-4 focus:ring-status-error/20 bg-surface-card'
+      : 'border-surface-border bg-surface-card hover:border-surface-border/85 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/20'
+  }`;
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
   return (
-    <section className="space-y-5">
-      <div className="flex items-start gap-3 border-b border-surface-border-light pb-3">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[var(--radius-card)] bg-brand-primary/10 text-brand-primary">
-          {icon}
-        </span>
-        <div>
-          <h2 className="text-base font-semibold text-text-heading">{title}</h2>
-          <p className="mt-0.5 text-sm text-text-muted">{description}</p>
-        </div>
-      </div>
-      {children}
-    </section>
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex items-center gap-2 text-status-error text-sm font-medium"
+    >
+      <AlertCircle size={14} />
+      <span>{message}</span>
+    </motion.div>
   );
 }
 
-export default function BranchForm({
-  mode,
-  branchId,
-}: {
-  mode: 'create' | 'edit';
-  branchId?: string;
-}) {
+export default function BranchForm({ mode, branchId }: BranchFormProps) {
   const router = useRouter();
+  const t = useTranslations('branchForm');
+  const tc = useTranslations('common');
 
-  // Both /new and /[id]/edit route through this component, so the heading is
-  // mode-conditional. Topbar draws it; the form must not repeat it.
+  // Both /new and /[id]/edit route through this form, so the heading is
+  // mode-conditional. TopHeader renders it; the form must not repeat it.
   usePageHeader(
-    mode === 'create' ? 'New branch' : 'Edit branch',
-    mode === 'create'
-      ? 'A location, its working calendar and where it may be clocked into from.'
-      : 'Changes apply to everyone posted to this location.',
+    mode === 'create' ? t('createHeading') : t('editHeading'),
+    mode === 'create' ? t('createSubtitle') : t('editSubtitle'),
   );
 
-  const { data: branchResponse, isLoading: loadingBranch } = useBranch(
-    mode === 'edit' ? branchId : undefined,
+  const { data: branchResp, isLoading: loadingBranch, isError } = useBranch(
+    mode === 'edit' ? branchId || '' : '',
   );
-  const employees = useEmployees({ limit: 200, status: 'ACTIVE' });
   const createBranch = useCreateBranch();
   const updateBranch = useUpdateBranch();
-  const saving = createBranch.isPending || updateBranch.isPending;
+  const loading = createBranch.isPending || updateBranch.isPending;
 
   const {
-    control,
     register,
     handleSubmit,
+    watch,
     reset,
     setValue,
     formState: { errors },
-  } = useForm<BranchFormValues>({
-    resolver: zodResolver(branchSchema),
-    defaultValues: EMPTY,
+  } = useForm<BranchFormData>({
+    resolver: async (values, context, options) =>
+      zodResolver(buildBranchSchema(t))(values, context, options),
+    defaultValues: {
+      isActive: true,
+      geofencingEnabled: false,
+    },
   });
 
-  // `useWatch` rather than `watch()`: the latter hands back a function the
-  // React compiler refuses to memoise, so the whole form opts out of
-  // compilation for the sake of two subscriptions.
-  const geofencingEnabled = useWatch({ control, name: 'geofencingEnabled' });
-  const weeklyOffDays = useWatch({ control, name: 'weeklyOffDays' });
+  const geofencingEnabled = watch('geofencingEnabled');
 
+  // Prefill in edit mode once the branch has loaded.
   useEffect(() => {
-    const branch = branchResponse?.data;
-    if (mode !== 'edit' || !branch) return;
+    if (mode === 'edit' && branchResp?.data) {
+      const b = branchResp.data;
+      reset({
+        code: b.code,
+        name: b.name,
+        description: b.description || '',
+        isActive: b.isActive,
+        addressLine: b.addressLine || '',
+        city: b.city || '',
+        state: b.state || '',
+        country: b.country || '',
+        postalCode: b.postalCode || '',
+        timezone: b.timezone || '',
+        officeStartTime: b.officeStartTime || '',
+        officeEndTime: b.officeEndTime || '',
+        weeklyOffDays: b.weeklyOffDays || '',
+        geofencingEnabled: !!b.geofencingEnabled,
+        latitude: b.latitude != null ? String(b.latitude) : '',
+        longitude: b.longitude != null ? String(b.longitude) : '',
+        geofenceRadiusM: b.geofenceRadiusM != null ? String(b.geofenceRadiusM) : '',
+      });
+    }
+  }, [mode, branchResp, reset]);
 
-    reset({
-      ...EMPTY,
-      code: branch.code,
-      name: branch.name,
-      description: branch.description ?? '',
-      isActive: branch.isActive,
-      addressLine: branch.addressLine ?? '',
-      city: branch.city ?? '',
-      state: branch.state ?? '',
-      country: branch.country ?? '',
-      postalCode: branch.postalCode ?? '',
-      phone: branch.phone ?? '',
-      email: branch.email ?? '',
-      crNumber: branch.crNumber ?? '',
-      vatNumber: branch.vatNumber ?? '',
-      managerId: branch.managerId ?? '',
-      timezone: branch.timezone ?? '',
-      officeStartTime: branch.officeStartTime ?? '',
-      officeEndTime: branch.officeEndTime ?? '',
-      graceMinutes: branch.graceMinutes != null ? String(branch.graceMinutes) : '',
-      weeklyOffDays: branch.weeklyOffDays ?? [],
-      geofencingEnabled: Boolean(branch.geofencingEnabled),
-      latitude: branch.latitude != null ? String(branch.latitude) : '',
-      longitude: branch.longitude != null ? String(branch.longitude) : '',
-      geofenceRadiusM: branch.geofenceRadiusM != null ? String(branch.geofenceRadiusM) : '',
-    });
-  }, [mode, branchResponse, reset]);
+  // Bounce back to the list if the branch could not be loaded.
+  useEffect(() => {
+    if (mode === 'edit' && isError) {
+      alert(t('noBranchFound'));
+      router.push('/dashboard/branches');
+    }
+  }, [mode, isError, router, t]);
 
-  const toggleDay = (day: number) => {
-    const next = weeklyOffDays.includes(day)
-      ? weeklyOffDays.filter((value) => value !== day)
-      : [...weeklyOffDays, day].sort((a, b) => a - b);
-    setValue('weeklyOffDays', next, { shouldDirty: true });
-  };
+  const onSubmit = async (data: BranchFormData) => {
+    const toNum = (v?: string) => (v && v.trim() !== '' ? Number(v) : undefined);
+    const trimOrUndef = (v?: string) => (v && v.trim() !== '' ? v.trim() : undefined);
 
-  const onSubmit = async (values: BranchFormValues) => {
-    const text = (value?: string) => {
-      const trimmed = value?.trim();
-      return trimmed ? trimmed : undefined;
-    };
-    const num = (value?: string) => {
-      const trimmed = value?.trim();
-      return trimmed ? Number(trimmed) : undefined;
-    };
-
-    // A blank calendar field is OMITTED rather than sent as an empty string:
-    // the column being null is what makes the branch inherit the company
-    // setting, and sending '' would pin it to a value of its own.
-    const payload: CreateBranchPayload = {
-      code: values.code.trim(),
-      name: values.name.trim(),
-      description: text(values.description),
-      addressLine: text(values.addressLine),
-      city: text(values.city),
-      state: text(values.state),
-      country: text(values.country)?.toUpperCase(),
-      postalCode: text(values.postalCode),
-      phone: text(values.phone),
-      email: text(values.email),
-      crNumber: text(values.crNumber),
-      vatNumber: text(values.vatNumber),
-      managerId: text(values.managerId),
-      timezone: text(values.timezone),
-      officeStartTime: text(values.officeStartTime),
-      officeEndTime: text(values.officeEndTime),
-      graceMinutes: num(values.graceMinutes),
-      weeklyOffDays: values.weeklyOffDays,
-      geofencingEnabled: values.geofencingEnabled,
-      latitude: num(values.latitude),
-      longitude: num(values.longitude),
-      geofenceRadiusM: num(values.geofenceRadiusM),
+    // Blank config fields are omitted so the backend keeps the global default.
+    const payload = {
+      code: data.code.trim(),
+      name: data.name.trim(),
+      description: trimOrUndef(data.description),
+      addressLine: trimOrUndef(data.addressLine),
+      city: trimOrUndef(data.city),
+      state: trimOrUndef(data.state),
+      country: trimOrUndef(data.country),
+      postalCode: trimOrUndef(data.postalCode),
+      timezone: trimOrUndef(data.timezone),
+      officeStartTime: trimOrUndef(data.officeStartTime),
+      officeEndTime: trimOrUndef(data.officeEndTime),
+      // Empty selection => null so the branch reverts to the company default
+      // (an empty string would be read as a real "zero weekly-off days" week).
+      weeklyOffDays:
+        data.weeklyOffDays && data.weeklyOffDays.trim() !== ''
+          ? data.weeklyOffDays.trim()
+          : null,
+      geofencingEnabled: !!data.geofencingEnabled,
+      latitude: toNum(data.latitude),
+      longitude: toNum(data.longitude),
+      geofenceRadiusM: toNum(data.geofenceRadiusM),
     };
 
     try {
       if (mode === 'create') {
-        const created = await createBranch.mutateAsync(payload);
-        toast.success(`${payload.name} created`);
-        router.push(`/dashboard/branches/${created.data.id}`);
+        await createBranch.mutateAsync(payload);
+        alert(t('createSuccess'));
       } else if (branchId) {
         await updateBranch.mutateAsync({
           id: branchId,
-          payload: { ...payload, isActive: values.isActive },
+          data: { ...payload, isActive: !!data.isActive },
         });
-        toast.success(`${payload.name} saved`);
-        router.push(`/dashboard/branches/${branchId}`);
+        alert(t('updateSuccess'));
       }
-    } catch (error) {
-      // The axios interceptor rejects with a FLAT object, so the precise
-      // backend message is on `message` and nowhere near `response.data`.
-      toast.error(apiErrorMessage(error, 'The branch could not be saved'));
+      router.push('/dashboard/branches');
+    } catch (error: any) {
+      alert(getApiErrorMessage(error, t('saveFailed')));
     }
   };
 
   if (mode === 'edit' && loadingBranch) {
-    return <Card className="p-6 text-sm text-text-muted">Loading branch…</Card>;
+    return (
+      <div className="animate-pulse space-y-6">
+        <div className="h-8 bg-slate-200 rounded w-64">{/* neutral */}</div>
+        <div className="bg-surface-card rounded-[--radius-card] p-8 space-y-6">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="h-12 bg-slate-100 rounded">{/* neutral */}</div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
-  const fenceHint = geofencingEnabled
-    ? 'A clock-in outside this circle is refused.'
-    : 'Turn the fence on to set its centre and radius.';
-
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-      <Card className="space-y-8 p-6">
-        <Section
-          icon={<Building2 className="h-5 w-5" aria-hidden />}
-          title="Identity"
-          description="How this location is named and referred to everywhere else."
-        >
-          <div className="grid gap-5 md:grid-cols-2">
-            <Input
-              label="Branch code"
-              placeholder="HQ"
-              error={errors.code?.message}
-              {...register('code')}
-            />
-            <Input
-              label="Branch name"
-              placeholder="Head Office"
-              error={errors.name?.message}
-              {...register('name')}
-            />
-          </div>
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* The heading itself is declared to TopHeader above; only the back
+          affordance belongs on the page. */}
+      <PageActionRow
+        onBack={() => router.back()}
+      />
 
-          <div>
-            <label
-              htmlFor="branch-description"
-              className="mb-1.5 block text-sm font-medium text-text-body"
-            >
-              Description
-            </label>
-            <textarea
-              id="branch-description"
-              rows={3}
-              placeholder="What happens at this location."
-              className="w-full rounded-[var(--radius-input)] border border-surface-border bg-surface-card px-3 py-2 text-sm text-text-body placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-              {...register('description')}
-            />
-          </div>
-
-          <div className="grid gap-5 md:grid-cols-2">
-            <div>
-              <label
-                htmlFor="branch-manager"
-                className="mb-1.5 block text-sm font-medium text-text-body"
-              >
-                Branch manager
-              </label>
-              <select
-                id="branch-manager"
-                className="w-full rounded-[var(--radius-input)] border border-surface-border bg-surface-card px-3 py-2 text-sm text-text-body focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-                {...register('managerId')}
-              >
-                <option value="">Nobody yet</option>
-                {(employees.data?.data ?? []).map((employee) => (
-                  <option key={employee.id} value={employee.id}>
-                    {fullName(employee)} ({employee.employeeCode})
-                  </option>
-                ))}
-              </select>
+      {/* Form */}
+      <form
+        onSubmit={handleSubmit(onSubmit)}
+        className="bg-surface-card rounded-[--radius-card] border-2 border-surface-border shadow-xl overflow-hidden"
+      >
+        <div className="p-8 space-y-8">
+          {/* Section 1: Basic Info */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 pb-4 border-b-2 border-surface-border">
+              <div className="w-12 h-12 rounded-[--radius-card] bg-gradient-to-r from-brand-primary to-brand-primary-dark flex items-center justify-center shadow-lg">
+                <Building2 className="text-text-on-brand" size={24} />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-text-heading">{t('basicInfoHeading')}</h2>
+                <p className="text-sm text-text-muted">{t('basicInfoDesc')}</p>
+              </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Code */}
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-body">
+                  {t('codeLabel')} <span className="text-status-error">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    data-testid="branch-code" {...register('code')}
+                    placeholder={t('codePlaceholder')}
+                    className={`${fieldClass(!!errors.code)} ps-11`}
+                  />
+                  <div className="absolute start-4 top-1/2 -translate-y-1/2">
+                    <Building2 size={16} className={errors.code ? 'text-status-error' : 'text-text-muted'} />
+                  </div>
+                </div>
+                <FieldError message={errors.code?.message} />
+                <p className="text-xs text-text-muted">{t('codeHelper')}</p>
+              </div>
+
+              {/* Name */}
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-body">
+                  {t('nameLabel')} <span className="text-status-error">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    data-testid="branch-name" {...register('name')}
+                    placeholder={t('namePlaceholder')}
+                    className={`${fieldClass(!!errors.name)} ps-11`}
+                  />
+                  <div className="absolute start-4 top-1/2 -translate-y-1/2">
+                    <Building2 size={16} className={errors.name ? 'text-status-error' : 'text-text-muted'} />
+                  </div>
+                </div>
+                <FieldError message={errors.name?.message} />
+                <p className="text-xs text-text-muted">{t('nameHelper')}</p>
+              </div>
+            </div>
+
+            {/* Description */}
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-text-body">{tc('description')}</label>
+              <textarea
+                data-testid="branch-description" {...register('description')}
+                rows={3}
+                placeholder={t('descriptionPlaceholder')}
+                className="w-full px-4 py-3.5 border-2 border-surface-border rounded-[--radius-input] font-medium bg-surface-card hover:border-surface-border/85 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/20 transition-all resize-none text-text-body"
+              />
+              <p className="text-xs text-text-muted">{t('descriptionHelper')}</p>
+            </div>
+
+            {/* Active toggle (edit only) */}
             {mode === 'edit' && (
-              <label className="flex items-start gap-3 rounded-[var(--radius-card)] border border-surface-border bg-surface-page p-4">
+              <label className="flex items-center gap-3 p-4 bg-surface-page rounded-[--radius-card] border-2 border-surface-border cursor-pointer">
                 <input
                   type="checkbox"
-                  className="mt-0.5 h-4 w-4 accent-brand-primary"
-                  {...register('isActive')}
+                  data-testid="branch-active" {...register('isActive')}
+                  className="w-5 h-5 rounded accent-brand-primary cursor-pointer"
                 />
-                <span>
-                  <span className="text-sm font-medium text-text-body">Open</span>
-                  <span className="mt-0.5 block text-xs text-text-muted">
-                    A retired branch keeps its history but takes no new postings.
-                  </span>
-                </span>
+                <div>
+                  <span className="text-sm font-semibold text-text-body">{t('activeLabel')}</span>
+                  <p className="text-xs text-text-muted">{t('activeHelper')}</p>
+                </div>
               </label>
             )}
           </div>
-        </Section>
 
-        <Section
-          icon={<MapPin className="h-5 w-5" aria-hidden />}
-          title="Address"
-          description="Where the location physically is."
-        >
-          <Input
-            label="Address line"
-            placeholder="Building 12, Al Khuwair"
-            {...register('addressLine')}
-          />
-          <div className="grid gap-5 md:grid-cols-2">
-            <Input label="City" placeholder="Muscat" {...register('city')} />
-            <Input label="State or region" {...register('state')} />
-            <Input
-              label="Country code"
-              placeholder="OM"
-              maxLength={2}
-              error={errors.country?.message}
-              {...register('country')}
-            />
-            <Input label="Postal code" {...register('postalCode')} />
+          {/* Section 2: Address */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 pb-4 border-b-2 border-surface-border">
+              <div className="w-12 h-12 rounded-[--radius-card] bg-gradient-to-r from-brand-accent to-brand-accent-dark flex items-center justify-center shadow-lg">
+                <MapPin className="text-text-on-accent" size={24} />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-text-heading">{t('addressHeading')}</h2>
+                <p className="text-sm text-text-muted">{t('addressDesc')}</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-text-body">{t('addressLineLabel')}</label>
+              <input
+                type="text"
+                data-testid="branch-address" {...register('addressLine')}
+                placeholder={t('addressLinePlaceholder')}
+                className={fieldClass(false)}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-body">{t('cityLabel')}</label>
+                <input
+                  type="text"
+                  data-testid="branch-city" {...register('city')}
+                  placeholder={t('cityPlaceholder')}
+                  className={fieldClass(false)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-body">{t('stateLabel')}</label>
+                <input
+                  type="text"
+                  data-testid="branch-state" {...register('state')}
+                  placeholder={t('statePlaceholder')}
+                  className={fieldClass(false)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-body">{t('countryLabel')}</label>
+                <select data-testid="branch-country" {...register('country')} className={fieldClass(false)}>
+                  <option value="">{t('countryPlaceholder')}</option>
+                  {/* Preserve a legacy free-text value so editing doesn't wipe it. */}
+                  {watch('country') &&
+                    !COUNTRIES.some((c) => c.code === watch('country')) && (
+                      <option value={watch('country')}>{watch('country')} (legacy)</option>
+                    )}
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name} ({c.code})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-text-muted">
+                  Drives the banking fields employees at this branch must fill.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-body">{t('postalCodeLabel')}</label>
+                <input
+                  type="text"
+                  data-testid="branch-postal" {...register('postalCode')}
+                  placeholder={t('postalCodePlaceholder')}
+                  className={fieldClass(false)}
+                />
+              </div>
+            </div>
           </div>
-        </Section>
 
-        <Section
-          icon={<Phone className="h-5 w-5" aria-hidden />}
-          title="Contact and registration"
-          description="How the location is reached, and how it is registered."
-        >
-          <div className="grid gap-5 md:grid-cols-2">
-            <Input label="Phone" placeholder="+968 2400 0000" {...register('phone')} />
-            <Input
-              label="Email"
-              type="email"
-              placeholder="hq@example.com"
-              error={errors.email?.message}
-              {...register('email')}
-            />
-            <Input label="CR number" {...register('crNumber')} />
-            <Input label="VAT number" {...register('vatNumber')} />
-          </div>
-        </Section>
+          {/* Section 3: Work configuration */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 pb-4 border-b-2 border-surface-border">
+              <div className="w-12 h-12 rounded-[--radius-card] bg-gradient-to-r from-brand-primary to-brand-primary-dark flex items-center justify-center shadow-lg">
+                <Clock className="text-text-on-brand" size={24} />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-text-heading">{t('workConfigHeading')}</h2>
+                <p className="text-sm text-text-muted">{t('workConfigDesc')}</p>
+              </div>
+            </div>
 
-        <Section
-          icon={<Clock className="h-5 w-5" aria-hidden />}
-          title="Working calendar"
-          description="Leave a field blank to inherit the company setting."
-        >
-          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
-            <Input label="Timezone" placeholder="Asia/Muscat" {...register('timezone')} />
-            {/* Wall clock, not an instant: the office opens at eight where the
-                branch is, whatever zone the reader is sitting in. */}
-            <Input label="Office start" type="time" {...register('officeStartTime')} />
-            <Input label="Office end" type="time" {...register('officeEndTime')} />
-            <Input
-              label="Grace minutes"
-              type="number"
-              min={0}
-              max={240}
-              error={errors.graceMinutes?.message}
-              {...register('graceMinutes')}
-            />
-          </div>
+            {/* Inherit-global helper note */}
+            <div className="flex items-start gap-2 p-3 bg-brand-primary-light/10 border border-brand-primary/20 rounded-[--radius-card]">
+              <Info size={16} className="text-brand-primary mt-0.5 shrink-0" />
+              <p className="text-xs text-brand-primary font-medium">{t('inheritNote')}</p>
+            </div>
 
-          <fieldset>
-            <legend className="mb-1.5 text-sm font-medium text-text-body">Weekly off days</legend>
-            <p className="mb-2 text-xs text-text-muted">
-              Select none to inherit the company week. Every day selected here is a rest day, and
-              overtime worked on one is paid at the rest-day rate.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {WEEKDAYS.map((day) => {
-                const selected = weeklyOffDays.includes(day.value);
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-body">{t('timezoneLabel')}</label>
+                <input
+                  type="text"
+                  data-testid="branch-timezone" {...register('timezone')}
+                  placeholder={t('timezonePlaceholder')}
+                  className={fieldClass(false)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-body">{t('officeStartLabel')}</label>
+                <input data-testid="branch-start-time" type="time" {...register('officeStartTime')} className={fieldClass(false)} />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-body">{t('officeEndLabel')}</label>
+                <input data-testid="branch-end-time" type="time" {...register('officeEndTime')} className={fieldClass(false)} />
+              </div>
+            </div>
+
+            {/* Weekly off days */}
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-text-body">
+                Weekly Off Days
+              </label>
+              <p className="text-xs text-text-muted">
+                Days this branch does not work (e.g. Fri &amp; Sat for a Gulf
+                branch). Leave all unselected to inherit the company default.
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {WEEK_DAYS.map((d) => {
+                  const current = (watch('weeklyOffDays') || '')
+                    .split(',')
+                    .filter(Boolean);
+                  const selected = current.includes(d.value);
+                  return (
+                    <button
+                      key={d.value}
+                      type="button"
+                      data-testid={`branch-weekoff-${d.value}`}
+                      onClick={() => {
+                        const next = selected
+                          ? current.filter((x) => x !== d.value)
+                          : [...current, d.value];
+                        setValue('weeklyOffDays', next.sort().join(','), {
+                          shouldDirty: true,
+                        });
+                      }}
+                      className={`px-3.5 py-2 text-xs rounded-[--radius-button] border-2 font-semibold transition-all ${
+                        selected
+                          ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+                          : 'border-surface-border bg-surface-card text-text-muted hover:border-brand-primary/40'
+                      }`}
+                    >
+                      {d.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Spell out the consequence of the selection. Every day named
+                  here is a REST DAY, and overtime on a rest day pays at the
+                  double multiplier — a branch saved with Mon–Sat selected once
+                  repriced a whole week of weekday overtime at 2x before anyone
+                  noticed. Showing the working days back is what makes an
+                  inverted selection (working days entered as off days) obvious
+                  while it is still on screen. */}
+              {(() => {
+                const off = (watch('weeklyOffDays') || '')
+                  .split(',')
+                  .filter(Boolean);
+                if (off.length === 0) return null;
+                const working = WEEK_DAYS.filter((d) => !off.includes(d.value));
                 return (
-                  <button
-                    key={day.value}
-                    type="button"
-                    aria-pressed={selected}
-                    aria-label={day.long}
-                    onClick={() => toggleDay(day.value)}
-                    className={`rounded-[var(--radius-button)] border px-3.5 py-2 text-xs font-semibold transition-colors ${
-                      selected
-                        ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
-                        : 'border-surface-border bg-surface-card text-text-muted hover:text-text-body'
+                  <p
+                    data-testid="branch-weekoff-summary"
+                    className={`text-xs pt-1 ${
+                      off.length >= 5
+                        ? 'text-status-warning font-semibold'
+                        : 'text-text-muted'
                     }`}
                   >
-                    {day.short}
-                  </button>
+                    Working days: {working.map((d) => d.label).join(', ') || 'none'}.
+                    {off.length >= 5
+                      ? ` All overtime on the ${off.length} selected days is paid at rest-day (double) rates — check you have not selected working days by mistake.`
+                      : ''}
+                  </p>
                 );
-              })}
+              })()}
             </div>
-          </fieldset>
-        </Section>
-
-        <Section
-          icon={<Navigation className="h-5 w-5" aria-hidden />}
-          title="Geofence"
-          description={fenceHint}
-        >
-          <label className="flex items-start gap-3 rounded-[var(--radius-card)] border border-surface-border bg-surface-page p-4">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 accent-brand-primary"
-              {...register('geofencingEnabled')}
-            />
-            <span>
-              <span className="text-sm font-medium text-text-body">
-                Restrict clock-in to this location
-              </span>
-              <span className="mt-0.5 block text-xs text-text-muted">
-                Attendance recorded outside the circle below is refused.
-              </span>
-            </span>
-          </label>
-
-          {/* Disabled rather than hidden. A coordinate typed into a fence that
-              is switched off is silently ignored on save, and the reader has no
-              way to tell that from a value that stuck. */}
-          <div className="grid gap-5 md:grid-cols-3">
-            <Input
-              label="Latitude"
-              inputMode="decimal"
-              placeholder="23.5880"
-              disabled={!geofencingEnabled}
-              error={errors.latitude?.message}
-              {...register('latitude')}
-            />
-            <Input
-              label="Longitude"
-              inputMode="decimal"
-              placeholder="58.3829"
-              disabled={!geofencingEnabled}
-              error={errors.longitude?.message}
-              {...register('longitude')}
-            />
-            <Input
-              label="Radius in metres"
-              inputMode="numeric"
-              placeholder="150"
-              disabled={!geofencingEnabled}
-              error={errors.geofenceRadiusM?.message}
-              {...register('geofenceRadiusM')}
-            />
           </div>
-        </Section>
-      </Card>
 
-      <div className="flex items-center justify-between gap-3">
-        <Button type="button" variant="outline" onClick={() => router.back()}>
-          <X className="h-4 w-4" aria-hidden />
-          Cancel
-        </Button>
-        <Button type="submit" isLoading={saving}>
-          {mode === 'create' ? 'Create branch' : 'Save changes'}
-        </Button>
-      </div>
-    </form>
+          {/* Section 4: Geofence */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 pb-4 border-b-2 border-surface-border">
+              <div className="w-12 h-12 rounded-[--radius-card] bg-gradient-to-r from-brand-accent to-brand-accent-dark flex items-center justify-center shadow-lg">
+                <Navigation className="text-text-on-accent" size={24} />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-text-heading">{t('geofenceHeading')}</h2>
+                <p className="text-sm text-text-muted">{t('geofenceDesc')}</p>
+              </div>
+            </div>
+
+            <label className="flex items-center gap-3 p-4 bg-surface-page rounded-[--radius-card] border-2 border-surface-border cursor-pointer">
+              <input
+                type="checkbox"
+                data-testid="branch-geofencing" {...register('geofencingEnabled')}
+                className="w-5 h-5 rounded accent-brand-accent cursor-pointer"
+              />
+              <div>
+                <span className="text-sm font-semibold text-text-body">{t('geofenceEnabledLabel')}</span>
+                <p className="text-xs text-text-muted">{t('geofenceEnabledHelper')}</p>
+              </div>
+            </label>
+
+            <div
+              className={`grid grid-cols-1 md:grid-cols-3 gap-6 transition-opacity ${
+                geofencingEnabled ? 'opacity-100' : 'opacity-60'
+              }`}
+            >
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-body">{t('latitudeLabel')}</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  data-testid="branch-latitude" {...register('latitude')}
+                  placeholder={t('latitudePlaceholder')}
+                  className={fieldClass(!!errors.latitude)}
+                />
+                <FieldError message={errors.latitude?.message} />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-body">{t('longitudeLabel')}</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  data-testid="branch-longitude" {...register('longitude')}
+                  placeholder={t('longitudePlaceholder')}
+                  className={fieldClass(!!errors.longitude)}
+                />
+                <FieldError message={errors.longitude?.message} />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-text-body">{t('radiusLabel')}</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  data-testid="branch-radius" {...register('geofenceRadiusM')}
+                  placeholder={t('radiusPlaceholder')}
+                  className={fieldClass(!!errors.geofenceRadiusM)}
+                />
+                <FieldError message={errors.geofenceRadiusM?.message} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Actions Footer */}
+        <div className="px-8 py-6 bg-surface-page border-t-2 border-surface-border flex items-center justify-between">
+          <button
+            type="button"
+            data-testid="branch-cancel"
+            onClick={() => router.back()}
+            className="group flex items-center gap-2 px-7 py-3.5 border-2 border-surface-border text-text-body rounded-[--radius-button] hover:bg-surface-card hover:border-surface-border-light hover:shadow-lg transition-all font-bold bg-surface-card"
+          >
+            <X size={20} className="group-hover:rotate-90 transition-transform" />
+            <span>{tc('cancel')}</span>
+          </button>
+          <button
+            type="submit"
+            data-testid="branch-submit"
+            disabled={loading}
+            className="group flex items-center gap-3 px-10 py-3.5 bg-gradient-to-r from-brand-primary to-brand-primary-dark text-text-on-brand rounded-[--radius-button] hover:shadow-2xl hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 font-bold shadow-xl cursor-pointer"
+          >
+            {loading ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>{t('savingBtn')}</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 size={20} className="group-hover:scale-110 transition-transform" />
+                <span>{mode === 'create' ? t('createBtn') : t('saveChangesBtn')}</span>
+              </>
+            )}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }

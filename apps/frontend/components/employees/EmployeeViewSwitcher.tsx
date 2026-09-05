@@ -1,33 +1,49 @@
 'use client';
 
-import { LayoutGrid, List } from 'lucide-react';
-import { ViewSwitcher } from '@/components/common/ViewSwitcher';
+import { LayoutGrid, List, Kanban } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
-export type EmployeeViewType = 'table' | 'cards';
+export type ViewType = 'table' | 'card' | 'kanban';
 
-/**
- * Table first, because the directory opens as a table and a switcher that
- * reordered its own options would move the control the reader is aiming at.
- */
-const OPTIONS = [
-  { id: 'table' as const, label: 'Table', icon: List },
-  { id: 'cards' as const, label: 'Cards', icon: LayoutGrid },
-];
+interface EmployeeViewSwitcherProps {
+  currentView: ViewType;
+  onViewChange: (view: ViewType) => void;
+}
 
-export default function EmployeeViewSwitcher({
-  view,
-  onChange,
-}: {
-  view: EmployeeViewType;
-  onChange: (view: EmployeeViewType) => void;
-}) {
+export default function EmployeeViewSwitcher({ currentView, onViewChange }: EmployeeViewSwitcherProps) {
+  const t = useTranslations('employeeViewSwitcher');
+
+  const views = [
+    { id: 'table' as ViewType, icon: List, label: t('table') },
+    { id: 'card' as ViewType, icon: LayoutGrid, label: t('card') },
+    { id: 'kanban' as ViewType, icon: Kanban, label: t('kanban') },
+  ];
+
   return (
-    <ViewSwitcher
-      options={OPTIONS}
-      value={view}
-      onChange={onChange}
-      label="Employee view"
-      testIdPrefix="employee-view"
-    />
+    <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+      {views.map((view) => {
+        const Icon = view.icon;
+        const isActive = currentView === view.id;
+        
+        return (
+          <button
+            key={view.id}
+            data-testid={`emp-view-${view.id}`}
+            onClick={() => onViewChange(view.id)}
+            className={`
+              flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all
+              ${isActive 
+                ? 'bg-white text-brand-primary shadow-sm' 
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }
+            `}
+            title={view.label}
+          >
+            <Icon size={16} />
+            <span className="hidden sm:inline">{view.label}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }

@@ -1,22 +1,10 @@
 import path from "path";
 import type { NextConfig } from "next";
-import { resolveDemoLogins } from "./utils/demoLoginsGate";
 
 const nextConfig: NextConfig = {
-  /**
-   * Turbopack's workspace root.
-   *
-   * This checkout is an npm-workspaces monorepo with node_modules hoisted to
-   * the repository root, so `next` itself lives OUTSIDE apps/frontend. Pointing
-   * the root at apps/frontend makes every hoisted dependency "outside of the
-   * project directory", which Turbopack refuses to compile — the build dies on
-   * `./app` with "We couldn't find the Next.js package". The monorepo root is
-   * the directory that actually contains both the app and its node_modules.
-   */
   turbopack: {
-    root: path.resolve(__dirname, "../.."),
+    root: path.resolve(__dirname),
   },
-
   /**
    * Build output directory. `.next` unless told otherwise.
    *
@@ -25,86 +13,78 @@ const nextConfig: NextConfig = {
    * over it: the build fails outright with "Unable to acquire lock", or — worse,
    * because it is silent — the running server keeps serving HTML naming chunk
    * hashes that the other build has just replaced, every chunk answers 500, and
-   * the app renders a blank page for ever. Any secondary pipeline (docs capture,
-   * a preview build) should set NEXT_DIST_DIR rather than share `.next`.
-   */
-  distDir: process.env.NEXT_DIST_DIR || ".next",
-
-  /**
-   * A self-contained server bundle at <distDir>/standalone/ for the Docker
-   * image, which removes node_modules from it (~60% smaller).
+   * the app renders a blank "Loading..." for ever.
    *
-   * OPT-IN rather than always on, because `next start` refuses to run against a
-   * standalone build — it prints a warning and serves nothing. That takes the
-   * ordinary "build it and look at it" loop away from everybody, and it takes
-   * the Playwright suite with it, since the browser tests deliberately run a
-   * production build rather than `next dev`. The Dockerfile sets this; nothing
-   * else needs to.
+   * The user-manual pipeline sets `NEXT_DIST_DIR` so it can build and serve
+   * without touching whatever else is running from this checkout. Nothing else
+   * sets it, so every existing command behaves exactly as before.
    */
-  output: process.env.NEXT_OUTPUT_STANDALONE === "true" ? "standalone" : undefined,
-
-  /**
-   * Resolved HERE rather than read straight from the environment in the
-   * browser. Next substitutes a NEXT_PUBLIC_ value only when it is SET, and
-   * leaves an unset one as a runtime lookup — which is not a constant, so the
-   * demo-account panel could not be folded away and its credentials shipped
-   * inside every production bundle. Collapsing the decision to a literal here
-   * is what lets the bundler remove them.
-   */
-  env: {
-    NEXT_PUBLIC_DEMO_LOGINS: String(
-      resolveDemoLogins(
-        process.env.NEXT_PUBLIC_DEMO_LOGINS,
-        process.env.NODE_ENV,
-      ),
-    ),
-  },
-
+  distDir: process.env.NEXT_DIST_DIR || '.next',
+  // Emit a self-contained server bundle at <distDir>/standalone/ for Docker
+  // deployments. This eliminates node_modules from the production image (≈60%
+  // size reduction). No application code or behaviour is changed by this setting.
+  output: 'standalone',
   images: {
-    remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com" }],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'images.unsplash.com',
+      },
+    ],
   },
 
-  /**
-   * Anything no page or asset claims is proxied to the backend.
-   *
-   * A FALLBACK, so it can never shadow a real route — it fires only after the
-   * filesystem (pages, assets, route handlers) has failed to match. This is what
-   * lets a single public tunnel serve the whole dev loop, and what makes
-   * same-origin API calls work when NEXT_PUBLIC_API_URL is left unset.
-   *
-   * Resolution order matters. BACKEND_INTERNAL_URL is for a private network hop;
-   * NEXT_PUBLIC_API_URL is the address the browser already uses, so honouring it
-   * keeps a split deployment working off the ONE variable that is set
-   * everywhere. localhost is last and is a developer default only — a managed
-   * host cannot proxy to a private address.
-   */
+  // Anything no page or asset claims is proxied to the backend.
+  //
+  // This is what lets ONE public https tunnel serve the whole dev loop: the
+  // handset opens /verify/<token> (a page here), the page's relative API calls
+  // fall through to the backend, and the Evolution webhook posting to
+  // /whatsapp/webhook falls through the same way. Without it the free ngrok
+  // plan needs a second tunnel, and its one static domain cannot cover both.
+  //
+  // A FALLBACK, so it can never shadow a real route — it only fires after the
+  // filesystem (pages, assets, api routes) has failed to match.
   async rewrites() {
     return {
       beforeFiles: [],
       afterFiles: [],
       fallback: [
         {
-          source: "/:path*",
+          source: '/:path*',
+          // Resolution order matters. BACKEND_INTERNAL_URL is for a private
+          // network hop; NEXT_PUBLIC_API_URL is the address the browser
+          // already uses, so honouring it keeps a split deployment working
+          // with the ONE variable that is set everywhere. localhost is last
+          // and is a developer default only — it used to be the sole fallback,
+          // and a managed host cannot proxy to a private address, so the
+          // /verify page 404'd with DNS_HOSTNAME_RESOLVED_PRIVATE on every
+          // deployment where the API is not the portal.
           destination: `${
             process.env.BACKEND_INTERNAL_URL ??
             process.env.NEXT_PUBLIC_API_URL ??
-            "http://localhost:3011"
+            'http://localhost:3001'
           }/:path*`,
         },
       ],
     };
   },
 
+  // Optimize bundle splitting
   experimental: {
-    // Turbopack's persistent dev cache is on by default in Next 16. It grows to
-    // hundreds of MB and every compile spends real time writing it back out,
-    // which makes `next dev` look like it hung on "Compiling / ...". Dev only —
-    // builds are unaffected.
+    // Turbopack's persistent dev cache is on by default in Next 16. On this
+    // app it grew to ~900MB under .next/dev and every compile spent ~70s
+    // writing it back out, which pegged CPU/RAM and made `next dev` look like
+    // it hung on "Compiling / ...". Dev only — builds are unaffected.
     turbopackFileSystemCacheForDev: false,
 
-    // Only import what is used. 'lucide-react' and 'date-fns' are omitted
-    // because Next already has them in its own default list.
-    optimizePackageImports: ["recharts", "framer-motion"],
+    // Optimize package imports - only import what's used.
+    // 'lucide-react' and 'date-fns' are omitted: Next already includes them in
+    // its own default list. @fullcalendar/* are omitted too — barrel-analysing
+    // six calendar packages costs compile time on every route for a gain that
+    // only two routes ever see.
+    optimizePackageImports: [
+      'recharts',
+      'framer-motion',
+    ],
   },
 };
 

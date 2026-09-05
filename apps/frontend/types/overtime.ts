@@ -1,265 +1,137 @@
-import type { EmployeeRef, NamedRef, RequestStatus } from './common';
+import { SalaryType } from './employee';
+export type OvertimeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+export type OtType = 'REGULAR' | 'LATE' | 'DOUBLE' | 'DOUBLE_LATE';
 
-/** WEEKDAY, a rest day (SUNDAY) or a public holiday. Stored, not derived. */
-export type OvertimeDayType = 'WEEKDAY' | 'SUNDAY' | 'HOLIDAY';
-
-/**
- * The headline tier — a label above the four hour buckets, not a replacement for
- * them. A window that straddles the late threshold is `LATE` and still carries
- * regular hours.
- */
-export type OvertimeType = 'REGULAR' | 'LATE' | 'DOUBLE' | 'DOUBLE_LATE';
-
-/**
- * The server's live breakdown for a request.
- *
- * Computed on the server rather than in the browser: the figure depends on the
- * employee's overtime policy and on the branch-aware day classification, and a
- * page that recomputed from the global settings would show REGULAR where the
- * server said LATE — on the very screen that decides the money.
- */
-export interface OvertimePreview {
+export interface Overtime {
+  id: string;
+  employeeId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
   hours: number;
-  regularHours: number;
-  lateHours: number;
-  doubleHours: number;
-  doubleLateHours: number;
-  dayType: OvertimeDayType;
-  otType: OvertimeType;
-  foodAllowance: number;
-  /** Null means nobody overrode it; 0 is an approver's decision to pay none. */
-  foodAllowanceOverride: number | null;
-  siteAllowance: number;
+  regularHours?: number | string;
+  lateHours?: number | string;
+  doubleHours?: number | string;
+  foodAllowance?: number | string;
+  /**
+   * Approver-granted per request. Never derived, so nothing recomputes it —
+   * see the note on `foodAllowanceOverride`.
+   */
+  siteAllowance?: number | string;
+  siteAllowanceNote?: string | null;
+  /**
+   * `null` means the policy still decides the food allowance. A value, `0`
+   * included, is an approver's explicit override and wins at approval.
+   */
+  foodAllowanceOverride?: number | string | null;
+  approverNote?: string | null;
+  editedById?: string | null;
+  editedAt?: string | null;
+  /** The window as the employee filed it, kept from the FIRST correction only. */
+  originalStartTime?: string | null;
+  originalEndTime?: string | null;
+  otType?: OtType;
+  /**
+   * Server-computed live breakdown (detail endpoint only). Authoritative: it
+   * resolves the employee's Overtime Policy and the branch-aware rest-day /
+   * holiday classification, which a client-side recompute from the GLOBAL
+   * branding settings cannot see.
+   */
+  preview?: OvertimeServerPreview | null;
+  reason: string;
+  status: OvertimeStatus;
+  approverId?: string;
+  approvedAt?: string;
+  rejectedReason?: string;
+  createdAt: string;
+  updatedAt: string;
+  employee?: {
+    id: string;
+    employeeCode: string;
+    fullName: string;
+    email: string;
+    baseSalary?: number;
+    /**
+     * Pay basis — the hourly-rate preview divides a monthly salary by the
+     * month's work days but a daily rate by one day's hours. Absent = MONTHLY.
+     */
+    salaryType?: SalaryType;
+    branchId?: string | null;
+    department?: {
+      id: string;
+      name: string;
+    };
+  };
+}
+
+/** Live payable breakdown returned by GET /overtime/:id — see Overtime.preview. */
+export interface OvertimeServerPreview {
+  hours: number | string;
+  regularHours: number | string;
+  lateHours: number | string;
+  /** Double-tier hours BEFORE the double-day late threshold. */
+  doubleHours: number | string;
+  /** Double-tier hours FROM the double-day late threshold onward. */
+  doubleLateHours: number | string;
+  dayType: 'WEEKDAY' | 'SUNDAY' | 'HOLIDAY';
+  foodAllowance: number | string;
+  otType: OtType;
   isDoubleOtDay: boolean;
+  /** Multipliers already picked for this row's day type. */
   regularRate: number;
   lateRate: number;
   doubleRate: number;
   doubleLateRate: number;
   policyId: string | null;
   policyName: string | null;
-  /** Present on an edit preview only: the corrected window. */
+  /** Carried through, never recomputed. */
+  siteAllowance?: number | string;
+  foodAllowanceOverride?: number | string | null;
+  /** Present on an edit-preview response: the window the figures describe. */
   startTime?: string;
   endTime?: string;
 }
 
-export interface OvertimeRequest {
-  id: string;
-  employeeId: string;
-  /** Date-only. Render through `formatDateOnly`. */
-  date: string;
-  /**
-   * Wall clock tagged UTC — an entered 17:30 is stored as "…T17:30:00Z". Render
-   * with UTC getters, never in the browser's zone, or the hour drifts.
-   */
-  startTime: string;
-  endTime: string;
-  /** The payable total AFTER clamping to the attendance day boundary. */
-  hours: string | number;
-  regularHours: string | number;
-  lateHours: string | number;
-  doubleHours: string | number;
-  doubleLateHours: string | number;
-  dayType: OvertimeDayType;
-  otType: OvertimeType;
-  foodAllowance: string | number;
-  siteAllowance: string | number;
-  siteAllowanceNote: string | null;
-  foodAllowanceOverride: string | number | null;
-  approverNote: string | null;
-  editedById: string | null;
-  editedAt: string | null;
-  /** What the employee filed, snapshotted on the first approver edit only. */
-  originalStartTime: string | null;
-  originalEndTime: string | null;
-  overtimePolicyId: string | null;
-  reason: string;
-  status: RequestStatus;
-  approverId: string | null;
-  approvedAt: string | null;
-  rejectedReason: string | null;
-  createdAt: string;
-  updatedAt: string;
-  employee?: EmployeeRef & {
-    departmentId?: string | null;
-    supervisorId?: string | null;
-    employmentType?: string | null;
-    overtimePolicyId?: string | null;
-    department?: { id: string; name: string } | null;
-    branch?: NamedRef | null;
-  };
-  overtimePolicy?: { id: string; name: string } | null;
-  approver?: { id: string; email: string } | null;
-  editedBy?: { id: string; email: string } | null;
-  /** Only on the by-id read. Null when the breakdown could not be resolved. */
-  preview?: OvertimePreview | null;
-}
-
-export interface OvertimeListQuery {
-  page?: number;
-  limit?: number;
-  employeeId?: string;
-  status?: RequestStatus;
-  otType?: OvertimeType;
-  startDate?: string;
-  endDate?: string;
-  month?: number;
-  year?: number;
-  search?: string;
-}
-
-export interface CreateOvertimePayload {
-  date: string;
-  startTime: string;
-  endTime: string;
-  /**
-   * What the employee believes they worked. Checked against the window and
-   * refused when the two disagree by more than 0.1h — the server never silently
-   * takes the typed figure over the times it was given.
-   */
-  hours: number;
-  reason?: string;
-}
-
-export interface ApproveOvertimePayload {
+/**
+ * An approver's corrections, sent on approve or dry-run through
+ * `POST /overtime/:id/edit-preview`.
+ *
+ * Every field is optional and an empty object means "approve as filed" — the
+ * inbox's fast-path Approve sends no payload at all.
+ */
+export interface ApproveOvertimeData {
   startTime?: string;
   endTime?: string;
-  /** Absent leaves the policy in charge; 0 suppresses an allowance it would grant. */
+  /** Absent = the policy decides. `0` is a real value. */
   foodAllowance?: number;
   siteAllowance?: number;
   siteAllowanceNote?: string;
   approverNote?: string;
-  /** Sent back so a concurrent second approver is refused with a 409. */
+  /** Sent back so a concurrent approver is refused with a 409, not overwritten. */
   expectedUpdatedAt?: string;
 }
 
-export interface OvertimeStats {
-  pending: number;
-  approved: number;
-  rejected: number;
-  cancelled: number;
-  total: number;
-  approvedHours: number;
-  /** Null when nothing has been decided. */
-  avgDecisionHours: number | null;
+export interface CreateOvertimeData {
+  date: string;
+  startTime: string;
+  endTime: string;
+  hours: number;
+  reason: string;
 }
 
-export interface OvertimeMonthlyReport {
+export interface RejectOvertimeData {
+  rejectedReason: string;
+}
+
+export interface OvertimeReport {
   month: number;
   year: number;
-  summary: {
-    totalRequests: number;
-    pending: number;
-    approved: number;
-    rejected: number;
-    cancelled: number;
-    totalHours: number;
-    regularHours: number;
-    lateHours: number;
-    doubleHours: number;
-    doubleLateHours: number;
-    foodAllowance: number;
-    siteAllowance: number;
-  };
+  totalRequests: number;
+  totalHours: number;
+  byStatus: Array<{ status: OvertimeStatus; count: number; hours: number }>;
   byEmployee: Array<{
-    employee:
-      | (EmployeeRef & { department?: { id: string; name: string } | null })
-      | null;
-    requests: number;
-    hours: number;
+    employee: any;
+    totalHours: number;
+    requestCount: number;
   }>;
 }
-
-export interface ApprovedOvertimeHours {
-  employeeId: string;
-  month: number;
-  year: number;
-  hours: number;
-  regularHours: number;
-  lateHours: number;
-  doubleHours: number;
-  doubleLateHours: number;
-  foodAllowance: number;
-  siteAllowance: number;
-}
-
-// ── Policies ────────────────────────────────────────────────────────────────
-
-export interface OvertimeRateTier {
-  regularRate: number;
-  lateRate: number;
-  lateThreshold: string;
-}
-
-export interface OvertimePolicyRules {
-  eligible: boolean;
-  holidayBehavior: 'STANDARD' | 'IGNORE';
-  lateThreshold: string;
-  regularRate: number;
-  lateRate: number;
-  doubleOtEnabled: boolean;
-  doubleRate: number;
-  doubleOtAllowAnytime: boolean;
-  sunday: OvertimeRateTier;
-  holiday: OvertimeRateTier;
-  shiftEndTime: string;
-  /** Null inherits the company day boundary. */
-  dayEndBoundary: string | null;
-  foodAllowanceEnabled: boolean;
-  foodAllowanceAmount: number;
-  foodAllowanceThreshold: string;
-  doubleFoodAllowanceAnyTime: boolean;
-  maxHoursPerDay: number;
-  maxHoursPerDoubleDay: number;
-  maxHoursPerMonth: number;
-  maxHoursPerYear: number;
-}
-
-export interface OvertimePolicy {
-  id: string;
-  name: string;
-  description: string | null;
-  isActive: boolean;
-  isDefault: boolean;
-  /** An EMPLOYMENT_TYPE library label, or null for an unscoped policy. */
-  employmentType: string | null;
-  schemaVersion: number;
-  rules: OvertimePolicyRules;
-  createdAt: string;
-  updatedAt: string;
-  _count?: { employees: number };
-}
-
-export type PolicyResolutionSource =
-  | 'EMPLOYEE_OVERRIDE'
-  | 'EMPLOYMENT_TYPE'
-  | 'COMPANY_DEFAULT'
-  | 'LEGACY_GLOBAL';
-
-export interface ResolvedPolicy {
-  employeeId: string;
-  employeeName: string;
-  employmentType: string | null;
-  overtimePolicyId: string | null;
-  source: PolicyResolutionSource;
-  effectivePolicyId: string | null;
-  effectivePolicyName: string | null;
-  eligible: boolean;
-  holidayBehavior: 'STANDARD' | 'IGNORE';
-  rates: {
-    regularRate: number;
-    lateRate: number;
-    lateThreshold: string;
-    sunday: OvertimeRateTier;
-    holiday: OvertimeRateTier;
-  };
-}
-
-// ── Employee self-service aliases ───────────────────────────────────────────
-// The self-service screens spell these two differently. Aliased rather than
-// re-declared so there is still ONE definition of each union.
-
-/** Where a request sits in its lifecycle. Mirrors the server enum. */
-export type OvertimeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
-
-/** The self-service spelling of `OvertimeType`. */
-export type OtType = OvertimeType;

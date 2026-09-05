@@ -1,198 +1,177 @@
 /**
- * Client-side overtime arithmetic — for the FORM, and nothing else.
+ * Frontend mirror of the backend overtime engine
+ * (apps/backend/src/overtime/overtime-calc.util.ts + overtime.service.ts food
+ * logic). Kept in sync so the "Overtime Calculation Preview" on the request
+ * form shows exactly what the server will persist: boundary-clamped payable
+ * hours, per-tier split (regular/late/double), otType, and food allowance.
  *
- * ## What this is not
- *
- * It is not a second copy of the pay engine. The server owns the tier split, the
- * day classification and the allowances, because those depend on the employee's
- * overtime policy and on the branch calendar, neither of which the browser has.
- * A page that recomputed them from the global settings would show REGULAR where
- * the server said LATE — on the screen that decides the money. Wherever a real
- * breakdown is needed, read `preview` off the request.
- *
- * What lives here is the one thing the form genuinely needs before it can post:
- * how long the window the user typed actually is, so the `hours` field can be
- * filled in and the "we disagree" 400 avoided.
- *
- * ## Wall clock tagged UTC
- *
- * Overtime times are stored tz-naive tagged UTC: an entered 17:30 goes up as
- * "…T17:30:00Z" and comes back the same. Building them with `new Date(y, m, d,
- * h)` — a LOCAL constructor — shifts the hour by the browser's offset, so an
- * Omani employee filing 17:30 would post 13:30 and be told their hours do not
- * match the window they just typed.
+ * All arithmetic is done in UTC wall-clock, matching the backend engine and the
+ * storage convention (OT times are tz-naive wall-clock tagged UTC, e.g. an
+ * entered 17:00 is "...T17:00:00Z"). Callers MUST pass Dates whose UTC
+ * wall-clock is the intended time — i.e. parse form inputs as `${date}T${time}Z`.
  */
 
-const MS_PER_HOUR = 3_600_000;
-const MS_PER_DAY = 24 * MS_PER_HOUR;
-const WALL_CLOCK = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+const MS_PER_HOUR = 1000 * 60 * 60;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/** "HH:MM" as minutes past midnight, or null when it is not a wall clock. */
-export function parseWallClock(value: string | null | undefined): number | null {
-  const match = WALL_CLOCK.exec((value ?? '').trim());
-  if (!match) return null;
-  return Number(match[1]) * 60 + Number(match[2]);
+export type OtType = 'REGULAR' | 'LATE' | 'DOUBLE' | 'DOUBLE_LATE';
+
+export interface OvertimeConfigLite {
+  regularRate: number;
+  lateRate: number;
+  doubleRate: number;
+  doubleOtEnabled: boolean;
+  lateThresholdMinutes: number;
+  dayBoundaryMinutes: number;
+  foodAllowanceEnabled: boolean;
+  foodAllowanceThresholdMinutes: number;
+  foodAllowanceAmount: number;
+  doubleFoodAllowanceAnyTime: boolean;
 }
 
-/** Minutes past midnight as "HH:MM", for putting a server time into an input. */
-export function formatWallClock(minutes: number): string {
-  const safe = ((Math.round(minutes) % 1440) + 1440) % 1440;
-  return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`;
+export interface OvertimePreview {
+  /** Payable hours after clamping to the day boundary. */
+  totalHours: number;
+  regularHours: number;
+  lateHours: number;
+  doubleHours: number;
+  otType: OtType;
+  isLate: boolean;
+  /** True when the raw end was trimmed by the attendance day boundary. */
+  clampedByBoundary: boolean;
+  foodAllowance: number;
+  /** Rate multiplier headline for the dominant tier (display only). */
+  rateMultiplier: number;
+}
+
+/** "HH:MM" -> minutes past midnight, defaulting to `fallbackMin` on bad input. */
+export function parseThresholdMinutes(value: string, fallbackMin: number): number {
+  // An empty or absent value must fall back, not read as midnight. `Number('')`
+  // is 0 rather than NaN, so the isNaN guard alone never fired for it and a
+  // blank setting silently made every minute of overtime "late".
+  if (!value?.trim()) return fallbackMin;
+  const [h, m] = value.split(':').map(Number);
+  if (isNaN(h)) return fallbackMin;
+  return h * 60 + (isNaN(m) ? 0 : m);
+}
+
+function atMinutes(anchor: Date, minutesPastMidnight: number): Date {
+  return new Date(
+    Date.UTC(
+      anchor.getUTCFullYear(),
+      anchor.getUTCMonth(),
+      anchor.getUTCDate(),
+      Math.floor(minutesPastMidnight / 60),
+      minutesPastMidnight % 60,
+      0,
+      0,
+    ),
+  );
 }
 
 /**
- * A date-only key plus a wall clock, as the instant the API stores.
- *
- * Null when either part is unusable, so a half-filled form posts nothing rather
- * than an instant built from a default nobody chose.
+ * The instant the attendance day (anchored on `start`) closes. Noon rule: a
+ * boundary before 12:00 belongs to the NEXT calendar day so an evening/overnight
+ * shift is still counted within the same attendance day.
  */
-export function toOvertimeInstant(
-  dayKey: string,
-  time: string,
-): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) return null;
-  const minutes = parseWallClock(time);
-  if (minutes === null) return null;
-  return `${dayKey}T${formatWallClock(minutes)}:00.000Z`;
+export function dayBoundaryInstant(start: Date, boundaryMinutes: number): Date {
+  const b = atMinutes(start, boundaryMinutes);
+  if (boundaryMinutes < 720) {
+    b.setUTCDate(b.getUTCDate() + 1);
+  }
+  return b;
 }
 
 /**
- * How long the typed window is, in hours.
- *
- * An end at or before the start is read as CROSSING MIDNIGHT, exactly as the
- * server reads it — a 22:00–02:00 shift is four hours, and the naive
- * subtraction that makes it minus twenty is how a night worker is told their
- * request is nonsense.
- *
- * Rounded to two places because that is the precision the `hours` column holds,
- * and a figure with more of them cannot round-trip.
+ * Compute the full payable overtime preview for a worked window.
+ * `end` may be chronologically before `start` (overnight, same calendar date):
+ * it is rolled forward one day before any clamping, mirroring the service.
  */
-export function windowHours(
-  startTime: string,
-  endTime: string,
-): number | null {
-  const start = parseWallClock(startTime);
-  const end = parseWallClock(endTime);
-  if (start === null || end === null) return null;
+export function computeOvertimePreview(
+  start: Date,
+  rawEnd: Date,
+  isDoubleDay: boolean,
+  cfg: OvertimeConfigLite,
+): OvertimePreview {
+  let end = rawEnd;
+  if (end <= start) {
+    end = new Date(end.getTime() + 24 * MS_PER_HOUR);
+  }
 
-  const minutes = end > start ? end - start : end + 1440 - start;
-  return Math.round((minutes / 60) * 100) / 100;
-}
+  const boundary = dayBoundaryInstant(start, cfg.dayBoundaryMinutes);
+  const clampedByBoundary = end.getTime() > boundary.getTime();
+  const effectiveEnd = clampedByBoundary ? boundary : end;
 
-/** The same, from two instants — for a request already filed. */
-export function hoursBetween(
-  startIso: string,
-  endIso: string,
-): number | null {
-  const start = new Date(startIso).getTime();
-  let end = new Date(endIso).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-  if (end <= start) end += MS_PER_DAY;
-  return Math.round(((end - start) / MS_PER_HOUR) * 100) / 100;
-}
-
-/**
- * The time of day an overtime instant means, read in UTC.
- *
- * Deliberately NOT the browser's zone: these instants are wall clocks tagged
- * UTC, so reading them locally shows an Omani 17:30 as 21:30 to anyone in the
- * Gulf and as 13:30 to anyone in London — three different answers to what one
- * employee typed.
- */
-export function overtimeTimeOfDay(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return '—';
-  return `${String(at.getUTCHours()).padStart(2, '0')}:${String(at.getUTCMinutes()).padStart(2, '0')}`;
-}
-
-/**
- * A worked window as "17:30 – 23:00", with a marker when it crosses midnight.
- *
- * The "+1" matters: without it a 22:00 – 02:00 shift reads as four hours going
- * backwards.
- */
-export function formatOvertimeWindow(
-  startIso: string | null | undefined,
-  endIso: string | null | undefined,
-): string {
-  if (!startIso || !endIso) return '—';
-  const start = new Date(startIso);
-  const end = new Date(endIso);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '—';
-
-  const crossesMidnight =
-    end.getUTCDate() !== start.getUTCDate() ||
-    end.getUTCMonth() !== start.getUTCMonth();
-
-  return `${overtimeTimeOfDay(startIso)} – ${overtimeTimeOfDay(endIso)}${
-    crossesMidnight ? ' (+1)' : ''
-  }`;
-}
-
-/** Hours to one decimal, with the unit. `null` prints an em dash, never "0h". */
-export function formatHours(value: number | string | null | undefined): string {
-  if (value === null || value === undefined) return '—';
-  const n = typeof value === 'string' ? Number(value) : value;
-  if (!Number.isFinite(n)) return '—';
-  return `${Math.round(n * 10) / 10}h`;
-}
-
-export interface TierRow {
-  key: 'regularHours' | 'lateHours' | 'doubleHours' | 'doubleLateHours';
-  label: string;
-  hours: number;
-  rate: number;
-}
-
-/**
- * The non-zero tiers of a breakdown, in the order they are worked.
- *
- * Zero buckets are dropped rather than drawn: a weekday request has two empty
- * double-tier rows, and four lines where two are always "0h" trains the reader
- * to stop looking at the column that matters.
- */
-export function tierRows(breakdown: {
-  regularHours: number | string;
-  lateHours: number | string;
-  doubleHours: number | string;
-  doubleLateHours: number | string;
-  regularRate?: number;
-  lateRate?: number;
-  doubleRate?: number;
-  doubleLateRate?: number;
-}): TierRow[] {
-  const num = (v: number | string) => {
-    const n = typeof v === 'string' ? Number(v) : v;
-    return Number.isFinite(n) ? n : 0;
+  const empty: OvertimePreview = {
+    totalHours: 0,
+    regularHours: 0,
+    lateHours: 0,
+    doubleHours: 0,
+    otType: 'REGULAR',
+    isLate: false,
+    clampedByBoundary,
+    foodAllowance: 0,
+    rateMultiplier: cfg.regularRate,
   };
 
-  const rows: TierRow[] = [
-    {
-      key: 'regularHours',
-      label: 'Regular',
-      hours: num(breakdown.regularHours),
-      rate: breakdown.regularRate ?? 0,
-    },
-    {
-      key: 'lateHours',
-      label: 'Late',
-      hours: num(breakdown.lateHours),
-      rate: breakdown.lateRate ?? 0,
-    },
-    {
-      key: 'doubleHours',
-      label: 'Rest day',
-      hours: num(breakdown.doubleHours),
-      rate: breakdown.doubleRate ?? 0,
-    },
-    {
-      key: 'doubleLateHours',
-      label: 'Rest day, late',
-      hours: num(breakdown.doubleLateHours),
-      rate: breakdown.doubleLateRate ?? 0,
-    },
-  ];
+  if (effectiveEnd.getTime() <= start.getTime()) return empty;
 
-  return rows.filter((row) => row.hours > 0);
+  // Noon rule, same as the day boundary: a late threshold before 12:00 is an
+  // early-morning clock time and belongs to the NEXT calendar day. Without it
+  // an AM time stored for a PM one ("11:59" for 11:59 PM, "00:00" for midnight)
+  // sits behind the overtime start, the regular tier collapses, and every hour
+  // reads late. Mirrors lateThresholdInstant() in the backend calc util.
+  const threshold = atMinutes(start, cfg.lateThresholdMinutes);
+  if (cfg.lateThresholdMinutes < 720) {
+    threshold.setUTCDate(threshold.getUTCDate() + 1);
+  }
+  const totalHours = round2((effectiveEnd.getTime() - start.getTime()) / MS_PER_HOUR);
+  const isLate = effectiveEnd.getTime() > threshold.getTime();
+
+  let regularHours = 0;
+  let lateHours = 0;
+  let doubleHours = 0;
+  let otType: OtType;
+  let rateMultiplier: number;
+
+  if (isDoubleDay) {
+    doubleHours = totalHours;
+    otType = isLate ? 'DOUBLE_LATE' : 'DOUBLE';
+    rateMultiplier = cfg.doubleRate;
+  } else {
+    const regularEnd = Math.min(effectiveEnd.getTime(), threshold.getTime());
+    regularHours = round2(Math.max(0, (regularEnd - start.getTime()) / MS_PER_HOUR));
+    lateHours = round2(totalHours - regularHours);
+    otType = isLate ? 'LATE' : 'REGULAR';
+    // Headline the higher tier when the split spans both.
+    rateMultiplier = lateHours > 0 ? cfg.lateRate : cfg.regularRate;
+  }
+
+  // Food allowance: driven by its own threshold, evaluated against the
+  // boundary-clamped effective end (mirrors overtime.service.ts).
+  const foodThresholdInstant = atMinutes(start, cfg.foodAllowanceThresholdMinutes);
+  const isPastFoodThreshold = effectiveEnd.getTime() > foodThresholdInstant.getTime();
+
+  let foodAllowance = 0;
+  if (cfg.foodAllowanceEnabled && totalHours > 0) {
+    if (isDoubleDay) {
+      if (isPastFoodThreshold || cfg.doubleFoodAllowanceAnyTime) {
+        foodAllowance = cfg.foodAllowanceAmount;
+      }
+    } else if (isPastFoodThreshold) {
+      foodAllowance = cfg.foodAllowanceAmount;
+    }
+  }
+
+  return {
+    totalHours,
+    regularHours,
+    lateHours,
+    doubleHours,
+    otType,
+    isLate,
+    clampedByBoundary,
+    foodAllowance,
+    rateMultiplier,
+  };
 }

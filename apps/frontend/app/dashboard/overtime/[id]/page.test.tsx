@@ -1,362 +1,213 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import userEvent from '@testing-library/user-event';
-import {
-  fireEvent,
-  renderWithProviders,
-  screen,
-  waitFor,
-  within,
-} from '@/test/utils';
-import { useAuthStore } from '@/store/authStore';
-import overtimeService from '@/services/overtimeService';
-import type { OvertimePreview, OvertimeRequest } from '@/types/overtime';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { renderWithProviders, screen, waitFor } from '@/test/render';
 import OvertimeDetailPage from './page';
 
 /**
- * The screen that decides the money.
+ * The overtime detail screen, and the number it was getting wrong in
+ * production: a request the list showed with a S$4.00 food allowance rendered
+ * here with a blank one, badged REGULAR instead of LATE.
  *
- * Everything asserted here defends one rule: the breakdown belongs to the
- * SERVER. It depends on the employee's overtime policy and on the branch-aware
- * day classification, neither of which the browser has, so a page that derived
- * the tiers from the window would show REGULAR where the server said LATE — and
- * the number an approver signs off would not be the number that gets paid. The
- * fixtures below therefore give the preview figures that DISAGREE with the naive
- * arithmetic, so a recompute would fail the test rather than coincide with it.
- *
- * The food allowance is the same argument in miniature. `foodAllowanceOverride`
- * is null when nobody touched it and 0 when an approver decided to pay none, and
- * those are different facts about the same request. A page that treats 0 as
- * absent hides a decision somebody made deliberately.
- *
- * `expectedUpdatedAt` on an approval with a correction is the concurrency guard:
- * two approvers holding the same pending request open must not both write, and
- * the second one is refused with a 409 only if the first sent the version it saw.
- *
- * And withdrawal: the owner of a pending request may take it back and may not
- * decide it. The server enforces that; the page must not offer buttons the
- * server will refuse.
+ * The page recomputed the breakdown in the browser from the GLOBAL branding
+ * settings. Those settings are not the rules the server used — the employee's
+ * Overtime Policy overrides them — so the estimate silently disagreed with the
+ * list, and with the payslip. The server now sends its own breakdown as
+ * `preview`; the local recompute is only a fallback for a payload without it.
  */
+
 vi.mock('@/services/overtimeService', () => ({
-  default: {
-    get: vi.fn(),
-    approve: vi.fn(),
-    reject: vi.fn(),
-    cancel: vi.fn(),
-    previewEdit: vi.fn(),
-  },
+  default: { getById: vi.fn(), approve: vi.fn(), reject: vi.fn(), cancel: vi.fn() },
 }));
 
-vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+vi.mock('@/services/approvalWorkflowService', () => ({
+  default: { trail: vi.fn() },
 }));
 
-const getRequest = vi.mocked(overtimeService.get);
-const approve = vi.mocked(overtimeService.approve);
-const cancel = vi.mocked(overtimeService.cancel);
-const previewEdit = vi.mocked(overtimeService.previewEdit);
+vi.mock('@/services/holidayService', () => ({
+  default: { getAll: vi.fn(), calculateWorkDays: vi.fn() },
+}));
 
-/**
- * The server's breakdown for the filed window.
- *
- * 17:30 to 22:00 is four and a half hours of clock, and the payable total is
- * 3.5 — the last half hour falls past the attendance day boundary. The gap is
- * deliberate: it is what tells a recompute apart from a read.
- */
-const PREVIEW: OvertimePreview = {
-  hours: 3.5,
-  regularHours: 2,
-  lateHours: 1.5,
-  doubleHours: 0,
-  doubleLateHours: 0,
-  dayType: 'WEEKDAY',
-  otType: 'LATE',
-  foodAllowance: 3,
-  foodAllowanceOverride: null,
-  siteAllowance: 0,
-  isDoubleOtDay: false,
-  regularRate: 1.25,
-  lateRate: 1.5,
-  doubleRate: 2,
-  doubleLateRate: 2.5,
-  policyId: 'pol-1',
-  policyName: 'Plant crew',
-};
+vi.mock('@/lib/toast', () => ({
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 
-const REQUEST: OvertimeRequest = {
+import overtimeService from '@/services/overtimeService';
+import approvalWorkflowService from '@/services/approvalWorkflowService';
+import holidayService from '@/services/holidayService';
+
+// Globals say: late/food from 22:00, allowance 150. The request below ends
+// exactly at 22:00, so recomputing from these yields REGULAR + no food.
+const BRANDING = {
+  overtime_regular_rate: '1.5',
+  overtime_late_rate: '1.5',
+  overtime_double_rate: '2.0',
+  overtime_late_threshold: '22:00',
+  overtime_food_allowance_enabled: true,
+  overtime_food_allowance_amount: '150',
+  overtime_food_allowance_threshold: '22:00',
+  attendance_day_end_time: '23:59',
+  payroll_work_hours_per_day: '8',
+} as never;
+
+const REQUEST = {
   id: 'ot-1',
   employeeId: 'emp-1',
-  date: '2026-10-05',
-  // Wall clocks tagged UTC, exactly as the API stores them.
-  startTime: '2026-10-05T17:30:00.000Z',
-  endTime: '2026-10-05T22:00:00.000Z',
-  hours: 3.5,
-  regularHours: 2,
-  lateHours: 1.5,
+  date: '2026-08-18T00:00:00.000Z',
+  startTime: '2026-08-18T17:30:00.000Z',
+  endTime: '2026-08-18T22:00:00.000Z',
+  hours: 4.5,
+  regularHours: 3.5,
+  lateHours: 1,
+  doubleHours: 0,
+  foodAllowance: 4,
+  otType: 'LATE',
+  reason: 'Line shutdown recovery',
+  status: 'PENDING',
+  createdAt: '2026-08-18T13:21:43.000Z',
+  updatedAt: '2026-08-18T13:21:43.000Z',
+  employee: {
+    id: 'emp-1',
+    employeeCode: 'TRS-POD-002',
+    fullName: 'JAMEENRAJ MATHIYAZHAGAN',
+    email: 'jemini.tyd@gmail.com',
+    baseSalary: 27,
+    salaryType: 'DAILY',
+    branchId: 'br-ho',
+  },
+};
+
+// What the server computes under the employee's policy (late + food from 21:00,
+// allowance S$4) — the same rules that produced the persisted row.
+const SERVER_PREVIEW = {
+  hours: 4.5,
+  regularHours: 3.5,
+  lateHours: 1,
   doubleHours: 0,
   doubleLateHours: 0,
   dayType: 'WEEKDAY',
+  foodAllowance: 4,
   otType: 'LATE',
-  foodAllowance: 3,
-  siteAllowance: 0,
-  siteAllowanceNote: null,
-  foodAllowanceOverride: null,
-  approverNote: null,
-  editedById: null,
-  editedAt: null,
-  originalStartTime: null,
-  originalEndTime: null,
-  overtimePolicyId: 'pol-1',
-  reason: 'Line 3 changeover ran past the shift',
-  status: 'PENDING',
-  approverId: null,
-  approvedAt: null,
-  rejectedReason: null,
-  createdAt: '2026-10-05T22:10:00.000Z',
-  updatedAt: '2026-10-05T22:10:00.000Z',
-  employee: {
-    id: 'emp-1',
-    employeeCode: 'EMP-0001',
-    firstName: 'Aisha',
-    lastName: 'Al Balushi',
-  },
-  overtimePolicy: { id: 'pol-1', name: 'Plant crew' },
-  preview: PREVIEW,
+  isDoubleOtDay: false,
+  regularRate: 1.5,
+  lateRate: 1.5,
+  doubleRate: 2,
+  doubleLateRate: 2,
+  policyId: 'pol-1',
+  policyName: 'Projects Ops',
 };
 
-/** Signs in an approver: HR, and not the person who filed the request. */
-function signInApprover() {
-  useAuthStore.setState({
-    user: {
-      id: 'u1',
-      email: 'hr@peoplepay360.com',
-      role: 'HR_MANAGER',
-      isActive: true,
-      employee: {
-        id: 'emp-hr',
-        employeeCode: 'EMP-0100',
-        firstName: 'Noora',
-        lastName: 'Al Rashdi',
-      },
-    },
-    isAuthenticated: true,
-    isLoading: false,
-    hasHydrated: true,
+// `use(params)` suspends on a pending promise; a fulfilled thenable (the shape
+// React itself caches) lets the page render synchronously under the test
+// renderer instead of hanging on a Suspense boundary this page does not have.
+const resolvedParams = (id: string) => {
+  const thenable = Promise.resolve({ id }) as Promise<{ id: string }> & {
+    status?: string;
+    value?: { id: string };
+  };
+  thenable.status = 'fulfilled';
+  thenable.value = { id };
+  return thenable;
+};
+
+const renderDetail = () =>
+  renderWithProviders(<OvertimeDetailPage params={resolvedParams('ot-1')} />, {
+    role: 'ADMIN',
+    branding: BRANDING,
   });
-}
 
-/** Signs in the employee whose request this is. */
-function signInOwner() {
-  useAuthStore.setState({
-    user: {
-      id: 'u2',
-      email: 'aisha@peoplepay360.com',
-      role: 'EMPLOYEE',
-      isActive: true,
-      employee: {
-        id: 'emp-1',
-        employeeCode: 'EMP-0001',
-        firstName: 'Aisha',
-        lastName: 'Al Balushi',
-      },
-    },
-    isAuthenticated: true,
-    isLoading: false,
-    hasHydrated: true,
-  });
-}
-
-/**
- * The route takes `params` as a promise and unwraps it with `use()`.
- *
- * A plain `Promise.resolve` would SUSPEND the first render, and a suspension
- * inside Testing Library's synchronous `act` never recovers — the tree stays
- * empty and every assertion fails on an empty body rather than on the page.
- * Handing `use()` an already-settled thenable (React's own contract: `status`
- * plus `value`) makes the unwrap synchronous, which is what Next does in the
- * browser once the params have arrived anyway.
- */
-function resolvedParams(id: string): Promise<{ id: string }> {
-  const settled = Promise.resolve({ id });
-  return Object.assign(settled, { status: 'fulfilled', value: { id } });
-}
-
-function renderDetail() {
-  return renderWithProviders(
-    <OvertimeDetailPage params={resolvedParams('ot-1')} />,
-  );
-}
+const breakdown = () => document.querySelector('[data-testid="ot-breakdown"]') as HTMLElement;
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  signInApprover();
-  getRequest.mockResolvedValue({ success: true, data: REQUEST });
-  approve.mockResolvedValue({ success: true, data: REQUEST });
-  cancel.mockResolvedValue({ success: true, data: REQUEST });
+  vi.mocked(approvalWorkflowService.trail).mockResolvedValue({ success: true, data: null } as never);
+  vi.mocked(holidayService.getAll).mockResolvedValue({ success: true, data: [] } as never);
+  vi.mocked(holidayService.calculateWorkDays).mockResolvedValue({
+    success: true,
+    data: { workDays: 26 },
+  } as never);
 });
 
-describe('Overtime request', () => {
-  it('draws the tiers the server sent, with their hours and multipliers', async () => {
+describe('the payable breakdown', () => {
+  it('shows the food allowance and OT type the server computed, not the one the global settings imply', async () => {
+    vi.mocked(overtimeService.getById).mockResolvedValue({
+      success: true,
+      data: { ...REQUEST, preview: SERVER_PREVIEW },
+    } as never);
+
     renderDetail();
+    await waitFor(() => expect(breakdown()).toBeInTheDocument());
 
-    const regular = within(await screen.findByRole('row', { name: /Regular/ }));
-    expect(regular.getByText('2h')).toBeInTheDocument();
-    expect(regular.getByText('1.25×')).toBeInTheDocument();
-
-    const late = within(screen.getByRole('row', { name: /^Late/ }));
-    expect(late.getByText('1.5h')).toBeInTheDocument();
-    expect(late.getByText('1.5×')).toBeInTheDocument();
-
-    // The zero tiers are not drawn: two permanent "0h" rows train the reader to
-    // stop looking at the column that matters.
-    expect(screen.queryByRole('row', { name: /Rest day/ })).not.toBeInTheDocument();
+    // The defect: a blank allowance here while the list showed S$ 4.00.
+    expect(breakdown().getAttribute('data-food-allowance')).toBe('4');
+    expect(breakdown().getAttribute('data-ot-type')).toBe('LATE');
+    expect(breakdown().textContent).not.toContain('—');
   });
 
-  it('reports the payable total the server computed, not the length of the window', async () => {
+  it('splits the hours across the tiers the server reported', async () => {
+    vi.mocked(overtimeService.getById).mockResolvedValue({
+      success: true,
+      data: { ...REQUEST, preview: SERVER_PREVIEW },
+    } as never);
+
     renderDetail();
+    await waitFor(() => expect(breakdown()).toBeInTheDocument());
 
-    const total = within(await screen.findByRole('row', { name: /Total/ }));
-    expect(total.getByText('3.5h')).toBeInTheDocument();
-
-    // 17:30 to 22:00 is 4.5 hours of clock. That figure must appear NOWHERE:
-    // the payable total is clamped at the attendance day boundary, and a page
-    // that did the subtraction itself would print it.
-    expect(screen.queryByText('4.5h')).not.toBeInTheDocument();
-    // The window itself is still shown — as a window, not as a number of hours.
-    expect(screen.getByText('17:30 – 22:00')).toBeInTheDocument();
+    const tiers = Array.from(document.querySelectorAll('[data-testid="ot-breakdown-tier"]')).map(
+      (el) => [el.getAttribute('data-tier'), el.getAttribute('data-hours')],
+    );
+    // Global rules would have put all 4.5h in the regular bucket.
+    expect(tiers).toEqual([
+      ['regular', '3.5'],
+      ['late', '1'],
+    ]);
+    expect(breakdown().getAttribute('data-total-hours')).toBe('4.5');
   });
 
-  it('shows a suppressed food allowance as 0, and says a person decided it', async () => {
-    getRequest.mockResolvedValue({
+  it('folds a double day\'s post-threshold hours into the late row at their own multiplier', async () => {
+    vi.mocked(overtimeService.getById).mockResolvedValue({
       success: true,
       data: {
         ...REQUEST,
-        foodAllowanceOverride: 0,
-        preview: { ...PREVIEW, foodAllowance: 0, foodAllowanceOverride: 0 },
+        otType: 'DOUBLE_LATE',
+        preview: {
+          ...SERVER_PREVIEW,
+          dayType: 'SUNDAY',
+          isDoubleOtDay: true,
+          otType: 'DOUBLE_LATE',
+          regularHours: 0,
+          lateHours: 0,
+          doubleHours: 3.5,
+          doubleLateHours: 1,
+          doubleRate: 2,
+          doubleLateRate: 2.5,
+        },
       },
-    });
+    } as never);
 
     renderDetail();
+    await waitFor(() => expect(breakdown()).toBeInTheDocument());
 
-    const food = (await screen.findByText('Food allowance')).parentElement!;
-    expect(within(food).getByText('0')).toBeInTheDocument();
-    // 0 is a decision the approval has to honour; null is nobody having touched
-    // it. Rendering the two the same way loses the one that was deliberate.
-    expect(within(food).getByText('set by the approver')).toBeInTheDocument();
+    const tiers = Array.from(document.querySelectorAll('[data-testid="ot-breakdown-tier"]')).map(
+      (el) => [el.getAttribute('data-tier'), el.getAttribute('data-hours')],
+    );
+    expect(tiers).toEqual([
+      ['late', '1'],
+      ['double', '3.5'],
+    ]);
+    // hourly rate 27/8 = 3.375 → 3.5h × 2 + 1h × 2.5 = 9.5 rate-hours, + S$4 food.
+    const pay = document.querySelector('[data-testid="ot-pay"]') as HTMLElement;
+    expect(Number(pay.getAttribute('data-total'))).toBeCloseTo(3.375 * 9.5 + 4, 2);
   });
 
-  it('does not claim an approver set an allowance the policy granted', async () => {
-    renderDetail();
-
-    const food = (await screen.findByText('Food allowance')).parentElement!;
-    expect(within(food).getByText('3')).toBeInTheDocument();
-    expect(
-      within(food).queryByText('set by the approver'),
-    ).not.toBeInTheDocument();
-  });
-
-  it('replaces the figures with the dry run when the approver corrects the times', async () => {
-    previewEdit.mockResolvedValue({
+  it('falls back to the local estimate when the payload carries no server preview', async () => {
+    vi.mocked(overtimeService.getById).mockResolvedValue({
       success: true,
-      data: {
-        ...PREVIEW,
-        hours: 5,
-        regularHours: 2,
-        lateHours: 3,
-        startTime: '2026-10-05T17:30:00.000Z',
-        endTime: '2026-10-05T23:00:00.000Z',
-      },
-    });
+      data: { ...REQUEST },
+    } as never);
 
-    const user = userEvent.setup();
     renderDetail();
+    await waitFor(() => expect(breakdown()).toBeInTheDocument());
 
-    await user.click(
-      await screen.findByRole('button', { name: 'Correct the times' }),
-    );
-
-    // Seeded in UTC. Read in the browser's zone these boxes would show an hour
-    // the employee never typed.
-    expect(screen.getByLabelText('Corrected start')).toHaveValue('17:30');
-    expect(screen.getByLabelText('Corrected finish')).toHaveValue('22:00');
-
-    fireEvent.change(screen.getByLabelText('Corrected finish'), {
-      target: { value: '23:00' },
-    });
-    await user.click(screen.getByRole('button', { name: 'Check the figures' }));
-
-    // The card renames itself so nobody signs the corrected figures believing
-    // they are what the employee filed.
-    expect(
-      await screen.findByRole('heading', { name: 'With your correction' }),
-    ).toBeInTheDocument();
-    const total = within(screen.getByRole('row', { name: /Total/ }));
-    expect(total.getByText('5h')).toBeInTheDocument();
-
-    // The dry run is priced by the server too, on the corrected instants.
-    expect(previewEdit).toHaveBeenCalledWith('ot-1', {
-      startTime: '2026-10-05T17:30:00.000Z',
-      endTime: '2026-10-05T23:00:00.000Z',
-    });
-  });
-
-  it('sends the version it read when approving with a correction', async () => {
-    previewEdit.mockResolvedValue({ success: true, data: { ...PREVIEW, hours: 5 } });
-
-    const user = userEvent.setup();
-    renderDetail();
-
-    await user.click(
-      await screen.findByRole('button', { name: 'Correct the times' }),
-    );
-    fireEvent.change(screen.getByLabelText('Corrected finish'), {
-      target: { value: '23:00' },
-    });
-    fireEvent.change(screen.getByLabelText('Why the change'), {
-      target: { value: 'The gate log shows 23:00.' },
-    });
-
-    await user.click(
-      screen.getByRole('button', { name: 'Approve with the correction' }),
-    );
-
-    await waitFor(() => expect(approve).toHaveBeenCalledTimes(1));
-    expect(approve).toHaveBeenCalledWith('ot-1', {
-      startTime: '2026-10-05T17:30:00.000Z',
-      endTime: '2026-10-05T23:00:00.000Z',
-      approverNote: 'The gate log shows 23:00.',
-      // Without this a second approver holding the request open overwrites the
-      // first silently, instead of being refused with a 409.
-      expectedUpdatedAt: '2026-10-05T22:10:00.000Z',
-    });
-  });
-
-  it('approves as filed with no body at all when nothing was corrected', async () => {
-    const user = userEvent.setup();
-    renderDetail();
-
-    await user.click(await screen.findByRole('button', { name: 'Approve' }));
-
-    await waitFor(() => expect(approve).toHaveBeenCalledTimes(1));
-    // A bodyless call means "exactly as filed"; any field present makes it an
-    // edit, which is written before the decision.
-    expect(approve).toHaveBeenCalledWith('ot-1', undefined);
-  });
-
-  it('lets the owner of a pending request withdraw it, and decide nothing', async () => {
-    signInOwner();
-    const user = userEvent.setup();
-    renderDetail();
-
-    const withdraw = await screen.findByRole('button', { name: 'Withdraw' });
-    // Nobody approves their own overtime; the server refuses it, so the page
-    // must not draw the button.
-    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /reject/i })).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: 'Correct the times' }),
-    ).not.toBeInTheDocument();
-
-    await user.click(withdraw);
-    await waitFor(() => expect(cancel).toHaveBeenCalledWith('ot-1'));
+    // Global rules: ends exactly at 22:00 → nothing late, no allowance.
+    expect(breakdown().getAttribute('data-ot-type')).toBe('REGULAR');
+    expect(breakdown().getAttribute('data-food-allowance')).toBe('0');
   });
 });

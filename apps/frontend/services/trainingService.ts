@@ -1,92 +1,105 @@
 import axiosInstance from '@/lib/axios';
 import { ApiResponse } from '@/types/api';
-import type {
+import {
   Course,
   CreateCourseData,
   CreateSessionData,
   RecordAttendanceData,
+  TrainingNeed,
   TrainingNomination,
   TrainingSession,
-  TrainingStats,
 } from '@/types/training';
 
 class TrainingService {
-  stats(): Promise<ApiResponse<TrainingStats>> {
-    return axiosInstance.get('/training/stats');
-  }
+  // ── Catalogue ──────────────────────────────────────────────────────────────
 
-  // ── The catalogue ──────────────────────────────────────────────────────────
-
-  listCourses(activeOnly = false): Promise<ApiResponse<Course[]>> {
+  async listCourses(activeOnly = false): Promise<ApiResponse<Course[]>> {
     return axiosInstance.get('/training/courses', { params: { activeOnly } });
   }
 
-  createCourse(payload: CreateCourseData): Promise<ApiResponse<Course>> {
-    return axiosInstance.post('/training/courses', payload);
+  async createCourse(data: CreateCourseData): Promise<ApiResponse<Course>> {
+    return axiosInstance.post('/training/courses', data);
   }
 
-  updateCourse(
+  async updateCourse(
     id: string,
-    payload: Partial<CreateCourseData>,
+    data: Partial<CreateCourseData> & { isActive?: boolean },
   ): Promise<ApiResponse<Course>> {
-    return axiosInstance.patch(`/training/courses/${id}`, payload);
+    return axiosInstance.patch(`/training/courses/${id}`, data);
   }
 
   // ── Sessions ───────────────────────────────────────────────────────────────
 
-  listSessions(
-    params: { status?: string; from?: string; to?: string } = {},
-  ): Promise<ApiResponse<TrainingSession[]>> {
+  async listSessions(params: {
+    status?: string;
+    from?: string;
+    to?: string;
+  } = {}): Promise<ApiResponse<TrainingSession[]>> {
     return axiosInstance.get('/training/sessions', { params });
   }
 
-  createSession(
-    payload: CreateSessionData,
+  async createSession(
+    data: CreateSessionData,
   ): Promise<ApiResponse<TrainingSession>> {
-    return axiosInstance.post('/training/sessions', payload);
+    return axiosInstance.post('/training/sessions', data);
   }
 
   // ── Nominations ────────────────────────────────────────────────────────────
 
-  listNominations(
-    params: { sessionId?: string; status?: string } = {},
-  ): Promise<ApiResponse<TrainingNomination[]>> {
+  async listNominations(params: {
+    sessionId?: string;
+    status?: string;
+  } = {}): Promise<ApiResponse<TrainingNomination[]>> {
     return axiosInstance.get('/training/nominations', { params });
   }
 
-  mine(): Promise<ApiResponse<TrainingNomination[]>> {
+  async getMyTraining(): Promise<ApiResponse<TrainingNomination[]>> {
     return axiosInstance.get('/training/my-training');
   }
 
-  nominate(payload: {
+  async nominate(data: {
     sessionId: string;
     employeeId: string;
+    source?: 'MANUAL' | 'APPRAISAL';
+    appraisalResultId?: string;
     justification?: string;
   }): Promise<ApiResponse<TrainingNomination>> {
-    return axiosInstance.post('/training/nominations', payload);
+    return axiosInstance.post('/training/nominations', data);
   }
 
-  approve(
-    id: string,
-    remarks?: string,
-  ): Promise<ApiResponse<TrainingNomination>> {
+  async approve(id: string, remarks?: string): Promise<ApiResponse<TrainingNomination>> {
     return axiosInstance.post(`/training/nominations/${id}/approve`, { remarks });
   }
 
-  reject(id: string, remarks?: string): Promise<ApiResponse<TrainingNomination>> {
+  async reject(id: string, remarks?: string): Promise<ApiResponse<TrainingNomination>> {
     return axiosInstance.post(`/training/nominations/${id}/reject`, { remarks });
   }
 
   /** Certificate expiry is derived server-side from the course validity window. */
-  recordAttendance(
+  async recordAttendance(
     id: string,
-    payload: RecordAttendanceData,
+    data: RecordAttendanceData,
   ): Promise<ApiResponse<TrainingNomination>> {
-    return axiosInstance.post(`/training/nominations/${id}/attendance`, payload);
+    return axiosInstance.post(`/training/nominations/${id}/attendance`, data);
   }
 
-  cancel(id: string): Promise<ApiResponse<TrainingNomination>> {
+  async cancel(id: string): Promise<ApiResponse<TrainingNomination>> {
     return axiosInstance.delete(`/training/nominations/${id}`);
+  }
+
+  // ── The differentiator ─────────────────────────────────────────────────────
+
+  /**
+   * Training needs derived from a completed AI appraisal run. Suggestions only —
+   * acting on one is a separate, human decision.
+   */
+  async needsFromRun(
+    runId: string,
+    all = false,
+  ): Promise<ApiResponse<TrainingNeed[]>> {
+    return axiosInstance.get(`/training/needs/from-run/${runId}`, {
+      params: all ? { all: true } : {},
+    });
   }
 }
 

@@ -1,14 +1,13 @@
 'use client';
 
 import { use } from 'react';
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import DepartmentForm from '@/components/departments/DepartmentForm';
+import ProtectedRoute from '@/components/auth/ProtectedRoute';
 
 export default function EditDepartmentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-
   return (
-    <ProtectedRoute requiredRoles={['ADMIN', 'HR_MANAGER']}>
+    <ProtectedRoute requiredPermission="MANAGE_DEPARTMENTS">
       <DepartmentForm mode="edit" departmentId={id} />
     </ProtectedRoute>
   );
