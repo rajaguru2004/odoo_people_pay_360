@@ -1,181 +1,181 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ClearanceService } from './clearance.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { SystemSettingsService } from '../system-settings/system-settings.service';
 
-const prismaMock = () => ({
-  employee: { findUnique: jest.fn() },
-  department: { findMany: jest.fn() },
-  assetAssignment: { findMany: jest.fn() },
-  auditLog: { create: jest.fn() },
-});
-
-type PrismaMock = ReturnType<typeof prismaMock>;
-
-/** The first argument a mocked Prisma call received, typed for the assertion. */
-function firstArg<T>(mock: jest.Mock): T {
-  return (mock.mock.calls as T[][])[0][0];
+function makeService(opts: {
+  openAssets?: any[];
+  blockingEnabled?: string;
+  outstandingLoans?: any[];
+  /** `null` => the employee does not exist. */
+  employee?: any;
+} = {}) {
+  const prisma = {
+    // `getClearanceStatus` resolves the SUBJECT first now: an unknown id used
+    // to answer a confident `cleared: true` (R27), and an id in a branch the
+    // caller cannot reach did the same (R26). No branch context is installed in
+    // a unit test, so `assertInBranch` is a no-op here.
+    employee: {
+      findUnique: jest.fn().mockResolvedValue(
+        opts.employee === null
+          ? null
+          : (opts.employee ?? { id: 'emp-1', branchId: null, departmentId: null }),
+      ),
+    },
+    assetAssignment: {
+      findMany: jest.fn().mockResolvedValue(opts.openAssets ?? []),
+    },
+    // Clearance now covers loans as well as assets: an employee must not walk
+    // with an unrecovered balance.
+    advanceLoanRequest: {
+      findMany: jest.fn().mockResolvedValue(opts.outstandingLoans ?? []),
+    },
+  } as any;
+  const audit = { log: jest.fn().mockResolvedValue(undefined) } as any;
+  const settings = {
+    getSetting: jest
+      .fn()
+      .mockResolvedValue(opts.blockingEnabled ?? 'true'),
+  } as any;
+  return {
+    service: new ClearanceService(prisma, audit, settings),
+    prisma,
+    audit,
+  };
 }
 
-const OPEN_ASSIGNMENT = {
-  id: 'assignment-1',
-  assignedAt: new Date('2026-01-15T00:00:00.000Z'),
-  asset: {
-    id: 'asset-1',
-    assetTag: 'LT-0042',
-    name: 'Dell Latitude 5540',
-    category: 'Laptop',
-  },
-};
-
-const admin = {
-  id: 'user-admin',
-  email: 'admin@example.com',
-  role: UserRole.ADMIN,
-  employeeId: null,
-  departmentId: null,
-  branchId: null,
+const laptop = {
+  id: 'asg-1',
+  assignedAt: new Date('2026-01-10'),
+  asset: { id: 'a-1', assetTag: 'LT-0042', name: 'Dell Latitude', category: 'Laptop' },
 };
 
 describe('ClearanceService', () => {
-  let prisma: PrismaMock;
-  let settings: { get: jest.Mock };
-  let service: ClearanceService;
-
-  beforeEach(() => {
-    prisma = prismaMock();
-    settings = { get: jest.fn().mockResolvedValue(undefined) };
-    service = new ClearanceService(
-      prisma as unknown as PrismaService,
-      settings as unknown as SystemSettingsService,
-    );
-    prisma.employee.findUnique.mockResolvedValue({
-      id: 'employee-1',
-      departmentId: 'department-1',
-    });
-  });
-
-  describe('an open assignment is what blocks offboarding', () => {
-    it('reports the employee as not cleared while an asset is still out', async () => {
-      prisma.assetAssignment.findMany.mockResolvedValue([OPEN_ASSIGNMENT]);
-
-      const status = await service.getClearanceStatus('employee-1', admin);
-
-      expect(status.cleared).toBe(false);
-      expect(status.openAssets).toEqual([
-        {
-          assignmentId: 'assignment-1',
-          assetId: 'asset-1',
-          assetTag: 'LT-0042',
-          name: 'Dell Latitude 5540',
-          category: 'Laptop',
-          assignedAt: OPEN_ASSIGNMENT.assignedAt,
-        },
-      ]);
+  describe('getClearanceStatus', () => {
+    it('is cleared when nothing is held', async () => {
+      const { service } = makeService({ openAssets: [] });
+      await expect(service.getClearanceStatus('emp-1')).resolves.toEqual({
+        cleared: true,
+        assetCleared: true,
+        loanCleared: true,
+        openAssets: [],
+        outstandingLoans: [],
+      });
     });
 
-    it('keys on returnedAt, never on the employee status', async () => {
-      prisma.assetAssignment.findMany.mockResolvedValue([]);
-
-      await service.getClearanceStatus('employee-1', admin);
-
+    it('queries only OPEN assignments', async () => {
+      const { service, prisma } = makeService();
+      await service.getClearanceStatus('emp-1');
       expect(prisma.assetAssignment.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { employeeId: 'employee-1', returnedAt: null },
+          where: { employeeId: 'emp-1', returnedAt: null },
         }),
       );
     });
 
-    it('clears the employee once everything has come back', async () => {
-      prisma.assetAssignment.findMany.mockResolvedValue([]);
-
-      const status = await service.getClearanceStatus('employee-1', admin);
-
-      expect(status).toMatchObject({ cleared: true, assetCleared: true });
-      expect(status.openAssets).toHaveLength(0);
-    });
-
-    it('refuses an unknown employee rather than answering "clear to go"', async () => {
-      prisma.employee.findUnique.mockResolvedValue(null);
-
-      await expect(service.getClearanceStatus('nobody', admin)).rejects.toThrow(
-        'Employee not found',
+    it('404s an employeeId that belongs to nobody, instead of clearing it', async () => {
+      // R27 — the projection queries assignments and loans by a raw id, so an
+      // id belonging to nobody matched nothing and read as "owes nothing".
+      const { service } = makeService({ employee: null });
+      await expect(service.getClearanceStatus('ghost')).rejects.toBeInstanceOf(
+        NotFoundException,
       );
     });
 
-    it('keeps a manager out of another department', async () => {
-      prisma.department.findMany.mockResolvedValue([]);
-      const manager = {
-        ...admin,
-        role: UserRole.MANAGER,
-        employeeId: 'employee-manager',
-        departmentId: 'department-other',
-      };
-
-      await expect(
-        service.getClearanceStatus('employee-1', manager),
-      ).rejects.toBeInstanceOf(ForbiddenException);
+    it('lists what is still held', async () => {
+      const { service } = makeService({ openAssets: [laptop] });
+      const status = await service.getClearanceStatus('emp-1');
+      expect(status.cleared).toBe(false);
+      expect(status.openAssets).toEqual([
+        {
+          assignmentId: 'asg-1',
+          assetId: 'a-1',
+          assetTag: 'LT-0042',
+          name: 'Dell Latitude',
+          category: 'Laptop',
+          assignedAt: laptop.assignedAt,
+        },
+      ]);
     });
   });
 
   describe('assertCleared', () => {
-    it('throws and names what is still held', async () => {
-      prisma.assetAssignment.findMany.mockResolvedValue([OPEN_ASSIGNMENT]);
+    it('passes when the employee holds nothing', async () => {
+      const { service } = makeService({ openAssets: [] });
+      await expect(service.assertCleared('emp-1')).resolves.toBeUndefined();
+    });
 
-      await expect(service.assertCleared('employee-1')).rejects.toThrow(
-        /LT-0042 \(Dell Latitude 5540\)/,
-      );
-      await expect(service.assertCleared('employee-1')).rejects.toBeInstanceOf(
+    it('blocks offboarding, naming the assets', async () => {
+      const { service } = makeService({ openAssets: [laptop] });
+      await expect(service.assertCleared('emp-1')).rejects.toBeInstanceOf(
         BadRequestException,
       );
+      await expect(service.assertCleared('emp-1')).rejects.toThrow(
+        /LT-0042 \(Dell Latitude\)/,
+      );
     });
 
-    it('passes when nothing is out', async () => {
-      prisma.assetAssignment.findMany.mockResolvedValue([]);
+    it('rejects an override with no reason', async () => {
+      const { service } = makeService({ openAssets: [laptop] });
       await expect(
-        service.assertCleared('employee-1'),
-      ).resolves.toBeUndefined();
+        service.assertCleared('emp-1', { actorRole: 'ADMIN' }),
+      ).rejects.toThrow(/still has/);
     });
 
-    it('lets a site that does not track assets switch the block off', async () => {
-      settings.get.mockResolvedValue('false');
+    it('rejects an override from a role that may not override', async () => {
+      const { service } = makeService({ openAssets: [laptop] });
       await expect(
-        service.assertCleared('employee-1'),
-      ).resolves.toBeUndefined();
-      expect(prisma.assetAssignment.findMany).not.toHaveBeenCalled();
-    });
-
-    it('refuses an override from a role that may not give one', async () => {
-      prisma.assetAssignment.findMany.mockResolvedValue([OPEN_ASSIGNMENT]);
-
-      await expect(
-        service.assertCleared('employee-1', {
-          actorUserId: 'user-manager',
-          actorRole: UserRole.MANAGER,
-          reason: 'They have already left the country',
+        service.assertCleared('emp-1', {
+          actorRole: 'MANAGER',
+          actorUserId: 'u-1',
+          reason: 'laptop written off',
         }),
       ).rejects.toThrow(/Only ADMIN or HR_MANAGER/);
     });
 
-    it('records an accepted override with what was still owed', async () => {
-      prisma.assetAssignment.findMany.mockResolvedValue([OPEN_ASSIGNMENT]);
+    it('allows an audited ADMIN override', async () => {
+      const { service, audit } = makeService({ openAssets: [laptop] });
+      await expect(
+        service.assertCleared('emp-1', {
+          actorRole: 'ADMIN',
+          actorUserId: 'u-1',
+          reason: 'laptop written off',
+        }),
+      ).resolves.toBeUndefined();
 
-      await service.assertCleared('employee-1', {
-        actorUserId: 'user-admin',
-        actorRole: UserRole.ADMIN,
-        reason: 'Laptop written off after the fire',
+      expect(audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'CLEARANCE_OVERRIDDEN',
+          resourceType: 'Employee',
+          resourceId: 'emp-1',
+          userId: 'u-1',
+        }),
+      );
+    });
+
+    it('allows an audited HR_MANAGER override', async () => {
+      const { service, audit } = makeService({ openAssets: [laptop] });
+      await service.assertCleared('emp-1', {
+        actorRole: 'HR_MANAGER',
+        actorUserId: 'u-2',
+        reason: 'lost in transit',
       });
+      expect(audit.log).toHaveBeenCalled();
+    });
 
-      const row = firstArg<{
-        data: { action: string; metadata: { openAssets: unknown[] } };
-      }>(prisma.auditLog.create);
-      expect(row.data.action).toBe('CLEARANCE_OVERRIDDEN');
-      // Recorded even though it was overridden: what was owed is the half an
-      // auditor is most likely to be looking for once the person has gone.
-      expect(row.data.metadata.openAssets).toEqual([
-        { assetTag: 'LT-0042', name: 'Dell Latitude 5540' },
-      ]);
+    it('treats a whitespace-only reason as no reason', async () => {
+      const { service } = makeService({ openAssets: [laptop] });
+      await expect(
+        service.assertCleared('emp-1', { actorRole: 'ADMIN', reason: '   ' }),
+      ).rejects.toThrow(/still has/);
+    });
+
+    it('skips the gate entirely when blocking is switched off', async () => {
+      const { service, prisma } = makeService({
+        openAssets: [laptop],
+        blockingEnabled: 'false',
+      });
+      await expect(service.assertCleared('emp-1')).resolves.toBeUndefined();
+      // Short-circuits before even looking at assignments.
+      expect(prisma.assetAssignment.findMany).not.toHaveBeenCalled();
     });
   });
 });

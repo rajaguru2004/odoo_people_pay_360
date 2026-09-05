@@ -1,12 +1,4 @@
-import {
-  IsBoolean,
-  IsDateString,
-  IsNumber,
-  IsOptional,
-  IsString,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsBoolean, IsDateString, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RecordAttendanceDto {
@@ -33,7 +25,7 @@ export class RecordAttendanceDto {
 
   @ApiPropertyOptional({
     description:
-      'Certificate file URL. Its expiry is derived from the course validity window and this date.',
+      'Certificate file URL. Its expiry is derived from the course validity window and the attendance date.',
   })
   @IsOptional()
   @IsString()

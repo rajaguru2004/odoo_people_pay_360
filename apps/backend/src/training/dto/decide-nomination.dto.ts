@@ -1,12 +1,9 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class DecideNominationDto {
-  @ApiPropertyOptional({
-    description: 'Approver comment, or the reason for a refusal',
-  })
+  @ApiPropertyOptional({ description: 'Approver comment / rejection reason' })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
   remarks?: string;
 }

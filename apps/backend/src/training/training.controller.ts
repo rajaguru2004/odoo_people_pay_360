@@ -10,73 +10,70 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiQuery,
-  ApiTags,
-} from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
-import { TrainingService } from './training.service';
-import { CreateCourseDto } from './dto/create-course.dto';
-import { UpdateCourseDto } from './dto/update-course.dto';
-import { CreateSessionDto } from './dto/create-session.dto';
-import { NominateDto } from './dto/nominate.dto';
-import { DecideNominationDto } from './dto/decide-nomination.dto';
-import { RecordAttendanceDto } from './dto/record-attendance.dto';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { Principal } from '../auth/auth.service';
+import { AuditResource } from '../audit/audit-resource.decorator';
+import { TrainingService } from './training.service';
+import { TrainingNeedsService } from './training-needs.service';
+import { CreateCourseDto } from './dto/create-course.dto';
+import { CreateSessionDto } from './dto/create-session.dto';
+import { NominateDto } from './dto/nominate.dto';
+import { DecideNominationDto } from './dto/decide-nomination.dto';
+import { RecordAttendanceDto } from './dto/record-attendance.dto';
 
 @ApiTags('Training')
-@ApiBearerAuth('JWT-auth')
-@Controller('training')
+@ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('training')
+@AuditResource('TrainingNomination')
 export class TrainingController {
-  constructor(private readonly training: TrainingService) {}
+  constructor(
+    private readonly training: TrainingService,
+    private readonly needs: TrainingNeedsService,
+  ) {}
+
+  // ── Course catalogue ──────────────────────────────────────────────────────
 
   @Get('stats')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
+  @Roles('ADMIN', 'HR_MANAGER')
   @ApiOperation({ summary: 'Courses, sessions and nominations at a glance' })
   stats() {
     return this.training.stats();
   }
 
-  // ── Course catalogue ───────────────────────────────────────────────────────
-
   @Get('courses')
-  @ApiOperation({ summary: 'The course catalogue' })
-  @ApiQuery({ name: 'activeOnly', required: false, type: Boolean })
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Course catalogue' })
   listCourses(@Query('activeOnly') activeOnly?: string) {
     return this.training.listCourses(activeOnly === 'true');
   }
 
   @Post('courses')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
+  @Roles('ADMIN', 'HR_MANAGER')
   @ApiOperation({ summary: 'Add a course to the catalogue' })
-  createCourse(@Body() dto: CreateCourseDto) {
-    return this.training.createCourse(dto);
+  createCourse(@CurrentUser() user: any, @Body() dto: CreateCourseDto) {
+    return this.training.createCourse(dto, user.id);
   }
 
   @Patch('courses/:id')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Edit a course' })
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Update a course' })
   updateCourse(
+    @CurrentUser() user: any,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateCourseDto,
+    @Body() dto: Partial<CreateCourseDto>,
   ) {
-    return this.training.updateCourse(id, dto);
+    return this.training.updateCourse(id, dto, user.id);
   }
 
-  // ── Sessions ───────────────────────────────────────────────────────────────
+  // ── Sessions ──────────────────────────────────────────────────────────────
 
   @Get('sessions')
-  @ApiOperation({ summary: 'Scheduled sessions' })
-  @ApiQuery({ name: 'status', required: false })
-  @ApiQuery({ name: 'from', required: false })
-  @ApiQuery({ name: 'to', required: false })
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Scheduled training sessions' })
   listSessions(
     @Query('status') status?: string,
     @Query('from') from?: string,
@@ -86,28 +83,45 @@ export class TrainingController {
   }
 
   @Post('sessions')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
+  @Roles('ADMIN', 'HR_MANAGER')
   @ApiOperation({ summary: 'Schedule a session of a course' })
-  createSession(@Body() dto: CreateSessionDto) {
-    return this.training.createSession(dto);
+  createSession(@CurrentUser() user: any, @Body() dto: CreateSessionDto) {
+    return this.training.createSession(dto, user.id);
   }
 
-  // ── Nominations ────────────────────────────────────────────────────────────
+  // ── Appraisal-derived needs (the differentiator) ──────────────────────────
+
+  @Get('needs/from-run/:runId')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary:
+      'Derive training needs from a completed AI appraisal run. Returns suggestions a human confirms — it never nominates anyone.',
+  })
+  needsFromRun(
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @Query('all') all?: string,
+  ) {
+    return this.needs.deriveFromRun(runId, {
+      // Default narrows to COACH/PIP — the results that actually signal a need.
+      onlyDevelopmentRecommendations: all !== 'true',
+    });
+  }
+
+  // ── Nominations ───────────────────────────────────────────────────────────
 
   @Get('my-training')
-  @ApiOperation({ summary: "The caller's own training record" })
-  myTraining(@CurrentUser() user: Principal) {
-    if (!user?.employeeId) return [];
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: "The current user's own training record" })
+  myTraining(@CurrentUser() user: any) {
+    if (!user?.employeeId) return { success: true, data: [] };
     return this.training.findByEmployee(user.employeeId);
   }
 
   @Get('nominations')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Nominations, narrowed to a manager’s departments' })
-  @ApiQuery({ name: 'sessionId', required: false })
-  @ApiQuery({ name: 'status', required: false })
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER')
+  @ApiOperation({ summary: 'List nominations' })
   listNominations(
-    @CurrentUser() user: Principal,
+    @CurrentUser() user: any,
     @Query('sessionId') sessionId?: string,
     @Query('status') status?: string,
   ) {
@@ -115,16 +129,20 @@ export class TrainingController {
   }
 
   @Post('nominations')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Nominate an employee for a session' })
-  nominate(@CurrentUser() user: Principal, @Body() dto: NominateDto) {
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER')
+  @ApiOperation({
+    summary:
+      'Nominate an employee. Pass source=APPRAISAL + appraisalResultId to keep the provenance of an appraisal-derived need.',
+  })
+  nominate(@CurrentUser() user: any, @Body() dto: NominateDto) {
     return this.training.nominate(dto, user);
   }
 
   @Post('nominations/:id/approve')
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
   @ApiOperation({ summary: 'Approve a nomination' })
   approve(
-    @CurrentUser() user: Principal,
+    @CurrentUser() user: any,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: DecideNominationDto,
   ) {
@@ -132,9 +150,10 @@ export class TrainingController {
   }
 
   @Post('nominations/:id/reject')
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
   @ApiOperation({ summary: 'Reject a nomination' })
   reject(
-    @CurrentUser() user: Principal,
+    @CurrentUser() user: any,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: DecideNominationDto,
   ) {
@@ -142,14 +161,13 @@ export class TrainingController {
   }
 
   @Post('nominations/:id/attendance')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
+  @Roles('ADMIN', 'HR_MANAGER')
   @ApiOperation({
-    summary: 'Record attendance, score and certificate',
-    description:
-      'The certificate expiry is derived from the course validity window and the attendance date.',
+    summary:
+      'Record attendance, score and certificate. Certificate expiry is derived from the course validity window and feeds the reminder engine.',
   })
   recordAttendance(
-    @CurrentUser() user: Principal,
+    @CurrentUser() user: any,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RecordAttendanceDto,
   ) {
@@ -157,11 +175,9 @@ export class TrainingController {
   }
 
   @Delete('nominations/:id')
-  @ApiOperation({ summary: 'Cancel a nomination' })
-  cancel(
-    @CurrentUser() user: Principal,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Cancel a nomination and withdraw any claim it raised' })
+  cancel(@CurrentUser() user: any, @Param('id', ParseUUIDPipe) id: string) {
     return this.training.cancelNomination(id, user);
   }
 }

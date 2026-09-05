@@ -10,18 +10,19 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { AssetStatus } from '@prisma/client';
+import { ASSET_STATUSES } from '../assets.service';
 
 export class CreateAssetDto {
   @ApiProperty({
     example: 'LT-0042',
     description:
-      'Asset tag. Unique WITHIN the branch — another branch may register the same tag.',
+      'Asset tag. Unique WITHIN the branch (R2) — another branch may register the same tag.',
   })
   @IsString()
   @MaxLength(50)
   assetTag: string;
 
-  @ApiProperty({ description: 'An ASSET_CATEGORY library label' })
+  @ApiProperty({ description: 'LibraryItem ASSET_CATEGORY label' })
   @IsString()
   @MaxLength(100)
   category: string;
@@ -37,11 +38,14 @@ export class CreateAssetDto {
   @MaxLength(150)
   serialNumber?: string;
 
-  @ApiProperty({ description: 'The branch that owns the asset' })
+  @ApiProperty({ description: 'Branch that owns the asset' })
   @IsUUID()
   branchId: string;
 
-  @ApiPropertyOptional({ enum: AssetStatus, default: AssetStatus.AVAILABLE })
+  // R15 — `AssetStatus` is a real PG enum now, so this is a second line of
+  // defence with a better message rather than the only thing standing between
+  // free text and the column.
+  @ApiPropertyOptional({ enum: ASSET_STATUSES, default: 'AVAILABLE' })
   @IsOptional()
   @IsEnum(AssetStatus)
   status?: AssetStatus;
@@ -51,9 +55,7 @@ export class CreateAssetDto {
   @IsDateString()
   purchaseDate?: string;
 
-  @ApiPropertyOptional({
-    description: 'Money is thousandths here, never hundredths',
-  })
+  @ApiPropertyOptional()
   @IsOptional()
   @IsNumber()
   @Min(0)

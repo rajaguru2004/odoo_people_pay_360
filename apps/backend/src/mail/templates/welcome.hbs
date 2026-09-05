@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f4;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+
+          <!-- Company Header -->
+          <tr>
+            <td style="background-color: #ffffff; padding: 28px 32px 24px; text-align: center; border-bottom: 2px solid #e5e7eb;">
+              {{#if companyLogoUrl}}
+                <img src="{{companyLogoUrl}}" alt="{{#if companyName}}{{companyName}}{{else}}ESS Portal{{/if}}" style="max-height: 52px; width: auto; display: block; margin: 0 auto;" />
+              {{else}}
+                <p style="margin: 0; font-size: 20px; font-weight: 700; color: #111827;">{{#if companyName}}{{companyName}}{{else}}ESS Portal{{/if}}</p>
+              {{/if}}
+            </td>
+          </tr>
+
+          <!-- Title Banner -->
+          <tr>
+            <td style="background-color: #1e40af; padding: 28px 32px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.2px;">Welcome to the Team</h1>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding: 36px 32px;">
+              <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">Dear <strong>{{employeeName}}</strong>,</p>
+
+              <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+                On behalf of the entire team, we are pleased to welcome you to {{#if companyName}}{{companyName}}{{else}}the company{{/if}}. We look forward to working with you and are confident you will make a valuable contribution.
+              </p>
+
+              <!-- Employee Details -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px;">
+                <tr>
+                  <td style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px;">
+                    <p style="color: #111827; font-size: 14px; font-weight: 600; margin: 0 0 14px; text-transform: uppercase; letter-spacing: 0.5px;">Your Employment Details</p>
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="color: #6b7280; font-size: 14px; padding: 5px 0; width: 40%;">Employee Code</td>
+                        <td style="color: #111827; font-size: 14px; padding: 5px 0; font-weight: 600;">{{employeeCode}}</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #6b7280; font-size: 14px; padding: 5px 0;">Position</td>
+                        <td style="color: #111827; font-size: 14px; padding: 5px 0; font-weight: 600;">{{position}}</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #6b7280; font-size: 14px; padding: 5px 0;">Department</td>
+                        <td style="color: #111827; font-size: 14px; padding: 5px 0; font-weight: 600;">{{department}}</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #6b7280; font-size: 14px; padding: 5px 0;">Start Date</td>
+                        <td style="color: #111827; font-size: 14px; padding: 5px 0; font-weight: 600;">{{startDate}}</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #6b7280; font-size: 14px; padding: 5px 0;">Company Email</td>
+                        <td style="color: #111827; font-size: 14px; padding: 5px 0; font-weight: 600;">{{email}}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              {{#if temporaryPassword}}
+              <!-- Login Credentials -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px;">
+                <tr>
+                  <td style="background-color: #fefce8; border: 1px solid #fef08a; border-radius: 6px; padding: 20px;">
+                    <p style="color: #111827; font-size: 14px; font-weight: 600; margin: 0 0 14px; text-transform: uppercase; letter-spacing: 0.5px;">System Login Credentials</p>
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="color: #6b7280; font-size: 14px; padding: 5px 0; width: 40%;">Email</td>
+                        <td style="color: #111827; font-size: 14px; padding: 5px 0; font-weight: 600;">{{email}}</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #6b7280; font-size: 14px; padding: 5px 0;">Temporary Password</td>
+                        <td style="color: #111827; font-size: 14px; padding: 5px 0; font-weight: 600;">{{temporaryPassword}}</td>
+                      </tr>
+                    </table>
+                    <p style="color: #b45309; font-size: 13px; margin: 14px 0 0; font-weight: 600;">
+                      Important: You are required to change your password immediately upon your first login.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              {{/if}}
+
+              <!-- First Day Checklist -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px;">
+                <tr>
+                  <td style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px;">
+                    <p style="color: #111827; font-size: 14px; font-weight: 600; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.5px;">First Day Checklist</p>
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="color: #374151; font-size: 14px; padding: 4px 0; vertical-align: top; width: 20px;">1.</td>
+                        <td style="color: #374151; font-size: 14px; padding: 4px 0;">Log in to the HR management system</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #374151; font-size: 14px; padding: 4px 0; vertical-align: top;">2.</td>
+                        <td style="color: #374151; font-size: 14px; padding: 4px 0;">Complete your employee profile</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #374151; font-size: 14px; padding: 4px 0; vertical-align: top;">3.</td>
+                        <td style="color: #374151; font-size: 14px; padding: 4px 0;">Review the company policies and handbook</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #374151; font-size: 14px; padding: 4px 0; vertical-align: top;">4.</td>
+                        <td style="color: #374151; font-size: 14px; padding: 4px 0;">Introduce yourself to your team and direct manager</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="color: #374151; font-size: 14px; line-height: 1.6; margin: 0 0 6px;">Should you have any questions, please do not hesitate to contact the HR department.</p>
+
+              <p style="color: #374151; font-size: 14px; line-height: 1.6; margin: 24px 0 0;">Sincerely,<br><strong>Human Resources Department</strong></p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8f9fa; padding: 24px 32px; text-align: center; border-top: 1px solid #e5e7eb;">
+              <p style="color: #6b7280; font-size: 13px; line-height: 1.5; margin: 0 0 6px;">
+                &copy; 2026 {{#if companyName}}{{companyName}}{{else}}ESS Portal{{/if}}. All rights reserved.
+              </p>
+              <p style="color: #9ca3af; font-size: 12px; line-height: 1.5; margin: 0;">
+                This is an automated notification. Please do not reply to this email.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

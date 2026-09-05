@@ -2,26 +2,36 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { join } from 'path';
-import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
-import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { join } from 'path';
+import { json, urlencoded } from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
   });
 
-  app.use(json({ limit: '1mb' }));
+  app.use(
+    json({
+      limit: '1mb',
+      // Keep the exact bytes for signature verification. Discord signs the raw
+      // payload with Ed25519, so a re-serialised `JSON.stringify(req.body)`
+      // will not verify — key order and whitespace both matter. Attached only
+      // for the routes that need it, so no other handler pays the memory.
+      verify: (req: any, _res, buf) => {
+        if (req.url?.startsWith('/discord/')) req.rawBody = Buffer.from(buf);
+      },
+    }),
+  );
   app.use(urlencoded({ extended: true, limit: '1mb' }));
 
-  // Static files from the uploads directory.
-  app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
+  // Serve static files from uploads directory
+  app.useStaticAssets(join(process.cwd(), 'uploads'), {
+    prefix: '/uploads/',
+  });
 
-  // Global pipes. `forbidNonWhitelisted` turns an unexpected field into a 400
-  // instead of silently dropping it — a renamed DTO property then fails loudly
-  // at the boundary rather than writing a row with the old value missing.
+  // Global pipes
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -30,25 +40,19 @@ async function bootstrap() {
     }),
   );
 
-  // Every successful response leaves as { success, data, message } and every
-  // failure as { success: false, statusCode, message, ... }. One shape, so the
-  // frontend's axios interceptor has exactly one contract to unwrap.
-  app.useGlobalInterceptors(new TransformInterceptor());
+  // Global filters
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  // CORS. A comma-separated allow-list, or `true` (reflect any origin) when
-  // CORS_ORIGIN is unset — which is the local-dev case only.
-  const origins = process.env.CORS_ORIGIN?.split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
+  // CORS (accept all origins dynamically to avoid CORS issues)
   app.enableCors({
-    origin: origins?.length ? origins : true,
+    origin: true,
     credentials: true,
   });
 
+  // Swagger API Documentation
   const config = new DocumentBuilder()
-    .setTitle('People Pay 360 API')
-    .setDescription('HR and payroll platform API')
+    .setTitle('HR Management System API')
+    .setDescription('API documentation for HR Management System')
     .setVersion('1.0')
     .addBearerAuth(
       {
@@ -61,59 +65,22 @@ async function bootstrap() {
       },
       'JWT-auth',
     )
-    .addTag('Health', 'Liveness and readiness')
     .addTag('Auth', 'Authentication endpoints')
     .addTag('Users', 'User management')
-    .addTag('Employees', 'Employee management')
-    .addTag('Employee Profile', 'The record as its own owner maintains it')
     .addTag('Departments', 'Department management')
-    .addTag('Branches', 'Branch, working calendar and geofence setup')
-    .addTag('Organization', 'Organisation hub aggregates')
-    .addTag('Teams', 'Working teams and their rosters')
-    .addTag('Contracts', 'Employment contracts and terminations')
-    .addTag('Legal Documents', 'Visas, labour cards and their expiry')
-    .addTag('Attendance', 'Punches, records and the Time & Attendance hub')
-    .addTag('Attendance Corrections', 'Requests to amend a recorded punch')
-    .addTag(
-      'Work Schedules',
-      'Rostered shifts that deviate from the branch calendar',
-    )
-    .addTag('Holidays', 'Company-wide and branch-specific non-working days')
-    .addTag('Face Enrolments', 'Face templates registered for recognition')
-    .addTag(
-      'Payroll',
-      'Salary components and structures, payroll runs, payslips, the payroll hub and its reports',
-    )
-    .addTag(
-      'Approval Workflows',
-      'Configurable approval chains, the approver inbox and its history',
-    )
-    .addTag('Leave Requests', 'Applying for leave and deciding it')
-    .addTag('Leave Balances', 'Entitlement, allocation and what has been taken')
-    .addTag('Leave Attachments', 'Certificates filed against a leave request')
-    .addTag(
-      'Overtime',
-      'Overtime requests, tier splitting and approver corrections',
-    )
-    .addTag(
-      'Overtime Policies',
-      'Overtime rate cards and the policy inheritance chain',
-    )
-    .addTag('Employee Profile', 'The employee’s own record and self-service')
-    .addTag('System Settings', 'Branding and platform configuration')
-    .addTag('Calendar', 'The employee’s own work calendar')
-    .addTag('Supervisors', 'The supervisor link behind My Team')
-    .addTag('Document Vault', 'Everything an employee holds, in one place')
-    .addTag('Letters', 'Letter templates, requests and issued documents')
-    .addTag('Assets', 'The asset register, custody and offboarding clearance')
-    .addTag('Training', 'Courses, sessions and nominations')
-    .addTag('Grievances', 'Employee concerns and how they are handled')
-    .addTag('Library Items', 'Admin-editable pick lists')
+    .addTag('Employees', 'Employee management')
+    .addTag('Contracts', 'Contract management')
+    .addTag('Attendances', 'Attendance tracking')
+    .addTag('Leave Requests', 'Leave request management')
+    .addTag('Payrolls', 'Payroll management')
+    .addTag('Rewards', 'Reward management')
+    .addTag('Disciplines', 'Discipline management')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document, {
-    customSiteTitle: 'People Pay 360 API Docs',
+    customSiteTitle: 'HR Management API Docs',
+    customfavIcon: 'https://nestjs.com/img/logo-small.svg',
     customCss: '.swagger-ui .topbar { display: none }',
     swaggerOptions: {
       persistAuthorization: true,
@@ -123,9 +90,9 @@ async function bootstrap() {
     },
   });
 
-  const port = process.env.PORT || 3011;
+  const port = process.env.PORT || 3001;
   await app.listen(port);
   console.log(`🚀 Server running on http://localhost:${port}`);
   console.log(`📚 API Docs available at http://localhost:${port}/api/docs`);
 }
-void bootstrap();
+bootstrap();

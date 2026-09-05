@@ -1,15 +1,15 @@
-import {
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { join } from 'path';
-import { PayrollRunStatus, UserRole } from '@prisma/client';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import type { Principal } from '../auth/auth.service';
+import { StorageService } from '../storage/storage.service';
+import { assertInBranch } from '../common/branch/branch-scope.util';
 
 export type VaultKind =
-  'PERSONAL' | 'LETTER' | 'LEGAL' | 'CONTRACT' | 'PAYSLIP' | 'CERTIFICATE';
+  | 'PERSONAL'
+  | 'LETTER'
+  | 'LEGAL'
+  | 'CONTRACT'
+  | 'PAYSLIP'
+  | 'CERTIFICATE';
 
 export interface VaultItem {
   id: string;
@@ -18,132 +18,116 @@ export interface VaultItem {
   category: string;
   issueDate: string | null;
   expiryDate: string | null;
-  /** Days until it lapses; negative once it has. Null when it never expires. */
+  /** Days until expiry; negative once lapsed. Null when it never expires. */
   daysUntilExpiry: number | null;
-  /** A URL anyone may open, or null when the file needs the download route. */
+  /** Public URL, or null when the file is private and needs the download route. */
   fileUrl: string | null;
-  /** The authenticated route: /secure-files/{secureKind}/{secureId}. */
+  /** Route to fetch a private file: /secure-files/{kind}/{id}. */
   secureKind: string | null;
   secureId: string | null;
   source: string;
 }
 
-/** The two roles entitled to read somebody else's vault. */
-const HR_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.HR_MANAGER];
-
-/** How far ahead the vault calls a document "expiring soon". */
-const EXPIRY_HORIZON_DAYS = 90;
-
-/** A payroll run that has not been approved is still being edited. */
-const ISSUED_RUN_STATUSES: PayrollRunStatus[] = [
-  PayrollRunStatus.APPROVED,
-  PayrollRunStatus.PAID,
-];
-
-/** Mirrors the letters store — see the note there on why it is not `uploads/`. */
-const PRIVATE_STORE = join(process.cwd(), 'storage');
-
 /**
  * One screen for everything an employee holds.
  *
- * Deliberately no new table. Personal uploads, generated letters, visa records,
- * contracts, payslips and training certificates already exist and are already
- * the source of truth for what they say; a vault table would be a sixth copy
- * that could only drift. This aggregates the read paths into one shape.
+ * Deliberately no new table: personal documents, generated letters, visa records,
+ * contracts and payslips already exist and are already the source of truth. A
+ * vault table would be a fifth copy that could only drift. This aggregates the
+ * four read paths into one shape.
  */
 @Injectable()
 export class DocumentVaultService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+  ) {}
 
-  private daysUntil(value: Date | null | undefined): number | null {
-    if (!value) return null;
+  private daysUntil(d: Date | null): number | null {
+    if (!d) return null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return Math.ceil(
-      (new Date(value).getTime() - today.getTime()) / 86_400_000,
-    );
+    return Math.ceil((new Date(d).getTime() - today.getTime()) / 86_400_000);
   }
 
   /**
-   * An employee reads their own vault; HR reads anyone's.
-   *
-   * A MANAGER is deliberately NOT given departmental access: a vault holds
-   * salary certificates and passport scans, which a line manager has no
-   * business reading about the people who report to them.
+   * An employee reads their own vault; HR reads anyone's. A MANAGER is
+   * deliberately NOT given departmental access — a vault holds salary
+   * certificates and passport scans, which a line manager has no business
+   * reading.
    */
-  private assertMayRead(employeeId: string, user: Principal) {
+  private assertMayRead(employeeId: string, user: any) {
     if (employeeId === user?.employeeId) return;
-    if (HR_ROLES.includes(user?.role)) return;
+    if (['ADMIN', 'HR_MANAGER'].includes(user?.role)) return;
     throw new ForbiddenException('You can only view your own documents');
   }
 
-  async forEmployee(employeeId: string, user: Principal) {
+  async forEmployee(employeeId: string, user: any) {
     this.assertMayRead(employeeId, user);
 
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { id: true },
+      select: { id: true, branchId: true },
     });
     if (!employee) throw new NotFoundException('Employee not found');
 
-    const [documents, legalDocuments, contracts, payslips, certificates] =
-      await Promise.all([
-        this.prisma.employeeDocument.findMany({
-          where: { employeeId },
-          orderBy: { uploadedAt: 'desc' },
-        }),
-        this.prisma.employeeLegalDocument.findMany({
-          where: { employeeId },
-          orderBy: { expiryDate: 'desc' },
-        }),
-        this.prisma.contract.findMany({
-          where: { employeeId },
-          select: {
-            id: true,
-            contractNumber: true,
-            contractType: true,
-            startDate: true,
-            endDate: true,
-            status: true,
-          },
-          orderBy: { startDate: 'desc' },
-        }),
-        this.prisma.payslip.findMany({
-          where: { employeeId },
-          select: {
-            id: true,
-            payrollRun: {
-              select: { periodStart: true, periodEnd: true, status: true },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 24,
-        }),
-        this.prisma.trainingNomination.findMany({
-          where: {
-            employeeId,
-            status: 'ATTENDED',
-            certificateUrl: { not: null },
-          },
-          include: {
-            session: { select: { course: { select: { title: true } } } },
-          },
-        }),
-      ]);
+    // Your own vault is yours whatever branch you happen to be LOOKING at.
+    //
+    // The branch selector is a view filter over company data, not a statement
+    // about who you are — so applying it here meant an admin whose own record
+    // sits in Head Office got a 404 on /document-vault/me the moment they
+    // switched the picker to another branch. Their payslips and passport scans
+    // simply vanished, with no explanation, on a screen called "My Documents".
+    //
+    // Reading SOMEONE ELSE's vault stays branch-scoped: that is company data,
+    // and `assertMayRead` above has already restricted it to ADMIN/HR.
+    const isSelf = employeeId === user?.employeeId;
+    if (!isSelf) assertInBranch(employee.branchId);
+
+    const [documents, legalDocs, contracts, payslips] = await Promise.all([
+      this.prisma.employeeDocument.findMany({
+        where: { employeeId },
+        orderBy: { uploadedAt: 'desc' },
+      }),
+      this.prisma.employeeLegalDocument.findMany({
+        where: { employeeId },
+        orderBy: { expiryDate: 'desc' },
+      }),
+      this.prisma.contract.findMany({
+        where: { employeeId },
+        select: {
+          id: true,
+          contractNumber: true,
+          contractType: true,
+          startDate: true,
+          endDate: true,
+          status: true,
+        },
+        orderBy: { startDate: 'desc' },
+      }),
+      this.prisma.payrollItem.findMany({
+        where: { employeeId },
+        select: {
+          id: true,
+          payroll: { select: { month: true, year: true, status: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 24,
+      }),
+    ]);
 
     const items: VaultItem[] = [];
 
     for (const doc of documents) {
-      // The presence of a private reference is what makes a file private: it is
-      // written by the letter issuer and by anything else that must not be
-      // readable by link alone.
-      const isPrivate = Boolean(doc.privateRef);
+      // AVATAR is a profile picture, not a document.
+      if (doc.documentType === 'AVATAR') continue;
+      const isPrivate = StorageService.isPrivateRef(doc.privateRef ?? doc.fileUrl);
       items.push({
         id: doc.id,
         kind: doc.isSystemGenerated ? 'LETTER' : 'PERSONAL',
         title: doc.fileName,
         category: doc.documentType,
-        issueDate: (doc.issueDate ?? doc.uploadedAt).toISOString(),
+        issueDate: doc.issueDate?.toISOString() ?? doc.uploadedAt.toISOString(),
         expiryDate: doc.expiryDate?.toISOString() ?? null,
         daysUntilExpiry: this.daysUntil(doc.expiryDate),
         fileUrl: isPrivate ? null : doc.fileUrl,
@@ -153,16 +137,16 @@ export class DocumentVaultService {
       });
     }
 
-    for (const doc of legalDocuments) {
+    for (const doc of legalDocs) {
       items.push({
         id: doc.id,
         kind: 'LEGAL',
-        title: `${doc.documentType ?? doc.category} — ${doc.documentNumber}`,
+        title: `${doc.documentType} — ${doc.documentNumber}`,
         category: doc.category,
-        issueDate: doc.issueDate.toISOString(),
+        issueDate: doc.issueDate?.toISOString() ?? null,
         expiryDate: doc.expiryDate.toISOString(),
         daysUntilExpiry: this.daysUntil(doc.expiryDate),
-        fileUrl: doc.documentUrl,
+        fileUrl: null,
         secureKind: null,
         secureId: null,
         source: `Visa / legal (${doc.status})`,
@@ -174,8 +158,8 @@ export class DocumentVaultService {
         id: contract.id,
         kind: 'CONTRACT',
         title: `Contract ${contract.contractNumber}`,
-        category: contract.contractType,
-        issueDate: contract.startDate.toISOString(),
+        category: contract.contractType ?? 'Contract',
+        issueDate: contract.startDate?.toISOString() ?? null,
         expiryDate: contract.endDate?.toISOString() ?? null,
         daysUntilExpiry: this.daysUntil(contract.endDate),
         fileUrl: null,
@@ -185,15 +169,17 @@ export class DocumentVaultService {
       });
     }
 
-    for (const payslip of payslips) {
-      if (!ISSUED_RUN_STATUSES.includes(payslip.payrollRun.status)) continue;
-      const period = payslip.payrollRun.periodStart.toISOString().slice(0, 7);
+    for (const item of payslips) {
+      // Only a locked run is a real payslip; a draft is still being edited.
+      if (item.payroll?.status !== 'LOCKED') continue;
       items.push({
-        id: payslip.id,
+        id: item.id,
         kind: 'PAYSLIP',
-        title: `Payslip ${period}`,
+        title: `Payslip ${String(item.payroll.month).padStart(2, '0')}/${item.payroll.year}`,
         category: 'Payslip',
-        issueDate: payslip.payrollRun.periodStart.toISOString(),
+        issueDate: new Date(
+          Date.UTC(item.payroll.year, item.payroll.month - 1, 1),
+        ).toISOString(),
         expiryDate: null,
         daysUntilExpiry: null,
         fileUrl: null,
@@ -203,16 +189,21 @@ export class DocumentVaultService {
       });
     }
 
-    for (const certificate of certificates) {
+    // Certificates the employee earned, which live on the nomination.
+    const certificates = await this.prisma.trainingNomination.findMany({
+      where: { employeeId, status: 'ATTENDED', certificateUrl: { not: null } },
+      include: { session: { select: { course: { select: { title: true } } } } },
+    });
+    for (const cert of certificates) {
       items.push({
-        id: certificate.id,
+        id: cert.id,
         kind: 'CERTIFICATE',
-        title: `Certificate — ${certificate.session.course.title}`,
+        title: `Certificate — ${cert.session.course.title}`,
         category: 'Training certificate',
-        issueDate: certificate.attendedAt?.toISOString() ?? null,
-        expiryDate: certificate.certificateExpiry?.toISOString() ?? null,
-        daysUntilExpiry: this.daysUntil(certificate.certificateExpiry),
-        fileUrl: certificate.certificateUrl,
+        issueDate: cert.attendedAt?.toISOString() ?? null,
+        expiryDate: cert.certificateExpiry?.toISOString() ?? null,
+        daysUntilExpiry: this.daysUntil(cert.certificateExpiry),
+        fileUrl: cert.certificateUrl,
         secureKind: null,
         secureId: null,
         source: 'Training',
@@ -222,49 +213,42 @@ export class DocumentVaultService {
     items.sort((a, b) => (b.issueDate ?? '').localeCompare(a.issueDate ?? ''));
 
     const expiringSoon = items.filter(
-      (item) =>
-        item.daysUntilExpiry !== null &&
-        item.daysUntilExpiry >= 0 &&
-        item.daysUntilExpiry <= EXPIRY_HORIZON_DAYS,
-    ).length;
+      (i) => i.daysUntilExpiry !== null && i.daysUntilExpiry >= 0 && i.daysUntilExpiry <= 90,
+    );
     const expired = items.filter(
-      (item) => item.daysUntilExpiry !== null && item.daysUntilExpiry < 0,
-    ).length;
+      (i) => i.daysUntilExpiry !== null && i.daysUntilExpiry < 0,
+    );
 
     return {
-      items,
-      summary: {
-        total: items.length,
-        byKind: items.reduce<Record<string, number>>((acc, item) => {
-          acc[item.kind] = (acc[item.kind] ?? 0) + 1;
-          return acc;
-        }, {}),
-        expiringSoon,
-        expired,
+      success: true,
+      data: {
+        items,
+        summary: {
+          total: items.length,
+          byKind: items.reduce<Record<string, number>>((acc, i) => {
+            acc[i.kind] = (acc[i.kind] ?? 0) + 1;
+            return acc;
+          }, {}),
+          expiringSoon: expiringSoon.length,
+          expired: expired.length,
+        },
       },
     };
   }
 
-  /** Resolve a private employee document for the authenticated download route. */
-  async fileFor(documentId: string, user: Principal) {
+  /** Resolve a private employee document for the secure-download route. */
+  async fileFor(documentId: string, user: any) {
     const doc = await this.prisma.employeeDocument.findUnique({
       where: { id: documentId },
-      select: {
-        id: true,
-        employeeId: true,
-        fileName: true,
-        mimeType: true,
-        privateRef: true,
-      },
+      include: { employee: { select: { id: true, branchId: true } } },
     });
-    if (!doc?.privateRef) return null;
+    if (!doc) return null;
+    assertInBranch(doc.employee.branchId);
     this.assertMayRead(doc.employeeId, user);
 
-    return {
-      ref: doc.privateRef,
-      absolutePath: join(PRIVATE_STORE, doc.privateRef),
-      fileName: doc.fileName,
-      mimeType: doc.mimeType ?? 'application/octet-stream',
-    };
+    const ref = doc.privateRef ?? doc.fileUrl;
+    if (!StorageService.isPrivateRef(ref)) return null;
+
+    return { ref, fileName: doc.fileName, ownerEmployeeId: doc.employeeId };
   }
 }

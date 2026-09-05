@@ -5,76 +5,97 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AssetStatus, Prisma, UserRole } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { withFullName } from '../common/utils/employee-name.util';
+import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { assertInBranch } from '../common/branch/branch-scope.util';
+import { getBranchContext } from '../common/branch/branch-context';
+import { isDeptInManagerScope } from '../common/services/manager-scope.util';
 import { AssetsService } from './assets.service';
 import { AssignAssetDto } from './dto/assign-asset.dto';
 import { ReturnAssetDto } from './dto/return-asset.dto';
 import { AcknowledgeAssetDto } from './dto/acknowledge-asset.dto';
-import type { Principal } from '../auth/auth.service';
-
-const ASSET_CARD = {
-  id: true,
-  assetTag: true,
-  name: true,
-  category: true,
-  serialNumber: true,
-  warrantyExpiry: true,
-} satisfies Prisma.AssetItemSelect;
 
 @Injectable()
 export class AssetAssignmentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /**
-   * Write a custody action so it is discoverable from BOTH ends.
+   * R25 — write a custody action so it is discoverable from BOTH ends.
    *
-   * Two rows, not one: an auditor filtering by `AssetItem` — the only entity the
-   * asset screens name — would otherwise see the register's lifecycle (created,
-   * updated, deleted) and none of the custody, because that half was filed under
-   * the assignment's own id. Both rows carry both ids, so either one is enough
-   * to pivot to the other end without a join.
+   * The controller is `@AuditResource('AssetItem')`, but `ASSET_ASSIGNED` /
+   * `ASSET_RETURNED` / `ASSET_ACKNOWLEDGED` were filed under
+   * `resourceType: 'AssetAssignment'` with the ASSIGNMENT id, so zero rows
+   * existed under the asset's own id. An auditor filtering the audit UI by
+   * `AssetItem` — the only resource type the asset screens know about — saw the
+   * register's lifecycle (created / updated / deleted) but not who was handed
+   * what: the trail split in two and the asset half lost the custody half.
+   *
+   * `AuditService.log()` writes one flat `audit_logs` row and has no notion of
+   * a secondary key, so of the two options — a second row, or the assetId
+   * folded into the payload — this does BOTH, deliberately:
+   *
+   *   - a MIRROR row under `resourceType: 'AssetItem'` / `resourceId: assetId`,
+   *     so the existing `resourceType` + `resourceId` filters (the only ones
+   *     `AuditService.findAll` offers) reach it with no UI change; and
+   *   - `assetId` + `assignmentId` in `newData` on both rows, so either row
+   *     alone is enough to pivot to the other end without a join.
+   *
+   * The original `AssetAssignment` row is kept as-is: it is what the assignment
+   * screens and the existing specs read.
    */
+  /** `assertInBranch` as a predicate, for doors with two branch-bearing ends. */
+  private isInBranchScope(branchId: string | null | undefined): boolean {
+    try {
+      assertInBranch(branchId);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private async logCustody(entry: {
     userId?: string;
     action: string;
     assignmentId: string;
     assetId: string;
-    metadata: Prisma.JsonObject;
-  }) {
-    const metadata: Prisma.JsonObject = {
-      ...entry.metadata,
+    newData: Record<string, unknown>;
+  }): Promise<void> {
+    const branchId = getBranchContext()?.effectiveBranchId ?? null;
+    const newData = {
+      ...entry.newData,
       assetId: entry.assetId,
       assignmentId: entry.assignmentId,
     };
-    await this.prisma.auditLog.createMany({
-      data: [
-        {
-          userId: entry.userId ?? null,
-          action: entry.action,
-          entityType: 'AssetAssignment',
-          entityId: entry.assignmentId,
-          metadata,
-        },
-        {
-          userId: entry.userId ?? null,
-          action: entry.action,
-          entityType: 'AssetItem',
-          entityId: entry.assetId,
-          metadata,
-        },
-      ],
+    await this.audit.log({
+      userId: entry.userId,
+      action: entry.action,
+      resourceType: 'AssetAssignment',
+      resourceId: entry.assignmentId,
+      newData,
+      branchId,
+    });
+    await this.audit.log({
+      userId: entry.userId,
+      action: entry.action,
+      resourceType: 'AssetItem',
+      resourceId: entry.assetId,
+      newData,
+      branchId,
     });
   }
 
   /**
    * Hand an asset to an employee.
    *
-   * The custody row and the status flip are one transaction, and the flip is a
-   * compare-and-set on AVAILABLE: an asset marked ASSIGNED with no open
-   * assignment would be invisible to clearance, and an open assignment on an
-   * AVAILABLE asset would let the same laptop be handed out twice.
+   * Status flip and assignment row are one transaction: an asset marked
+   * ASSIGNED with no open assignment would be invisible to clearance, and an
+   * open assignment on an AVAILABLE asset would let it be handed out twice.
    */
   async assign(dto: AssignAssetDto, userId: string) {
     const [asset, employee] = await Promise.all([
@@ -86,28 +107,41 @@ export class AssetAssignmentsService {
           name: true,
           branchId: true,
           status: true,
-          branch: { select: { code: true, name: true } },
+          branch: { select: { id: true, code: true, name: true } },
         },
       }),
       this.prisma.employee.findUnique({
         where: { id: dto.employeeId },
         select: {
           id: true,
-          firstName: true,
-          lastName: true,
+          fullName: true,
           status: true,
           branchId: true,
-          branch: { select: { code: true, name: true } },
+          branch: { select: { id: true, code: true, name: true } },
+          user: { select: { id: true } },
         },
       }),
     ]);
 
     if (!asset) throw new NotFoundException('Asset not found');
     if (!employee) throw new NotFoundException('Employee not found');
+    assertInBranch(asset.branchId);
+    assertInBranch(employee.branchId);
 
-    // The clearance obligation must not be able to leave the branch that owns
-    // the asset. Once the two disagree, the owning branch sees an asset marked
-    // ASSIGNED with no holder it can see, and no way to chase it back.
+    // R1 — the two `assertInBranch` calls above check each side against the
+    // CALLER's scope, never against each other, so a global ADMIN passed both
+    // and nothing compared the asset's branch with the holder's.
+    //
+    // That is not cosmetic. `AssetItem` is scoped `direct` by its own branch,
+    // while `AssetAssignment` is scoped by RELATION — the holder's branch. Once
+    // the two disagree, the custody row lives in branch B while the asset lives
+    // in branch A: branch A's HR sees an asset marked ASSIGNED with no visible
+    // holder, the open-assignments screen they use to chase items back is
+    // silent about it, and `return()` (which asserts on the HOLDER's branch)
+    // answers them 404 for their own property — R1b, the lockout.
+    //
+    // Refusing the assignment closes both: the clearance obligation cannot
+    // leave the branch that owns the asset in the first place.
     if (employee.branchId && asset.branchId !== employee.branchId) {
       const assetBranch = asset.branch
         ? `${asset.branch.name} (${asset.branch.code})`
@@ -116,67 +150,114 @@ export class AssetAssignmentsService {
         ? `${employee.branch.name} (${employee.branch.code})`
         : employee.branchId;
       throw new BadRequestException(
-        `Asset ${asset.assetTag} belongs to ${assetBranch} and cannot be assigned to somebody in ` +
-          `${employeeBranch}. Transfer the asset to that branch first, then assign it.`,
+        `Asset ${asset.assetTag} belongs to branch ${assetBranch} and cannot be assigned to ` +
+          `${employee.fullName}, who is in branch ${employeeBranch}. ` +
+          'Transfer the asset to that branch first, then assign it.',
       );
     }
 
     if (employee.status !== 'ACTIVE') {
       throw new BadRequestException(
-        `Cannot assign an asset to an employee whose status is ${employee.status}`,
+        `Cannot assign an asset to an employee with status ${employee.status}`,
       );
     }
     if (!AssetsService.isAssignable(asset.status)) {
       throw new BadRequestException(
-        `Asset ${asset.assetTag} is ${asset.status} and cannot be handed out`,
+        `Asset ${asset.assetTag} is ${asset.status} and cannot be assigned`,
       );
     }
 
-    const assignment = await this.prisma.$transaction(async (tx) => {
-      // Conditional on the status this method already read, so two concurrent
-      // hand-outs cannot both win. The loser sees zero rows updated.
-      const claimed = await tx.assetItem.updateMany({
-        where: { id: dto.assetId, status: AssetStatus.AVAILABLE },
-        data: { status: AssetStatus.ASSIGNED },
+    try {
+      const assignment = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.assetAssignment.create({
+          data: {
+            assetId: dto.assetId,
+            employeeId: dto.employeeId,
+            assignedAt: dto.assignedAt ? new Date(dto.assignedAt) : new Date(),
+            assignedById: userId,
+            conditionOut: dto.conditionOut ?? null,
+            notes: dto.notes ?? null,
+          },
+        });
+        await tx.assetItem.update({
+          where: { id: dto.assetId },
+          data: { status: 'ASSIGNED' },
+        });
+        return created;
       });
-      if (claimed.count !== 1) {
-        throw new ConflictException(
-          `Asset ${asset.assetTag} was handed to somebody else a moment ago`,
-        );
-      }
-      return tx.assetAssignment.create({
-        data: {
-          assetId: dto.assetId,
+
+      await this.logCustody({
+        userId,
+        action: 'ASSET_ASSIGNED',
+        assignmentId: assignment.id,
+        assetId: asset.id,
+        newData: {
+          assetTag: asset.assetTag,
           employeeId: dto.employeeId,
-          assignedAt: dto.assignedAt ? new Date(dto.assignedAt) : new Date(),
-          assignedById: userId,
-          conditionOut: dto.conditionOut ?? null,
-          notes: dto.notes ?? null,
+          employeeName: employee.fullName,
         },
       });
-    });
 
-    await this.logCustody({
-      userId,
-      action: 'ASSET_ASSIGNED',
-      assignmentId: assignment.id,
-      assetId: asset.id,
-      metadata: { assetTag: asset.assetTag, employeeId: dto.employeeId },
-    });
+      // Prompt the digital receipt.
+      if (employee.user?.id) {
+        await this.notifications
+          .create({
+            userId: employee.user.id,
+            title: 'Company asset assigned to you',
+            message: `${asset.name} (${asset.assetTag}) has been assigned to you. Please acknowledge receipt.`,
+            type: 'INFO' as any,
+            link: '/dashboard/my-assets',
+            waTemplate: 'asset_assigned',
+            waData: {
+              assetName: asset.name,
+              assetTag: asset.assetTag,
+              assignedAt: new Date().toISOString(),
+            },
+            waDedupeKey: `asset:${assignment.id}:assigned`,
+          })
+          .catch(() => undefined);
+      }
 
-    return assignment;
+      return { success: true, data: assignment };
+    } catch (e) {
+      // The partial unique index on (asset_id) WHERE returned_at IS NULL.
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          `Asset ${asset.assetTag} is already assigned to someone else`,
+        );
+      }
+      throw e;
+    }
   }
 
-  /** Record a return, closing the custody and freeing the asset. */
+  /** Record a return, closing the assignment and freeing the asset. */
   async return(assignmentId: string, dto: ReturnAssetDto, userId: string) {
     const assignment = await this.prisma.assetAssignment.findUnique({
       where: { id: assignmentId },
       include: {
-        asset: { select: { id: true, assetTag: true, name: true } },
-        employee: { select: { id: true, firstName: true, lastName: true } },
+        asset: { select: { id: true, assetTag: true, name: true, branchId: true } },
+        employee: { select: { id: true, fullName: true, branchId: true } },
       },
     });
     if (!assignment) throw new NotFoundException('Assignment not found');
+    // R1b — asserting on the HOLDER's branch alone locked the OWNING branch out
+    // of closing custody on its own property: after a cross-branch assign,
+    // branch A's HR got a 404 recording the return of branch A's own asset.
+    // `assign()` now refuses that pairing (R1), so the two branches agree for
+    // anything created from here on — but rows written before the guard can
+    // still disagree, and the owner must be able to close them. Either end
+    // being inside the caller's envelope is enough; 404 (not 403) when neither
+    // is, matching `assertInBranch` and the rest of the module.
+    if (
+      !this.isInBranchScope(assignment.employee.branchId) &&
+      !this.isInBranchScope(assignment.asset.branchId)
+    ) {
+      throw new NotFoundException('Assignment not found');
+    }
+
     if (assignment.returnedAt) {
       throw new BadRequestException('This assignment was already returned');
     }
@@ -184,13 +265,13 @@ export class AssetAssignmentsService {
     const returnedAt = dto.returnedAt ? new Date(dto.returnedAt) : new Date();
     if (returnedAt < assignment.assignedAt) {
       throw new BadRequestException(
-        'A return date cannot fall before the assignment date',
+        'Return date cannot be before the assignment date',
       );
     }
 
-    // Only an item that came back usable becomes AVAILABLE again. LOST and
+    // A returned item is only AVAILABLE again if it came back usable; LOST and
     // IN_REPAIR must not silently re-enter the assignable pool.
-    const nextStatus = (dto.assetStatus ?? 'AVAILABLE') as AssetStatus;
+    const nextStatus = dto.assetStatus ?? 'AVAILABLE';
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const row = await tx.assetAssignment.update({
@@ -214,44 +295,56 @@ export class AssetAssignmentsService {
       action: 'ASSET_RETURNED',
       assignmentId,
       assetId: assignment.assetId,
-      metadata: {
+      newData: {
         assetTag: assignment.asset.assetTag,
         employeeId: assignment.employeeId,
-        conditionIn: dto.conditionIn ?? null,
+        conditionIn: dto.conditionIn,
         assetStatus: nextStatus,
       },
     });
 
-    return updated;
+    return { success: true, data: updated };
   }
 
-  /** The caller's own assets, current and past. */
+  /** ESS: the caller's own assets, current and past. */
   async findByEmployee(employeeId: string, openOnly = false) {
-    return this.prisma.assetAssignment.findMany({
+    const rows = await this.prisma.assetAssignment.findMany({
       where: { employeeId, ...(openOnly ? { returnedAt: null } : {}) },
-      include: { asset: { select: ASSET_CARD } },
-      // Open items first — a leaver opens this screen to find out what is
-      // blocking their exit.
+      include: {
+        asset: {
+          select: {
+            id: true,
+            assetTag: true,
+            name: true,
+            category: true,
+            serialNumber: true,
+            warrantyExpiry: true,
+          },
+        },
+      },
       orderBy: [{ returnedAt: 'asc' }, { assignedAt: 'desc' }],
     });
+    return { success: true, data: rows };
   }
 
   /**
-   * The employee's digital receipt.
-   *
-   * Only the holder may acknowledge. An HR user confirming on their behalf
-   * would defeat the entire point of the record.
+   * The employee's digital receipt. Only the holder may acknowledge — an HR
+   * user confirming on their behalf would defeat the purpose of the record.
    */
   async acknowledge(
     assignmentId: string,
     dto: AcknowledgeAssetDto,
-    user: Principal,
+    user: any,
   ) {
     const assignment = await this.prisma.assetAssignment.findUnique({
       where: { id: assignmentId },
-      include: { asset: { select: { id: true, assetTag: true } } },
+      include: {
+        asset: { select: { id: true, assetTag: true, name: true } },
+        employee: { select: { id: true, branchId: true } },
+      },
     });
     if (!assignment) throw new NotFoundException('Assignment not found');
+    assertInBranch(assignment.employee.branchId);
 
     if (assignment.employeeId !== user?.employeeId) {
       throw new ForbiddenException(
@@ -278,77 +371,55 @@ export class AssetAssignmentsService {
       action: 'ASSET_ACKNOWLEDGED',
       assignmentId,
       assetId: assignment.assetId,
-      metadata: { assetTag: assignment.asset.assetTag },
+      newData: { assetTag: assignment.asset.assetTag, note: dto.note },
     });
 
-    return updated;
+    return { success: true, data: updated };
   }
 
-  /** Everything currently out, for the people chasing it back. */
-  async findOpen(user: Principal, employeeId?: string) {
+  /** HR/manager view of everything currently held. */
+  async findOpen(user: any, employeeId?: string) {
     const where: Prisma.AssetAssignmentWhereInput = { returnedAt: null };
     if (employeeId) where.employeeId = employeeId;
 
-    // A department head sees their own department only, matching every other
-    // manager-facing list here.
-    if (user?.role === UserRole.MANAGER) {
-      const scope = await this.managedDepartmentIds(user);
-      if (scope.length === 0) return [];
+    // A department head sees only their own departments, matching how every
+    // other manager-facing list in the app behaves.
+    if (user?.role === 'MANAGER') {
+      const deptIds = (user.managedDepartmentIds ?? []).filter(Boolean);
+      if (deptIds.length === 0) return { success: true, data: [] };
       if (employeeId) {
-        const subject = await this.prisma.employee.findUnique({
+        const emp = await this.prisma.employee.findUnique({
           where: { id: employeeId },
           select: { departmentId: true },
         });
-        if (!subject?.departmentId || !scope.includes(subject.departmentId)) {
+        if (!isDeptInManagerScope(user, emp?.departmentId ?? '')) {
           throw new ForbiddenException(
-            'You can only view assets held in your own department',
+            'You can only view assets for your own department',
           );
         }
       } else {
-        where.employee = { departmentId: { in: scope } };
+        where.employee = { departmentId: { in: deptIds } };
       }
     }
 
     const rows = await this.prisma.assetAssignment.findMany({
       where,
       include: {
-        asset: { select: ASSET_CARD },
+        asset: {
+          select: { id: true, assetTag: true, name: true, category: true },
+        },
         employee: {
           select: {
             id: true,
             employeeCode: true,
-            firstName: true,
-            lastName: true,
+            fullName: true,
             status: true,
-            department: { select: { id: true, name: true } },
+            department: { select: { name: true } },
           },
         },
       },
       orderBy: { assignedAt: 'desc' },
     });
-
-    return rows.map((row) => ({
-      ...row,
-      employee: withFullName(row.employee),
-    }));
-  }
-
-  /**
-   * The departments a manager speaks for: the ones they head, plus their own.
-   *
-   * Read from the table rather than from a claim on the token, so a
-   * reorganisation takes effect on the next request instead of the next sign-in.
-   */
-  private async managedDepartmentIds(user: Principal): Promise<string[]> {
-    const ids = new Set<string>();
-    if (user.departmentId) ids.add(user.departmentId);
-    if (user.employeeId) {
-      const headed = await this.prisma.department.findMany({
-        where: { managerId: user.employeeId },
-        select: { id: true },
-      });
-      headed.forEach((department) => ids.add(department.id));
-    }
-    return [...ids];
+    return { success: true, data: rows };
   }
 }

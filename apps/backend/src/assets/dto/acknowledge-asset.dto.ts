@@ -1,10 +1,9 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class AcknowledgeAssetDto {
-  @ApiPropertyOptional({ description: 'The holder’s own note on receipt' })
+  @ApiPropertyOptional({ description: 'Optional note from the employee' })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
   note?: string;
 }

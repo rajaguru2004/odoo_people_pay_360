@@ -1,16 +1,14 @@
 import { IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { GRIEVANCE_STATUSES } from '../grievance-visibility.util';
+import { GRIEVANCE_STATUSES } from '../grievances.service';
 
 export class UpdateGrievanceDto {
   @ApiPropertyOptional({ enum: GRIEVANCE_STATUSES })
   @IsOptional()
-  @IsIn(GRIEVANCE_STATUSES)
+  @IsIn(GRIEVANCE_STATUSES as unknown as string[])
   status?: string;
 
-  @ApiPropertyOptional({
-    description: 'User id of the handler taking the case',
-  })
+  @ApiPropertyOptional({ description: 'User id of the HR handler' })
   @IsOptional()
   @IsUUID()
   assignedToId?: string;
@@ -20,9 +18,7 @@ export class UpdateGrievanceDto {
   @IsString()
   resolution?: string;
 
-  @ApiPropertyOptional({
-    description: 'Recorded on the trail beside this change',
-  })
+  @ApiPropertyOptional({ description: 'Note recorded on the trail with this change' })
   @IsOptional()
   @IsString()
   note?: string;

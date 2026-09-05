@@ -1,12 +1,4 @@
-import {
-  IsBoolean,
-  IsInt,
-  IsNumber,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateCourseDto {
@@ -20,7 +12,7 @@ export class CreateCourseDto {
   @MaxLength(200)
   title: string;
 
-  @ApiPropertyOptional({ description: 'A COURSE_CATEGORY library label' })
+  @ApiPropertyOptional({ description: 'COURSE_CATEGORY library label' })
   @IsOptional()
   @IsString()
   @MaxLength(100)
@@ -43,9 +35,7 @@ export class CreateCourseDto {
   @Min(0)
   durationHours?: number;
 
-  @ApiPropertyOptional({
-    description: 'Falls through to a session that sets no cost',
-  })
+  @ApiPropertyOptional({ description: 'Falls through to a session that sets no cost' })
   @IsOptional()
   @IsNumber()
   @Min(0)
@@ -53,7 +43,7 @@ export class CreateCourseDto {
 
   @ApiPropertyOptional({
     description:
-      'Months a certificate stays valid. Drives the expiry the vault surfaces; omit if it never expires.',
+      'Months a certificate stays valid. Drives the certificate expiry reminder; omit if it never expires.',
   })
   @IsOptional()
   @IsInt()

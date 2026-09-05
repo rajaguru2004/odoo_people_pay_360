@@ -4,101 +4,112 @@ import {
   Delete,
   Get,
   Param,
-  ParseUUIDPipe,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
-import { SupervisorsService } from './supervisors.service';
-import {
-  AssignSupervisorDto,
-  BulkAssignSupervisorDto,
-} from './dto/assign-supervisor.dto';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { Principal } from '../auth/auth.service';
-
-/**
- * The shape the list routes answer with.
- *
- * The count travels beside the rows rather than being read off `data.length`,
- * because a supervisor's team size is printed on screens that never render the
- * list. It rides in `meta`, which the standard envelope already carries — the
- * interceptor passes through anything that already has `success` on it, so a
- * route needs no nested container of its own. A `{ count, data }` object under
- * `data` would make these the only endpoints in the system whose rows sit two
- * levels deep.
- */
-function team<T>(rows: T[]) {
-  return { success: true as const, data: rows, meta: { count: rows.length } };
-}
+import { SupervisorsService } from './supervisors.service';
+import {
+  AssignSupervisorDto,
+  BulkAssignSupervisorDto,
+  CreateSupervisorTeamDto,
+  UpdateSupervisorTeamDto,
+} from './dto/assign-supervisor.dto';
 
 @ApiTags('Supervisors')
-@ApiBearerAuth('JWT-auth')
-@Controller('supervisors')
+@ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('supervisors')
 export class SupervisorsController {
   constructor(private readonly supervisors: SupervisorsService) {}
 
-  // 'my-team' is declared before the parameterised routes so it is never
-  // swallowed as an id.
-  @Get('my-team')
-  @ApiOperation({ summary: 'Everyone the caller supervises' })
-  async myTeam(@CurrentUser() user: Principal) {
-    // A user account need not be attached to an employee record — an
-    // administrator who is not a member of staff is the ordinary reason. They
-    // supervise nobody rather than raising an error.
-    if (!user?.employeeId) return team([]);
-    return team(await this.supervisors.reports(user.employeeId));
-  }
-
   @Post('assign')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Route one employee to a supervisor' })
-  assign(@CurrentUser() user: Principal, @Body() dto: AssignSupervisorDto) {
-    return this.supervisors.assign(dto.employeeId, dto.supervisorId, user?.id);
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Assign or reassign an employee to a supervisor' })
+  assign(@CurrentUser() user: any, @Body() dto: AssignSupervisorDto) {
+    return this.supervisors.assign(dto.employeeId, dto.supervisorId, user);
   }
 
   @Post('bulk-assign')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Route several employees to one supervisor' })
-  async bulkAssign(
-    @CurrentUser() user: Principal,
-    @Body() dto: BulkAssignSupervisorDto,
-  ) {
-    return team(
-      await this.supervisors.bulkAssign(
-        dto.employeeIds,
-        dto.supervisorId,
-        user?.id,
-      ),
-    );
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Assign many employees to one supervisor' })
+  bulkAssign(@CurrentUser() user: any, @Body() dto: BulkAssignSupervisorDto) {
+    return this.supervisors.bulkAssign(dto.employeeIds, dto.supervisorId, user);
   }
 
   @Delete('assignment/:employeeId')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Detach an employee from their supervisor' })
-  unassign(
-    @CurrentUser() user: Principal,
-    @Param('employeeId', ParseUUIDPipe) employeeId: string,
-  ) {
-    return this.supervisors.unassign(employeeId, user?.id);
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Detach an employee from its supervisor' })
+  unassign(@CurrentUser() user: any, @Param('employeeId') employeeId: string) {
+    return this.supervisors.unassign(employeeId, user);
+  }
+
+  @Get('my-team')
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Employees the current user supervises' })
+  myTeam(@CurrentUser() user: any) {
+    if (!user?.employeeId) {
+      return { success: true, count: 0, data: [] };
+    }
+    return this.supervisors.reports(user.employeeId);
   }
 
   @Get('reports/:supervisorId')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Everyone a named supervisor signs for' })
-  async reports(@Param('supervisorId', ParseUUIDPipe) supervisorId: string) {
-    return team(await this.supervisors.reports(supervisorId));
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER')
+  @ApiOperation({ summary: 'List employees supervised by a supervisor' })
+  reports(@Param('supervisorId') supervisorId: string) {
+    return this.supervisors.reports(supervisorId);
   }
 
   @Get('of/:employeeId')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER)
-  @ApiOperation({ summary: "One employee's supervisor" })
-  supervisorOf(@Param('employeeId', ParseUUIDPipe) employeeId: string) {
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER')
+  @ApiOperation({ summary: "Get an employee's assigned supervisor" })
+  supervisorOf(@Param('employeeId') employeeId: string) {
     return this.supervisors.supervisorOf(employeeId);
+  }
+
+  // ── Supervisor teams (named group + supervisor + members) ──────────────
+  @Get('teams')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'List supervisor teams' })
+  listTeams() {
+    return this.supervisors.listTeams();
+  }
+
+  @Get('teams/:id')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Get a supervisor team' })
+  getTeam(@Param('id') id: string) {
+    return this.supervisors.getTeam(id);
+  }
+
+  @Post('teams')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Create a supervisor team (name + supervisor + members)' })
+  createTeam(@CurrentUser() user: any, @Body() dto: CreateSupervisorTeamDto) {
+    return this.supervisors.createTeam(dto, user);
+  }
+
+  @Patch('teams/:id')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Update a supervisor team' })
+  updateTeam(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateSupervisorTeamDto,
+  ) {
+    return this.supervisors.updateTeam(id, dto, user);
+  }
+
+  @Delete('teams/:id')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Delete a supervisor team' })
+  deleteTeam(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.supervisors.deleteTeam(id, user);
   }
 }

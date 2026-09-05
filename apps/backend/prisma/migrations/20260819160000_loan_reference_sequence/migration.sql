@@ -1,0 +1,22 @@
+-- ─── WHY ────────────────────────────────────────────────────────────────────
+--
+-- `mintReference()` numbered a loan by COUNTING existing references and adding
+-- one. Under concurrency that is not a sequence, it is a guess: fifty approvals
+-- filed at once all count the same total, all compute the same number, and
+-- forty-nine lose on the `reference_no` unique index. A bounded retry helped a
+-- pair of racing requests and could not help fifty — the retries re-count and
+-- collide again.
+--
+-- A sequence is the primitive this always needed. `nextval` is atomic, never
+-- returns the same value twice, and does not care how many callers ask at once.
+--
+-- The number no longer restarts each month. That is deliberate: a reference is
+-- an identifier, not a counter, and one that never repeats is worth more than
+-- one that starts at 0001 every January.
+--
+-- ─── R80 ────────────────────────────────────────────────────────────────────
+-- A bare SEQUENCE cannot be expressed in schema.prisma, so `prisma db push`
+-- will not create it. It is mirrored into prisma/db-push-preflight.sql and
+-- prisma/e2e-partial-indexes.sql so all three provisioning paths agree.
+
+CREATE SEQUENCE IF NOT EXISTS "loan_reference_seq" START WITH 1 INCREMENT BY 1;
