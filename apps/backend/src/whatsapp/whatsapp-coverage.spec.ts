@@ -82,8 +82,6 @@ describe('WhatsApp coverage', () => {
       ['LEAVE_REJECTED', 'leave_rejected'],
       ['OVERTIME_APPROVED', 'overtime_approved'],
       ['OVERTIME_REJECTED', 'overtime_rejected'],
-      ['TASK_ASSIGNED', 'task_assigned'],
-      ['PROJECT_MEMBER_ADDED', 'project_member_added'],
     ];
 
     it.each(DECISIONS)('%s selects %s', (type, key) => {

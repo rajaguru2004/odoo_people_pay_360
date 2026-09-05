@@ -3,7 +3,6 @@ import { TimesheetsService } from './timesheets.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
-  NotFoundException,
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
@@ -19,7 +18,6 @@ const mockPrisma = {
   },
   employee: { findUnique: jest.fn() },
   user: { findFirst: jest.fn(), findMany: jest.fn() },
-  task: { findFirst: jest.fn() },
 };
 
 const mockNotifications = { notifyUser: jest.fn() };
@@ -36,7 +34,6 @@ const managerUser = {
 const draftTs = {
   id: 'ts-1',
   employeeId: 'e1',
-  taskId: null,
   workDate: new Date('2026-06-10'),
   hoursWorked: 7.5,
   status: 'DRAFT',
@@ -65,13 +62,9 @@ describe('TimesheetsService', () => {
 
   describe('create', () => {
     it('creates draft timesheet', async () => {
-      mockPrisma.task.findFirst.mockResolvedValueOnce({ id: 'task-1' });
-      mockPrisma.timesheet.create.mockResolvedValueOnce({
-        ...draftTs,
-        taskId: 'task-1',
-      });
+      mockPrisma.timesheet.create.mockResolvedValueOnce({ ...draftTs });
       const result = await service.create(
-        { taskId: 'task-1', workDate: '2026-06-10', hoursWorked: 7.5 },
+        { workDate: '2026-06-10', hoursWorked: 7.5 },
         empUser,
       );
       expect(result.success).toBe(true);
@@ -80,28 +73,17 @@ describe('TimesheetsService', () => {
           data: expect.objectContaining({
             status: 'DRAFT',
             employeeId: 'e1',
-            taskId: 'task-1',
           }),
         }),
       );
     });
 
-    it('throws if task not found', async () => {
-      mockPrisma.task.findFirst.mockResolvedValueOnce(null);
-      await expect(
-        service.create(
-          { taskId: 'task-1', workDate: '2026-06-10', hoursWorked: 7.5 },
-          empUser,
-        ),
-      ).rejects.toThrow(NotFoundException);
-    });
-
     it('throws if no employeeId', async () => {
       await expect(
-        service.create(
-          { taskId: 'task-1', workDate: '2026-06-10', hoursWorked: 7.5 },
-          { id: 'u1', role: 'EMPLOYEE' },
-        ),
+        service.create({ workDate: '2026-06-10', hoursWorked: 7.5 }, {
+          id: 'u1',
+          role: 'EMPLOYEE',
+        }),
       ).rejects.toThrow(BadRequestException);
     });
   });

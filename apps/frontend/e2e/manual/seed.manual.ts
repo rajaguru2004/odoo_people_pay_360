@@ -678,74 +678,10 @@ test('seed one employee’s working life, for the manual to photograph', async (
   });
 
   // ── timesheet ─────────────────────────────────────────────────────────────
-  // ── project, task and timesheet ───────────────────────────────────────────
-  // A timesheet line books hours against a TASK, not a project — `taskId` is
-  // the one required UUID on the DTO. So the chain has to exist before the
-  // Projects and Timesheets chapters have anything to picture: a project the
-  // employee is a member of, a task assigned to them, then the line itself.
-  await step('project, task and a booked timesheet line', async () => {
-    const scoped = admin.withBranch(branchId);
-
-    const projects = asList<{ id: string; slug?: string; name?: string }>(
-      await scoped.get('/projects').catch(() => null),
-    );
-
-    // Rename the baseline's test projects.
-    //
-    // The e2e seed ships "E2E Baseline Project" and "E2E Baseline Private
-    // Project", and the Projects screen shows them to the subject — so the
-    // manual's Projects figure went out to an Oman client with test-harness
-    // names printed across it. Renaming is enough: nothing in this manual
-    // depends on their identifiers, only on their labels.
-    const REAL_NAMES: Record<string, { name: string; description: string }> = {
-      'E2E Baseline Project': {
-        name: 'Muscat Office Fit-out',
-        description: 'Relocation and fit-out of the Al Khuwair floor.',
-      },
-      'E2E Baseline Private Project': {
-        name: 'Employee Portal 2.0',
-        description: 'Self-service portal rework — attendance, leave and payslip screens.',
-      },
-    };
-
-    for (const project of projects) {
-      const better = REAL_NAMES[project.name ?? ''];
-      if (!better) continue;
-      await scoped.patch(`/projects/${project.id}`, better).catch(() => undefined);
-    }
-
-    let projectId = projects[0]?.id;
-
-    if (!projectId) {
-      const made = await scoped.post<{ id: string }>('/projects', {
-        name: 'Employee Portal 2.0',
-        slug: 'employee-portal-2',
-        taskPrefix: 'EP',
-        description: 'Self-service portal rework — attendance, leave and payslip screens.',
-        color: '#1D4ED8',
-      });
-      projectId = inner<{ id: string }>(made)?.id ?? (made as any)?.id;
-    }
-    if (!projectId) throw new Error('no project to hang a task on');
-
-    // Membership is what makes the project visible on the employee's own
-    // Projects screen; without it the chapter photographs an empty list.
-    await scoped
-      .post(`/projects/${projectId}/members`, { employeeId, role: 'MEMBER' })
-      .catch(() => undefined);
-
-    const made = await scoped.post<{ id: string }>('/tasks', {
-      title: 'Payslip PDF export',
-      description: 'Generate the payslip PDF server-side and stream it to the browser.',
-      priority: 'MEDIUM',
-      projectId,
-      assigneeId: employeeId,
-      estimatedHours: 16,
-      dueDate: `${day(9)}T00:00:00.000Z`,
-    });
-    const taskId = inner<{ id: string }>(made)?.id ?? (made as any)?.id;
-    if (!taskId) throw new Error('task was created but returned no id');
-
+  // A booked timesheet line, so the Timesheets chapter has hours to picture.
+  // Timesheets carry no task or project linkage — just a date, hours and a
+  // free-text description.
+  await step('a booked timesheet line', async () => {
     // Booked inside the CURRENT week, because that is the week My Timesheets
     // opens on. `/timesheets/summary/weekly` answers for the week containing
     // today, so lines a few days back — which is what "the last working days"
@@ -766,7 +702,6 @@ test('seed one employee’s working life, for the manual to photograph', async (
     ] as const) {
       await employee
         .post('/timesheets', {
-          taskId,
           workDate: inWeek(offset),
           hoursWorked: hours,
           description: what,

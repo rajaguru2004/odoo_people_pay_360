@@ -15,29 +15,22 @@ describe('appraisal scoring', () => {
         punctualityRate: 88,
         lateDays: 2,
       },
-      task_employee_stats: {
-        totalTasks: 10,
-        completionRate: 80,
-        onTimeRate: 75,
-        overdueOpenTasks: 1,
-      },
       conduct_records_get: { rewardCount: 1, disciplineCount: 0 },
     });
     expect(scores.attendance).toBe(96);
     expect(scores.punctuality).toBe(88);
-    expect(scores.taskCompletion).toBe(73); // avg(80,75) - 5 overdue penalty
     expect(scores.disciplineConsistency).toBe(81); // 80 + 5 reward - 4 late
-    expect(scores.productivity).toBeUndefined(); // no worklog/timesheet data
+    expect(scores.productivity).toBeUndefined(); // no timesheet data
   });
 
   it('blends LLM scores over the baseline with neutral fill', () => {
     const blended = blendScores(
       { attendance: 90 },
-      { attendance: 70, productivity: 120, taskCompletion: Number.NaN },
+      { attendance: 70, productivity: 120, punctuality: Number.NaN },
     );
     expect(blended.attendance).toBe(70); // LLM wins when finite
     expect(blended.productivity).toBe(100); // clamped
-    expect(blended.taskCompletion).toBe(50); // NaN → baseline missing → neutral
+    expect(blended.punctuality).toBe(50); // NaN → baseline missing → neutral
     expect(blended.teamContribution).toBe(50); // untouched dimension → neutral
   });
 

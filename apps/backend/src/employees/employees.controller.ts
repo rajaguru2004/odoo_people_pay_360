@@ -78,7 +78,7 @@ export class EmployeesController {
   @ApiOperation({
     summary: 'Lightweight employee directory',
     description:
-      'Minimal active-employee list (id, name, code, email, avatar, position) for pickers such as project member selection. Available to any authenticated user.',
+      'Minimal active-employee list (id, name, code, email, avatar, position) for pickers. Available to any authenticated user.',
   })
   directory(@Query('search') search?: string) {
     return this.employeesService.directory(search);

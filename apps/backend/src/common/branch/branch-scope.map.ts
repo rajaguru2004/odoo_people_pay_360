@@ -15,7 +15,7 @@
  *                    a to-one relation field (verified against schema.prisma).
  *
  * Models not listed are NOT branch-scoped (Department, Team, User, SystemSetting,
- * project/task tracker, etc.). Keyed by Prisma model name (`params.model`).
+ * etc.). Keyed by Prisma model name (`params.model`).
  */
 export type BranchScopeRule =
   | 'direct'
@@ -82,7 +82,6 @@ export const BRANCH_SCOPE: Record<string, BranchScopeRule> = {
   SalaryComponent: 'relation',
   PayrollItem: 'relation',
   Timesheet: 'relation',
-  WorkLog: 'relation',
   WorkSchedule: 'relation',
   EmployeeActivity: 'relation',
   EmployeeHistory: 'relation',

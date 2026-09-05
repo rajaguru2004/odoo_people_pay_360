@@ -793,9 +793,6 @@ export class SystemSettingsService {
     'system_settings',
     'library_items',
     'holidays',
-    'workflows',
-    'task_workflow_statuses',
-    'status_transitions',
   ]);
 
   /** The three base accounts the reset always restores (mirrors prisma/seed.ts). */
@@ -836,9 +833,9 @@ export class SystemSettingsService {
    * DESTRUCTIVE: reset the database to the base-seed baseline.
    *
    * Wipes every operational table (all except the config tables above), then
-   * recreates the HRD department, an ACTIVE Head Office branch, the default
-   * workflow (if missing), and the three base accounts — preserving each base
-   * account's current password so admins are not locked out.
+   * recreates the HRD department, an ACTIVE Head Office branch and the three
+   * base accounts — preserving each base account's current password so admins
+   * are not locked out.
    *
    * Wrapped in `runWithBranchBypass` so the branch-scoping Prisma middleware
    * does not narrow the recreate-writes to a single branch when the caller has a
@@ -940,50 +937,7 @@ export class SystemSettingsService {
             },
           });
 
-          // 4. Ensure a default workflow exists (kept table, but a fresh DB may lack one).
-          const workflow = await tx.workflow.findFirst({
-            where: { isDefault: true },
-          });
-          if (!workflow) {
-            await tx.workflow.create({
-              data: {
-                name: 'Default Workflow',
-                description: 'Default kanban workflow for new projects',
-                isDefault: true,
-                statuses: {
-                  create: [
-                    {
-                      name: 'To Do',
-                      color: '#64748B',
-                      category: 'TODO',
-                      position: 0,
-                      isDefault: true,
-                    },
-                    {
-                      name: 'In Progress',
-                      color: '#00358F',
-                      category: 'IN_PROGRESS',
-                      position: 1,
-                    },
-                    {
-                      name: 'In Review',
-                      color: '#f66600',
-                      category: 'IN_PROGRESS',
-                      position: 2,
-                    },
-                    {
-                      name: 'Done',
-                      color: '#16A34A',
-                      category: 'DONE',
-                      position: 3,
-                    },
-                  ],
-                },
-              },
-            });
-          }
-
-          // 5. Recreate the three base accounts (passwords preserved from step 0).
+          // 4. Recreate the three base accounts (passwords preserved from step 0).
           for (const a of accounts) {
             const employee = await tx.employee.create({
               data: {
@@ -1018,7 +972,7 @@ export class SystemSettingsService {
             }
           }
 
-          // 6. Audit trail (audit_logs was truncated; this row records the reset).
+          // 5. Audit trail (audit_logs was truncated; this row records the reset).
           await tx.auditLog.create({
             data: {
               action: 'DATABASE_RESET_TO_BASELINE',
@@ -1126,7 +1080,6 @@ export class SystemSettingsService {
         geofencing_radius_meters: '100',
         dept_manager_min_tenure_months: '6',
         dept_manager_transition_days: '14',
-        task_assignment_list_mode: 'all',
         company_name_image_url: '',
         company_favicon_url: '',
         theme_preset: 'default',
@@ -1529,13 +1482,6 @@ export class SystemSettingsService {
         description:
           'Standard transition period (in days) for a department manager handover (default: 14)',
       },
-      {
-        key: 'task_assignment_list_mode',
-        value: v('task_assignment_list_mode', 'all'),
-        description:
-          'Task assignment employee list mode: "all" or "department" (filters by assigner department)',
-      },
-
       // ── Attendance ──────────────────────────────────────────────────────
       {
         key: 'allow_multiple_checkin',

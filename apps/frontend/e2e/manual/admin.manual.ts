@@ -875,7 +875,6 @@ test('talent and workplace', async ({ page }) => {
     callouts: [
       { selector: 'text=Asset register', label: 'What the company owns and who holds it', pad: 10 },
       { selector: 'text=Letter requests', label: 'Letters waiting to be issued', pad: 10 },
-      { selector: 'text=Project health', label: 'Projects running and overdue', pad: 10 },
     ],
   });
 
@@ -902,19 +901,6 @@ test('talent and workplace', async ({ page }) => {
       { selector: 'testid=letter-status-filter', label: 'Filter by state' },
       { selector: 'text=Issue', label: 'Generates and issues the letter', badge: 'left' },
       { selector: 'text=Reject', label: 'Refuses it, with a reason', badge: 'left' },
-    ],
-  });
-
-  await shot(page, {
-    name: 'projects-admin',
-    caption: 'Projects',
-    url: '/dashboard/projects',
-    height: 1300,
-    callouts: [
-      { selector: 'testid=project-new', label: 'Start a project' },
-      { selector: 'testid=project-stat-active', label: 'Projects running now', pad: 8 },
-      { selector: 'testid=project-status-filter', label: 'Filter by state' },
-      { selector: 'testid=project-search', label: 'Find a project' },
     ],
   });
 });

@@ -10,7 +10,7 @@ import {
   Banknote, PlayCircle, ShieldCheck, Layers, CheckCheck, Coins, Medal, LogOut, Gift, Undo2,
   ArrowLeftRight, FileSpreadsheet, Landmark, Settings2, Globe2, DatabaseZap, Receipt, Plane,
   HandCoins, PieChart, Wallet, Award, GraduationCap, Trophy, ThumbsUp, ThumbsDown, MessageSquareWarning,
-  Boxes, Mail, FolderKanban, Settings, ScrollText, ChevronRight,
+  Boxes, Mail, Settings, ScrollText, ChevronRight,
 } from 'lucide-react';
 import { useModuleNav } from '@/hooks/useModuleNav';
 
@@ -51,7 +51,7 @@ const CHILD_ICONS: Record<string, any> = {
   appraisals: Award, training: GraduationCap, rewardsOverview: Trophy, reward: ThumbsUp,
   discipline: ThumbsDown, grievances: MessageSquareWarning,
   // Workplace
-  assets: Boxes, letters: Mail, allProjects: FolderKanban,
+  assets: Boxes, letters: Mail,
   // System
   settings: Settings, auditLogs: ScrollText,
 };

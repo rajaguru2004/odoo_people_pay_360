@@ -8,7 +8,7 @@ import { AnalyticsController } from './analytics.controller';
  * "any employee's conduct record, for anyone with a login". The service has no
  * concept of a caller, which is exactly why the check lives here and is tested
  * here. The range bound is the other half: an unbounded window over attendance
- * and worklogs is a table scan per request.
+ * is a table scan per request.
  */
 describe('AnalyticsController', () => {
   const analytics: any = {
@@ -16,9 +16,6 @@ describe('AnalyticsController', () => {
     conductRecords: jest.fn(async () => ({ rewards: [], disciplines: [] })),
     leaveSummary: jest.fn(async () => ({})),
     overtimeSummary: jest.fn(async () => ({})),
-    taskStats: jest.fn(async () => ({})),
-    projectContribution: jest.fn(async () => ({})),
-    worklogSummary: jest.fn(async () => ({})),
     timesheetSummary: jest.fn(async () => ({})),
     reimbursementSummary: jest.fn(async () => ({})),
     teamMembership: jest.fn(async () => ([])),

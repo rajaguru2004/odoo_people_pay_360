@@ -57,18 +57,8 @@ import { FinalSettlementsModule } from './final-settlements/final-settlements.mo
 import { PayrollCalendarModule } from './payroll-calendar/payroll-calendar.module';
 import { EmployeeRecoveriesModule } from './employee-recoveries/employee-recoveries.module';
 import { LibraryItemsModule } from './library-items/library-items.module';
-// Task Tracker + Timesheet Management
-
-import { TasksModule } from './tasks/tasks.module';
-import { ProjectsModule } from './projects/projects.module';
-import { ProjectStatusesModule } from './project-statuses/project-statuses.module';
-import { LabelsModule } from './labels/labels.module';
-import { SprintsModule } from './sprints/sprints.module';
-import { TaskCommentsModule } from './task-comments/task-comments.module';
-import { TaskAttachmentsModule } from './task-attachments/task-attachments.module';
+// Timesheet Management
 import { TimesheetsModule } from './timesheets/timesheets.module';
-import { WorkLogsModule } from './work-logs/work-logs.module';
-import { TaskDashboardModule } from './task-dashboard/task-dashboard.module';
 import { AuditModule } from './audit/audit.module';
 import { AuditInterceptor } from './audit/audit.interceptor';
 import { LeaveAttachmentsModule } from './leave-attachments/leave-attachments.module';
@@ -193,17 +183,8 @@ import { PayrollReportsModule } from './payroll-reports/payroll-reports.module';
     AppraisalModule,
     TimezoneModule,
     LibraryItemsModule,
-    // Project + Task Tracker + Timesheet Management
-    ProjectsModule,
-    ProjectStatusesModule,
-    LabelsModule,
-    SprintsModule,
-    TasksModule,
-    TaskCommentsModule,
-    TaskAttachmentsModule,
+    // Timesheet Management
     TimesheetsModule,
-    WorkLogsModule,
-    TaskDashboardModule,
     AuditModule,
     ApprovalsModule,
     SupervisorsModule,

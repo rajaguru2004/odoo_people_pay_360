@@ -83,7 +83,7 @@ degrade to a logged skip if disabled by config rather than failing.
   BranchContextInterceptor + AuditInterceptor, per-controller JwtAuthGuard/RolesGuard,
   Prisma `$use` scoping). Excludes branch-irrelevant heavy modules (chatbot/embeddings
   uses an ESM dynamic `import()` that Jest's CJS VM rejects; face-recognition/TensorFlow;
-  projects; payroll batches; cron). Branch scoping is enforced globally at the Prisma
+  schedule crons). Branch scoping is enforced globally at the Prisma
   + interceptor layer, so this slice exhibits identical branch behaviour.
 - **`utils/fixtures.ts`** — creates two branches, three users (global admin /
   scoped HR / employee) and two employees, all tagged with a unique `runId` and

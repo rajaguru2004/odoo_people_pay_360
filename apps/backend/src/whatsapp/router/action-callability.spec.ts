@@ -14,12 +14,10 @@ import { LoanTools } from '../../mcp/tools/loans.tools';
 import { OvertimePolicyTools } from '../../mcp/tools/overtime-policy.tools';
 import { OvertimeTools } from '../../mcp/tools/overtime.tools';
 import { PayrollTools } from '../../mcp/tools/payroll.tools';
-import { ProjectTools } from '../../mcp/tools/projects.tools';
 import { ReimbursementTools } from '../../mcp/tools/reimbursements.tools';
 import { ReportTools } from '../../mcp/tools/reports.tools';
 import { ShiftTools } from '../../mcp/tools/shifts.tools';
 import { SupervisorTools } from '../../mcp/tools/supervisor.tools';
-import { TaskTools } from '../../mcp/tools/tasks.tools';
 import { TrainingTools } from '../../mcp/tools/training.tools';
 import { TravelTools } from '../../mcp/tools/travel.tools';
 import { VisaTools } from '../../mcp/tools/visa.tools';
@@ -117,12 +115,10 @@ const PROVIDERS = [
   OvertimePolicyTools,
   OvertimeTools,
   PayrollTools,
-  ProjectTools,
   ReimbursementTools,
   ReportTools,
   ShiftTools,
   SupervisorTools,
-  TaskTools,
   TrainingTools,
   TravelTools,
   VisaTools,

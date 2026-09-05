@@ -89,7 +89,6 @@ export class SystemSettingsController {
         payroll_tax_rebate_limit: g('payroll_tax_rebate_limit', '700000'),
         payroll_cess_enabled: g('payroll_cess_enabled', 'true'),
         payroll_cess_rate: g('payroll_cess_rate', '0.04'),
-        task_assignment_list_mode: g('task_assignment_list_mode', 'all'),
         face_recognition_enabled: g('face_recognition_enabled', 'true'),
         overtime_enabled: g('overtime_enabled', 'true') === 'true',
         overtime_regular_rate: g('overtime_regular_rate', '1.5'),
@@ -378,7 +377,7 @@ export class SystemSettingsController {
     summary: 'Reset database to baseline (developer mode only)',
     description:
       'DESTRUCTIVE. Permanently deletes all operational data (employees, users, ' +
-      'attendance, payroll, leave, projects, etc.) and restores only the base ' +
+      'attendance, payroll, leave, etc.) and restores only the base ' +
       'admin/HR/employee accounts, the HRD department and an active Head Office ' +
       'branch. System settings, libraries and holidays are preserved. Requires ' +
       'a confirmation body { "confirm": "RESET" }.',

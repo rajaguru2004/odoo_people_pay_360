@@ -10,7 +10,6 @@ import {
   FileText,
   Settings,
   Building2,
-  FolderKanban,
   Sparkles,
   Award,
   Inbox,
@@ -274,7 +273,6 @@ export const adminMenuItems: NavGroup[] = [
     children: [
       { labelKey: 'assets', href: '/dashboard/assets' },
       { labelKey: 'letters', href: '/dashboard/letters' },
-      { labelKey: 'allProjects', href: '/dashboard/projects' },
     ],
   },
   {
@@ -350,7 +348,6 @@ export const employeeMenuItems: NavGroup[] = [
       { labelKey: 'myGrievances', href: '/dashboard/my-grievances' },
     ],
   },
-  { icon: FolderKanban, labelKey: 'projects', href: '/dashboard/projects', roles: ['EMPLOYEE'] },
   { icon: Settings, labelKey: 'settings', href: '/dashboard/settings', roles: ['EMPLOYEE'] },
 ];
 
@@ -435,7 +432,6 @@ export const departmentHeadMenuItems: NavGroup[] = [
     ],
   },
   { icon: Boxes, labelKey: 'assets', href: '/dashboard/assets', roles: ['MANAGER'] },
-  { icon: FolderKanban, labelKey: 'projects', href: '/dashboard/projects', roles: ['MANAGER'] },
   { icon: Settings, labelKey: 'settings', href: '/dashboard/settings', roles: ['MANAGER'] },
 ];
 

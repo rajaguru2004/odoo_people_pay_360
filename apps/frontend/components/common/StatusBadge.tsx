@@ -32,10 +32,9 @@ import { cn } from '@/utils/cn';
  * Adding a status to `LeaveStatus` then fails the build instead of rendering a
  * grey chip that says "APPROVED_L2".
  *
- * Tokens only. The two existing shared badges — `components/tasks/TaskStatusBadge`
- * and `components/timesheets/TimesheetStatusBadge`, which are byte-for-byte the
- * same component with different maps — paint raw `bg-slate-100` / `bg-emerald-50`,
- * which survive a theme-preset change. Adoption fixes that.
+ * Tokens only. The existing shared badge — `components/timesheets/TimesheetStatusBadge`
+ * — paints raw `bg-slate-100` / `bg-emerald-50`, which survive a theme-preset
+ * change. Adoption fixes that.
  */
 
 export type StatusTone =

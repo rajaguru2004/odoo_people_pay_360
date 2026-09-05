@@ -13,7 +13,6 @@ import overtimeService from '@/services/overtimeService';
 import rewardService from '@/services/rewardService';
 import disciplineService from '@/services/disciplineService';
 import attendanceService from '@/services/attendanceService';
-import projectService from '@/services/projectService';
 import payrollService from '@/services/payrollService';
 import reimbursementService from '@/services/reimbursementService';
 
@@ -79,7 +78,6 @@ export default function DashboardV2Page() {
     // Bottom status
     avgWorkHours: 0,
     earlyDeparturesToday: 0,
-    activeProjects: 0,
     payrollTotal: 0,
     payrollStatus: '—',
     payrollSparkData: [] as number[],
@@ -126,7 +124,6 @@ export default function DashboardV2Page() {
         rewardsRes,
         disciplinesRes,
         attendanceSummaryRes,
-        projectsRes,
         payrollSummaryRes,
         payrollsRes,
         pendingReimbursementsRes,
@@ -143,7 +140,6 @@ export default function DashboardV2Page() {
         rewardService.getAll({ limit: 100 }).catch(() => null),
         disciplineService.getAll({ limit: 100 }).catch(() => null),
         dashboardService.getAttendanceSummary().catch(() => null),
-        projectService.getAll().catch(() => null),
         dashboardService.getPayrollSummary().catch(() => null),
         payrollService.getAll().catch(() => null),
         reimbursementService.getPending().catch(() => null),
@@ -400,13 +396,6 @@ export default function DashboardV2Page() {
         updatedData.avgWorkHours = 0;
       }
 
-      // Delivery pipeline - active projects count
-      if (projectsRes?.data && Array.isArray(projectsRes.data)) {
-        updatedData.activeProjects = projectsRes.data.filter((p: any) => p.status === 'ACTIVE' || p.status === 'ON_GOING').length;
-      } else {
-        updatedData.activeProjects = 0;
-      }
-
       // Process Payroll Summary Sparkline (real month-by-month totals for the current year)
       let payrollSparkArray: number[] = [];
       if (Array.isArray(payrollSummaryRes?.data?.summary)) {
@@ -569,7 +558,6 @@ export default function DashboardV2Page() {
           <StatusSummaryCardsV2
             avgWorkHours={data.avgWorkHours}
             earlyDeparturesToday={data.earlyDeparturesToday}
-            activeProjects={data.activeProjects}
             turnoverRate={data.turnoverRate}
             turnoverChange={data.turnoverChange}
             turnoverTrend={data.turnoverTrend}

@@ -1131,7 +1131,6 @@ export default function SettingsPage() {
     system_timezone: 'Asia/Kolkata',
     dept_manager_min_tenure_months: '6',
     dept_manager_transition_days: '14',
-    task_assignment_list_mode: 'all',
     // Blank = unlimited backdating. See start-date-policy.util.ts on the server.
     employee_start_date_max_past_days: '',
     employee_start_date_max_future_days: '180',
@@ -1361,7 +1360,6 @@ export default function SettingsPage() {
           system_timezone: findVal('system_timezone') || 'Asia/Kolkata',
           dept_manager_min_tenure_months: findVal('dept_manager_min_tenure_months') || '6',
           dept_manager_transition_days: findVal('dept_manager_transition_days') || '14',
-          task_assignment_list_mode: findVal('task_assignment_list_mode') || 'all',
           // Deliberately no `|| default`: an empty value is the meaningful
           // "no backdating limit" setting, not a missing one.
           employee_start_date_max_past_days: findVal('employee_start_date_max_past_days') ?? '',
@@ -1538,7 +1536,6 @@ export default function SettingsPage() {
           system_timezone: systemSettings.system_timezone,
           dept_manager_min_tenure_months: systemSettings.dept_manager_min_tenure_months,
           dept_manager_transition_days: systemSettings.dept_manager_transition_days,
-          task_assignment_list_mode: systemSettings.task_assignment_list_mode,
           employee_start_date_max_past_days: systemSettings.employee_start_date_max_past_days,
           employee_start_date_max_future_days: systemSettings.employee_start_date_max_future_days,
           employee_start_date_floor: systemSettings.employee_start_date_floor,
@@ -1644,7 +1641,6 @@ export default function SettingsPage() {
           office_start_time: systemSettings.office_start_time,
           office_end_time: systemSettings.office_end_time,
           system_timezone: systemSettings.system_timezone,
-          task_assignment_list_mode: systemSettings.task_assignment_list_mode,
           overtime_enabled: overtimeSettings.overtime_enabled,
           reimbursement_enabled: reimbursementSettings.reimbursement_enabled,
           reimbursement_approver_roles: reimbursementSettings.reimbursement_approver_roles,
@@ -2778,22 +2774,6 @@ export default function SettingsPage() {
                   </SectionCard>
                   )}
 
-                  {/* ─ Task Management ─ */}
-                  <SectionCard title="Task Management" icon={ListTodo} badge="Global task tracking behavior">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-                      <FieldRow label="Task Assignment List Mode" icon={ListTodo} hint={<InfoHint text="Controls which employees appear in the assignee dropdown when creating or editing a task." example="Set to 'Department Only' → a Marketing manager can only assign tasks to Marketing team members, not the whole company." />}>
-                        <select
-                          value={systemSettings.task_assignment_list_mode}
-                          onChange={e => setSystemSettings(s => ({ ...s, task_assignment_list_mode: e.target.value }))}
-                          className="w-full h-10 px-3 border border-slate-200 rounded-lg focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/30 transition-all text-sm bg-white"
-                        >
-                          <option value="all">List All Employees</option>
-                          <option value="department">List Department Employees Only</option>
-                        </select>
-                      </FieldRow>
-                    </div>
-                  </SectionCard>
-
                   {/* ─ Leave Management ─ */}
                   <SectionCard title="Leave Management" icon={Calendar} badge="Leave rules and approval workflow">
                     <div className="flex flex-col gap-3">
@@ -2878,7 +2858,7 @@ export default function SettingsPage() {
                             <p className="text-xs text-slate-500 mt-1">
                               {seedPhase === 'confirm' && 'This creates a realistic demo company so you can explore every module. If sample data already exists, it will be refreshed. Your system settings are not changed.'}
                               {seedPhase === 'running' && 'Please keep this dialog open while we set everything up — this takes a few seconds.'}
-                              {seedPhase === 'done' && 'You can now browse employees, attendance, payroll, projects and more with realistic data.'}
+                              {seedPhase === 'done' && 'You can now browse employees, attendance, payroll and more with realistic data.'}
                               {seedPhase === 'error' && 'Something went wrong while seeding. You can safely try again.'}
                             </p>
                           </div>

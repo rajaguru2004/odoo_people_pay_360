@@ -10,8 +10,6 @@ export const DEFAULT_WEIGHTS: Weights = {
   attendance: 0.15,
   punctuality: 0.1,
   productivity: 0.2,
-  taskCompletion: 0.2,
-  projectContribution: 0.15,
   disciplineConsistency: 0.1,
   teamContribution: 0.1,
 };
@@ -27,10 +25,7 @@ const clamp = (v: number, lo = 0, hi = 100): number =>
  */
 export function deterministicScores(collected: Record<string, any>): ScoreSet {
   const att = collected['attendance_employee_summary'];
-  const tasks = collected['task_employee_stats'];
-  const worklog = collected['worklog_employee_summary'];
   const timesheet = collected['timesheet_employee_summary'];
-  const projects = collected['project_contribution_get'];
   const conduct = collected['conduct_records_get'];
   const teams = collected['team_membership_get'];
   const leave = collected['leave_employee_summary'];
@@ -40,34 +35,13 @@ export function deterministicScores(collected: Record<string, any>): ScoreSet {
   if (att?.attendanceRate != null) scores.attendance = clamp(att.attendanceRate);
   if (att?.punctualityRate != null) scores.punctuality = clamp(att.punctualityRate);
 
-  if (worklog || timesheet) {
+  if (timesheet) {
     const parts: number[] = [];
-    if (worklog?.distinctDaysWithLogs > 0) {
-      parts.push(clamp((worklog.avgHoursPerActiveDay / 6) * 100));
-    }
-    if (timesheet?.approvalRate != null) parts.push(clamp(timesheet.approvalRate));
-    if (timesheet && timesheet.totalEntries === 0 && !worklog?.entries) parts.push(30);
+    if (timesheet.approvalRate != null) parts.push(clamp(timesheet.approvalRate));
+    if (timesheet.totalEntries === 0) parts.push(30);
     if (parts.length) {
-      scores.productivity = clamp(parts.reduce((s, v) => s + v, 0) / parts.length);
+      scores.productivity = clamp(parts.reduce((sum, v) => sum + v, 0) / parts.length);
     }
-  }
-
-  if (tasks && tasks.totalTasks > 0) {
-    const parts: number[] = [];
-    if (tasks.completionRate != null) parts.push(tasks.completionRate);
-    if (tasks.onTimeRate != null) parts.push(tasks.onTimeRate);
-    let base = parts.length ? parts.reduce((s, v) => s + v, 0) / parts.length : 50;
-    base -= Math.min(30, (tasks.overdueOpenTasks ?? 0) * 5);
-    scores.taskCompletion = clamp(base);
-  }
-
-  if (projects) {
-    scores.projectContribution = clamp(
-      (projects.activeInPeriod ?? 0) * 20 +
-        (projects.leadRoles ?? 0) * 15 +
-        (projects.ownedProjects ?? 0) * 10 +
-        (projects.totalProjects > 0 ? 20 : 0),
-    );
   }
 
   if (conduct || att || leave) {

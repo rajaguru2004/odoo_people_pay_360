@@ -6,25 +6,20 @@ import {
 } from './utils/workplace-fixtures';
 
 /**
- * WP-0 — the three harness truths every other Workplace spec is trusted on.
+ * WP-0 — the harness truths every other Workplace spec is trusted on.
  *
  * This file asserts nothing about the product. It asserts that the HARNESS is
  * not lying, because phases 3, 4 and 5 each lost days to one that was:
  *
- *   H1  `ProjectsModule, TasksModule, SprintsModule, ProjectRbacModule,
- *        ProjectStatusesModule` are really registered in `test-app.module.ts`.
- *        An unmounted module answers 404 — identical, from a spec's point of
- *        view, to "the endpoint refused me". The whole surface then reads as
- *        COVERED while being structurally untestable.
- *   H2  `TaskCommentsModule, TaskAttachmentsModule, TaskDashboardModule` too.
- *        These are NOT in the 3c22f56 registration list, so they are the three
- *        most likely to be missing.
+ *   H1  The Assets and Letters modules are really registered in
+ *       `test-app.module.ts`. An unmounted module answers 404 — identical,
+ *       from a spec's point of view, to "the endpoint refused me". The whole
+ *       surface then reads as COVERED while being structurally untestable.
  *   H3  The e2e template database really carries the constraints production
- *        does. `prisma db push` cannot create a PARTIAL or EXPRESSION index,
- *        and the project RBAC tables have no migration file at all — they
- *        exist only via `db push`. Phase 4 found a payroll period could be paid
- *        twice for exactly this reason: the test DB was WEAKER than production,
- *        so a concurrency case passed for the wrong reason.
+ *       does. `prisma db push` cannot create a PARTIAL or EXPRESSION index, so
+ *       phase 4 found a payroll period could be paid twice for exactly this
+ *       reason: the test DB was WEAKER than production, so a concurrency case
+ *       passed for the wrong reason.
  *
  * A missing route here must fail as "route not mounted", never as an assertion
  * about permissions — hence `isUnmounted()` below, which reads Nest's own
@@ -86,26 +81,6 @@ describe('Workplace harness truths — H1/H2 route mounting (e2e)', () => {
     ['letter templates', '/letters/templates'],
     ['letters queue', '/letters'],
     ['letters ESS', '/letters/my-requests'],
-
-    // ── H1: the five modules 3c22f56 registered ────────────────────────────
-    ['projects list', '/projects'],
-    ['projects stats', '/projects/stats'],
-    ['project by slug', '/projects/by-slug/does-not-exist'],
-    ['project members', `/projects/${ANY_UUID}/members`],
-    ['project my-permissions', `/projects/${ANY_UUID}/my-permissions`],
-    ['project roles catalog', '/project-roles/catalog'],
-    ['project roles', `/projects/${ANY_UUID}/roles`],
-    ['tasks list', '/tasks'],
-    ['tasks kanban', '/tasks/kanban'],
-    ['tasks mine', '/tasks/my-tasks'],
-    ['sprints list', '/sprints'],
-    ['project statuses list', '/project-statuses'],
-
-    // ── H2: the three modules 3c22f56 did NOT register ─────────────────────
-    ['task comments', `/task-comments/task/${ANY_UUID}`],
-    ['task attachments', `/task-attachments/task/${ANY_UUID}`],
-    ['task dashboard (employee)', '/task-dashboard/employee'],
-    ['task dashboard (manager)', '/task-dashboard/manager'],
   ];
 
   describe('H1/H2 — every workplace route resolves to a handler', () => {
@@ -182,12 +157,6 @@ describe('Workplace harness truths — H3 database constraints (e2e)', () => {
   };
 
   describe('the tables exist at all', () => {
-    /**
-     * `project_members` / `project_roles` have NO migration file — they reach
-     * the e2e template only through `db push` off schema.prisma. If the push
-     * ever silently skips them, every RBAC case would fail as a 500 with no
-     * clue why.
-     */
     it('every workplace table is present in information_schema', async () => {
       const rows = await ctx.prisma.$queryRawUnsafe<
         Array<{ table_name: string }>
@@ -201,16 +170,6 @@ describe('Workplace harness truths — H3 database constraints (e2e)', () => {
         'asset_assignments',
         'letter_templates',
         'letter_requests',
-        'projects',
-        'project_members',
-        'project_roles',
-        'workflows',
-        'task_workflow_statuses',
-        'sprints',
-        'tasks',
-        'task_comments',
-        'task_attachments',
-        'task_dependencies',
       ]) {
         expect(`${t}:${present.has(t)}`).toBe(`${t}:true`);
       }
@@ -261,36 +220,6 @@ describe('Workplace harness truths — H3 database constraints (e2e)', () => {
       await expectIndexMatching(
         'letter_requests',
         /^CREATE UNIQUE INDEX .* ON public\.letter_requests USING btree \(serial_number\)$/i,
-      );
-    });
-  });
-
-  describe('projects', () => {
-    it('projects.project_code is UNIQUE', async () => {
-      await expectIndexMatching(
-        'projects',
-        /^CREATE UNIQUE INDEX .* ON public\.projects USING btree \(project_code\)$/i,
-      );
-    });
-
-    it('projects.slug is UNIQUE', async () => {
-      await expectIndexMatching(
-        'projects',
-        /^CREATE UNIQUE INDEX .* ON public\.projects USING btree \(slug\)$/i,
-      );
-    });
-
-    it('project_members(project_id, employee_id) is UNIQUE', async () => {
-      await expectIndexMatching(
-        'project_members',
-        /^CREATE UNIQUE INDEX .* ON public\.project_members USING btree \(project_id, employee_id\)$/i,
-      );
-    });
-
-    it('project_roles(project_id, slug) is UNIQUE', async () => {
-      await expectIndexMatching(
-        'project_roles',
-        /^CREATE UNIQUE INDEX .* ON public\.project_roles USING btree \(project_id, slug\)$/i,
       );
     });
   });
@@ -416,46 +345,6 @@ describe('Workplace harness truths — the fixture set itself (e2e)', () => {
       expect(by[fx.tplArabicId].key).toBe(by[fx.tplApprovalId].key);
     });
 
-    it('builds one project per visibility, each with the four seeded presets', async () => {
-      const rows = await ctx.prisma.project.findMany({
-        where: {
-          id: {
-            in: [
-              fx.privateProjectId,
-              fx.internalProjectId,
-              fx.publicProjectId,
-            ],
-          },
-        },
-        select: { id: true, visibility: true, ownerId: true },
-      });
-      const by = Object.fromEntries(rows.map((r) => [r.id, r]));
-      expect(by[fx.privateProjectId].visibility).toBe('PRIVATE');
-      expect(by[fx.internalProjectId].visibility).toBe('INTERNAL');
-      expect(by[fx.publicProjectId].visibility).toBe('PUBLIC');
-      expect(by[fx.privateProjectId].ownerId).toBe(fx.ownerEmployeeId);
-
-      expect(Object.keys(fx.privateRoleIds).sort()).toEqual([
-        'manager',
-        'member',
-        'owner',
-        'viewer',
-      ]);
-    });
-
-    it('builds TWO projects sharing ONE workflow (the R7 shape)', async () => {
-      const rows = await ctx.prisma.project.findMany({
-        where: { workflowId: fx.sharedWorkflowId },
-        select: { id: true },
-      });
-      expect(rows.map((r) => r.id).sort()).toEqual(
-        [fx.sharedWorkflowProjectAId, fx.sharedWorkflowProjectBId].sort(),
-      );
-      // Statuses belong to the WORKFLOW, not to either project — which is
-      // exactly why `projectIdFromStatus()` has to guess.
-      expect(fx.sharedWorkflowStatusIds).toHaveLength(3);
-    });
-
     it('builds an isSensitive profile-template field beside an ordinary one', async () => {
       const rows = await ctx.prisma.profileTemplateField.findMany({
         where: { templateId: fx.profileTemplateId },
@@ -516,80 +405,6 @@ describe('Workplace harness truths — the fixture set itself (e2e)', () => {
         .set(bearer(fx.admin.token));
       expect(res.status).toBe(200);
     });
-
-    it('GET /projects answers 200 for ADMIN and lists the fixture projects', async () => {
-      const res = await ctx
-        .http()
-        .get('/projects?limit=200')
-        .set(bearer(fx.admin.token));
-      expect(res.status).toBe(200);
-      const body = res.body?.data;
-      const list: any[] = Array.isArray(body) ? body : (body?.data ?? body?.items ?? []);
-      const ids = list.map((p: any) => p.id);
-      expect(ids).toEqual(expect.arrayContaining([fx.privateProjectId]));
-    });
-
-    it('GET /project-roles/catalog answers 200 for ADMIN', async () => {
-      const res = await ctx
-        .http()
-        .get('/project-roles/catalog')
-        .set(bearer(fx.admin.token));
-      expect(res.status).toBe(200);
-    });
-
-    it('GET /sprints?projectId answers 200 for ADMIN', async () => {
-      const res = await ctx
-        .http()
-        .get(`/sprints?projectId=${fx.privateProjectId}`)
-        .set(bearer(fx.admin.token));
-      expect(res.status).toBe(200);
-    });
-
-    it('GET /project-statuses?projectId answers 200 and returns the workflow columns', async () => {
-      const res = await ctx
-        .http()
-        .get(`/project-statuses?projectId=${fx.privateProjectId}`)
-        .set(bearer(fx.admin.token));
-      expect(res.status).toBe(200);
-      const list: any[] = res.body?.data ?? [];
-      expect(list.map((s: any) => s.id).sort()).toEqual(
-        [...fx.privateStatusIds].sort(),
-      );
-    });
-
-    it('GET /task-comments/task/:id answers 200 (H2 — module was never registered before)', async () => {
-      const res = await ctx
-        .http()
-        .get(`/task-comments/task/${ANY_UUID}`)
-        .set(bearer(fx.admin.token));
-      expect([200, 404]).toContain(res.status);
-      expect(res.body?.message ?? '').not.toMatch(/^Cannot GET/i);
-    });
-
-    it('GET /task-attachments/task/:id answers 200 (H2)', async () => {
-      const res = await ctx
-        .http()
-        .get(`/task-attachments/task/${ANY_UUID}`)
-        .set(bearer(fx.admin.token));
-      expect([200, 404]).toContain(res.status);
-      expect(res.body?.message ?? '').not.toMatch(/^Cannot GET/i);
-    });
-
-    it('GET /task-dashboard/employee answers for an employee principal (H2)', async () => {
-      const res = await ctx
-        .http()
-        .get('/task-dashboard/employee')
-        .set(bearer(fx.projectMember.token));
-      expect(res.status).toBe(200);
-    });
-
-    it('GET /task-dashboard/manager answers for a MANAGER principal (H2)', async () => {
-      const res = await ctx
-        .http()
-        .get('/task-dashboard/manager')
-        .set(bearer(fx.manager.token));
-      expect(res.status).toBe(200);
-    });
   });
 
   describe('every persona can authenticate', () => {
@@ -598,11 +413,6 @@ describe('Workplace harness truths — the fixture set itself (e2e)', () => {
       ['scopedHr'],
       ['employee'],
       ['manager'],
-      ['projectOwner'],
-      ['projectManager'],
-      ['projectMember'],
-      ['projectViewer'],
-      ['projectOutsider'],
     ])('%s holds a usable token', async (persona) => {
       const user = (fx as any)[persona];
       expect(typeof user.token).toBe('string');

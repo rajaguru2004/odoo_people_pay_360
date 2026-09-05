@@ -53,15 +53,6 @@ import { LibraryItemsModule } from '../../src/library-items/library-items.module
 import { AttendanceCorrectionsModule } from '../../src/attendance-corrections/attendance-corrections.module';
 import { DashboardModule } from '../../src/dashboard/dashboard.module';
 import { CalendarModule } from '../../src/calendar/calendar.module';
-import { ProjectsModule } from '../../src/projects/projects.module';
-import { TasksModule } from '../../src/tasks/tasks.module';
-import { SprintsModule } from '../../src/sprints/sprints.module';
-import { ProjectRbacModule } from '../../src/projects/rbac/project-rbac.module';
-import { ProjectStatusesModule } from '../../src/project-statuses/project-statuses.module';
-import { LabelsModule } from '../../src/labels/labels.module';
-import { TaskCommentsModule } from '../../src/task-comments/task-comments.module';
-import { TaskAttachmentsModule } from '../../src/task-attachments/task-attachments.module';
-import { TaskDashboardModule } from '../../src/task-dashboard/task-dashboard.module';
 import { BranchContextMiddleware } from '../../src/common/branch/branch-context.middleware';
 import { BranchContextInterceptor } from '../../src/common/branch/branch-context.interceptor';
 import { FinalSettlementsModule } from '../../src/final-settlements/final-settlements.module';
@@ -78,8 +69,8 @@ import { PayrollReportsModule } from '../../src/payroll-reports/payroll-reports.
  * BranchContextMiddleware, the ordered BranchContextInterceptor + AuditInterceptor,
  * the per-controller JwtAuthGuard/RolesGuard, and the Prisma $use scoping (which
  * lives in PrismaService and applies globally). Heavy, branch-irrelevant modules
- * (chatbot/embeddings [ESM dynamic import], face-recognition/TensorFlow, projects,
- * payroll batches, schedule crons) are excluded so the suite boots fast and clean
+ * (chatbot/embeddings [ESM dynamic import], face-recognition/TensorFlow,
+ * schedule crons) are excluded so the suite boots fast and clean
  * in CI. Because branch scoping is enforced globally at the Prisma + interceptor
  * layer, this slice verifies the same behaviour production exhibits.
  */
@@ -174,15 +165,6 @@ import { PayrollReportsModule } from '../../src/payroll-reports/payroll-reports.
     // registered in this slice — so the reminder rules have to be asserted by
     // calling the scheduler directly, never by waiting on a tick.
     CalendarModule,
-    ProjectsModule,
-    TasksModule,
-    SprintsModule,
-    ProjectRbacModule,
-    ProjectStatusesModule,
-    LabelsModule,
-    TaskCommentsModule,
-    TaskAttachmentsModule,
-    TaskDashboardModule,
     // Payroll extensions. Gratuity and leave encashment reach the router
     // anyway, because PayrollsModule imports them for the lock seam — but
     // final settlements are imported by nothing else, so without this line the

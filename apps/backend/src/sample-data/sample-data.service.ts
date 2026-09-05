@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PayrollsService } from '../payrolls/payrolls.service';
 import { runWithBranchBypass } from '../common/branch/branch-context';
-import { presetRolesCreateData } from '../projects/rbac/permissions.constants';
 import {
   SMP,
   SAMPLE_MARKER_KEY,
@@ -24,7 +23,7 @@ import {
   getSampleWorkingDays,
   resetSampleChildren,
 } from './sample-data.constants';
-import { seedSampleExtras, ExtrasProject } from './sample-data.extras';
+import { seedSampleExtras } from './sample-data.extras';
 import { seedDemoFill } from './sample-data.demo-fill';
 import { seedMuscatPayrollDemo } from './sample-data.muscat-payroll';
 import { seedMuscatCoverage } from './sample-data.muscat-coverage';
@@ -189,39 +188,6 @@ export class SampleDataService {
 
       say('Preparing a clean slate…');
       await resetSampleChildren(prisma);
-
-      say('Setting up the project workflow…');
-      let workflow = await prisma.workflow.findFirst({ where: { isDefault: true } });
-      if (!workflow) {
-        workflow = await prisma.workflow.create({
-          data: {
-            name: 'SMP Sample Workflow',
-            description: 'Sample kanban workflow',
-            statuses: {
-              create: [
-                { name: 'To Do', color: '#64748B', category: 'TODO', position: 0, isDefault: true },
-                { name: 'In Progress', color: '#00358F', category: 'IN_PROGRESS', position: 1 },
-                { name: 'In Review', color: '#f66600', category: 'IN_PROGRESS', position: 2 },
-                { name: 'Done', color: '#16A34A', category: 'DONE', position: 3 },
-              ],
-            },
-          },
-        });
-      }
-      const statuses = await prisma.projectTaskStatus.findMany({
-        where: { workflowId: workflow.id },
-        orderBy: { position: 'asc' },
-      });
-      const colTodo = statuses.find((s) => s.category === 'TODO') ?? statuses[0];
-      const colDone = statuses.find((s) => s.category === 'DONE') ?? statuses[statuses.length - 1];
-      const inProg = statuses.filter((s) => s.category === 'IN_PROGRESS');
-      const colInProgress = inProg[0] ?? colTodo;
-      const colInReview = inProg[1] ?? inProg[0] ?? colTodo;
-      const colFor = (status: string) =>
-        status === 'COMPLETED' ? colDone
-          : status === 'IN_PROGRESS' ? colInProgress
-            : status === 'IN_REVIEW' ? colInReview
-              : colTodo;
 
       say(`Creating ${DEPARTMENTS.length} departments…`);
       const deptIds: string[] = [];
@@ -650,100 +616,6 @@ export class SampleDataService {
         });
       }
 
-      say('Building sample projects, tasks & subtasks…');
-      const projectSpecs = [
-        // `endsInDays` is deliberately one of each: past (overdue), inside the
-        // 30-day window (due soon), and absent. No seeded project carried an end
-        // date at all, so BOTH project-health figures were structurally zero and
-        // the "no end date" footnote covered the whole estate — the card could
-        // never say anything, true or false.
-        { code: `${SMP}P1`, name: 'HRMS Revamp', slug: 'smp-hrms-revamp', taskPrefix: 'HRMS', deptIndex: 0, status: 'ACTIVE', priority: 'HIGH', memberIdxs: [0, 1, 2, 3, 4, 5], ownerIdx: 0, endsInDays: -12 },
-        { code: `${SMP}P2`, name: 'Mobile App', slug: 'smp-mobile-app', taskPrefix: 'APP', deptIndex: 5, status: 'PLANNING', priority: 'MEDIUM', memberIdxs: [6, 7, 8, 9, 10, 11, 12], ownerIdx: 6, endsInDays: 21 },
-        { code: `${SMP}P3`, name: 'Muscat Rollout', slug: 'smp-muscat-rollout', taskPrefix: 'MCT', deptIndex: 0, status: 'ACTIVE', priority: 'MEDIUM', memberIdxs: [18, 19, 20, 21, 22, 23], ownerIdx: 18, endsInDays: null },
-      ] as const;
-      const taskTemplates = [
-        { title: 'Set up CI/CD pipeline', status: 'IN_PROGRESS', priority: 'HIGH', type: 'TASK' },
-        { title: 'Design payroll schema', status: 'COMPLETED', priority: 'CRITICAL', type: 'STORY' },
-        { title: 'Fix attendance timezone bug', status: 'TODO', priority: 'HIGH', type: 'BUG' },
-        { title: 'Employee onboarding flow', status: 'IN_REVIEW', priority: 'MEDIUM', type: 'STORY' },
-        { title: 'Leave approval notifications', status: 'TODO', priority: 'MEDIUM', type: 'TASK' },
-        { title: 'Q3 platform epic', status: 'IN_PROGRESS', priority: 'HIGH', type: 'EPIC' },
-      ] as const;
-      let taskCounter = 1;
-      const seededProjects: ExtrasProject[] = [];
-      for (const spec of projectSpecs) {
-        const project = await prisma.project.create({
-          data: {
-            projectCode: spec.code, name: spec.name, slug: spec.slug, taskPrefix: spec.taskPrefix,
-            description: `${spec.name} — sample project.`, status: spec.status, priority: spec.priority,
-            visibility: 'INTERNAL', startDate: dU([2026, 5, 1]),
-            endDate: spec.endsInDays === null ? null : dayFromToday(spec.endsInDays),
-            workflowId: workflow.id, departmentId: deptIds[spec.deptIndex],
-            ownerId: employees[spec.ownerIdx].id, createdById: hrUserId,
-            roles: { create: presetRolesCreateData() },
-          },
-        });
-        const roles = await prisma.projectRole.findMany({ where: { projectId: project.id } });
-        const roleIdBySlug = Object.fromEntries(roles.map((r) => [r.slug, r.id]));
-        for (let m = 0; m < spec.memberIdxs.length; m++) {
-          const emp = employees[spec.memberIdxs[m]];
-          const role = m === 0 ? 'OWNER' : m === 1 ? 'MANAGER' : m === spec.memberIdxs.length - 1 ? 'VIEWER' : 'MEMBER';
-          await prisma.projectMember.create({
-            data: { projectId: project.id, employeeId: emp.id, role, roleId: roleIdBySlug[role.toLowerCase()] ?? null },
-          });
-        }
-        const sprint = await prisma.sprint.create({
-          data: {
-            name: 'Sprint 1', slug: 'sprint-1', goal: 'Deliver the MVP slice.',
-            status: 'ACTIVE', projectId: project.id, startDate: dU([2026, 6, 1]), endDate: dU([2026, 6, 14]),
-          },
-        });
-        const labelFeature = await prisma.label.create({ data: { name: 'feature', color: '#22c55e', projectId: project.id } });
-        const labelBug = await prisma.label.create({ data: { name: 'bug', color: '#ef4444', projectId: project.id } });
-        const projectTaskIds: string[] = [];
-        for (let t = 0; t < taskTemplates.length; t++) {
-          const tmpl = taskTemplates[t];
-          const assignee = employees[spec.memberIdxs[t % spec.memberIdxs.length]];
-          const task = await prisma.task.create({
-            data: {
-              taskCode: `${SMP}T-${pad3(taskCounter++)}`,
-              title: tmpl.title, description: `${tmpl.title} for ${spec.name}.`,
-              priority: tmpl.priority, status: tmpl.status, type: tmpl.type,
-              projectId: project.id, statusId: colFor(tmpl.status).id, sprintId: sprint.id,
-              reporterId: employees[spec.ownerIdx].id, dueDate: dU([2026, 6, 15 + t]),
-              storyPoints: (t % 3) + 1,
-              assignees: { connect: [{ id: assignee.id }] },
-            },
-          });
-          projectTaskIds.push(task.id);
-          await prisma.taskLabel.create({ data: { taskId: task.id, labelId: t % 2 === 0 ? labelFeature.id : labelBug.id } });
-          if (t === 0) {
-            await prisma.taskComment.create({ data: { taskId: task.id, userId: hrUserId, comment: 'Please prioritize this for the current sprint.' } });
-          }
-          if (t < 2) {
-            for (let k = 0; k < 2; k++) {
-              const subAssignee = employees[spec.memberIdxs[(t + k + 1) % spec.memberIdxs.length]];
-              await prisma.task.create({
-                data: {
-                  taskCode: `${SMP}T-${pad3(taskCounter++)}`,
-                  title: `${tmpl.title} — subtask ${k + 1}`,
-                  priority: 'MEDIUM', status: 'TODO', type: 'SUBTASK',
-                  projectId: project.id, statusId: colTodo.id, sprintId: sprint.id,
-                  parentTaskId: task.id, reporterId: employees[spec.ownerIdx].id,
-                  assignees: { connect: [{ id: subAssignee.id }] },
-                },
-              });
-            }
-          }
-        }
-        seededProjects.push({
-          id: project.id,
-          name: spec.name,
-          taskIds: projectTaskIds,
-          memberIdxs: spec.memberIdxs,
-        });
-      }
-
       // Spread the payroll runs across the approval lifecycle so the payroll
       // approvals inbox is not permanently empty: the older run is already
       // approved, the newest is awaiting a decision.
@@ -786,8 +658,6 @@ export class SampleDataService {
         branchIds,
         userIdByEmpIdx,
         hrUserId,
-        projects: seededProjects,
-        statuses: statuses.map((s) => ({ id: s.id, name: s.name, category: String(s.category) })),
         months: monthsToSeed,
         rng,
         say,
@@ -805,8 +675,6 @@ export class SampleDataService {
         branchIds,
         userIdByEmpIdx,
         hrUserId,
-        projects: seededProjects,
-        statuses: statuses.map((s) => ({ id: s.id, name: s.name, category: String(s.category) })),
         months: monthsToSeed,
         rng,
         say,
@@ -850,10 +718,10 @@ export class SampleDataService {
     const ofEmp = sampleFilters.ofSampleEmployee;
     const [
       employees, departments, branches, attendance, leaveRequests, overtime,
-      reimbursements, advancesLoans, payrollItems, projects, tasks,
+      reimbursements, advancesLoans, payrollItems,
       teams, assets, travelRequests, trainingNominations, budgetLines,
       bankDetails, letters, grievances, documents, visas, rewards, disciplines,
-      timesheets, workLogs, corrections, appraisalResults, notifications, auditLogs,
+      timesheets, corrections, appraisalResults, notifications, auditLogs,
     ] = await Promise.all([
       this.prisma.employee.count({ where: sampleFilters.employeeByEmail }),
       this.prisma.department.count({ where: sampleFilters.byCodePrefix }),
@@ -864,8 +732,6 @@ export class SampleDataService {
       this.prisma.reimbursement.count({ where: ofEmp }),
       this.prisma.advanceLoanRequest.count({ where: ofEmp }),
       this.prisma.payrollItem.count({ where: { payroll: { batch: { name: { startsWith: 'SMP' } } } } }),
-      this.prisma.project.count({ where: sampleFilters.projectByCodePrefix }),
-      this.prisma.task.count({ where: sampleFilters.taskByCodePrefix }),
       this.prisma.team.count({ where: sampleFilters.byCodePrefix }),
       this.prisma.assetItem.count({ where: { assetTag: { startsWith: SMP } } }),
       this.prisma.travelRequest.count({ where: ofEmp }),
@@ -879,7 +745,6 @@ export class SampleDataService {
       this.prisma.reward.count({ where: ofEmp }),
       this.prisma.discipline.count({ where: ofEmp }),
       this.prisma.timesheet.count({ where: ofEmp }),
-      this.prisma.workLog.count({ where: ofEmp }),
       this.prisma.attendanceCorrection.count({ where: ofEmp }),
       this.prisma.appraisalResult.count({ where: { employeeCode: { startsWith: SMP } } }),
       this.prisma.notification.count({ where: { user: sampleFilters.userByEmail } }),
@@ -887,10 +752,10 @@ export class SampleDataService {
     ]);
     return {
       departments, branches, employees, attendance, leaveRequests,
-      overtime, reimbursements, advancesLoans, payrollItems, projects, tasks,
+      overtime, reimbursements, advancesLoans, payrollItems,
       teams, assets, travelRequests, trainingNominations, budgetLines,
       bankDetails, letters, grievances, documents, visas, rewards, disciplines,
-      timesheets, workLogs, corrections, appraisalResults, notifications, auditLogs,
+      timesheets, corrections, appraisalResults, notifications, auditLogs,
     };
   }
 }

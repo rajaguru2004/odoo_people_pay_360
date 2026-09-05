@@ -2,14 +2,13 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
-import { Clock, ArrowDown, Briefcase, UserMinus, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Clock, ArrowDown, UserMinus, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { generateSparkPath } from '@/utils/sparkUtils';
 
 interface StatusSummaryCardsV2Props {
   avgWorkHours?: number;
   earlyDeparturesToday?: number;
-  activeProjects?: number;
   turnoverRate?: number;
   turnoverChange?: number;
   turnoverTrend?: number[];
@@ -19,7 +18,6 @@ interface StatusSummaryCardsV2Props {
 export default function StatusSummaryCardsV2({
   avgWorkHours = 0,
   earlyDeparturesToday = 0,
-  activeProjects = 0,
   turnoverRate = 0,
   turnoverChange = 0,
   turnoverTrend = [],
@@ -33,7 +31,7 @@ export default function StatusSummaryCardsV2({
   const turnoverSparkPath = generateSparkPath(turnoverTrend, 40, 16);
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full h-full">
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full h-full">
       {/* 1. Average Daily Work Hours */}
       <div
         onClick={() => router.push('/dashboard/attendance')}
@@ -70,25 +68,7 @@ export default function StatusSummaryCardsV2({
         </span>
       </div>
 
-      {/* 3. Active Delivery Projects */}
-      <div
-        onClick={() => router.push('/dashboard/projects')}
-        className="kpi-card rounded-xl p-3 flex flex-col justify-between cursor-pointer group"
-      >
-        <div className="flex items-center justify-between">
-          <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider leading-tight group-hover:text-slate-600">
-            {t('activeProjects')}
-          </span>
-          <div className="p-1 rounded-md bg-white border border-slate-200/80 text-emerald-500">
-            <Briefcase size={12} />
-          </div>
-        </div>
-        <span className="text-xl font-black mt-2 text-slate-700">
-          {activeProjects}
-        </span>
-      </div>
-
-      {/* 4. Turnover Rate */}
+      {/* 3. Turnover Rate */}
       <div
         onClick={() => router.push('/dashboard/employees')}
         className="kpi-card rounded-xl p-3 flex flex-col justify-between cursor-pointer group"

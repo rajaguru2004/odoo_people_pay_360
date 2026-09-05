@@ -2,8 +2,6 @@ export const SCORE_DIMENSIONS = [
   'attendance',
   'punctuality',
   'productivity',
-  'taskCompletion',
-  'projectContribution',
   'disciplineConsistency',
   'teamContribution',
 ] as const;

@@ -26,7 +26,7 @@ export function buildPlanningMessages(
         'You are an experienced HR analyst planning an autonomous, unbiased performance appraisal. ' +
         'You will be run once per employee with the tools you select here. Choose the tool set that ' +
         'gives the fullest, fairest picture of individual performance (attendance, punctuality, leave, ' +
-        'overtime, tasks, projects, time logging, timesheets, conduct, team involvement). Prefer ' +
+        'overtime, timesheets, conduct, team involvement). Prefer ' +
         'period-bounded per-employee summary tools over company-wide reports. Select between 6 and 12 tools.\n' +
         JSON_ONLY,
     },

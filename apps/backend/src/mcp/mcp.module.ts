@@ -16,8 +16,6 @@ import { TravelModule } from '../travel/travel.module';
 import { TrainingModule } from '../training/training.module';
 import { BudgetsModule } from '../budgets/budgets.module';
 import { PayrollsModule } from '../payrolls/payrolls.module';
-import { ProjectsModule } from '../projects/projects.module';
-import { TasksModule } from '../tasks/tasks.module';
 import { IdEnricherService } from './id-enricher.service';
 import { McpAuditHelper } from './mcp-audit.helper';
 import { McpController } from './mcp.controller';
@@ -39,10 +37,8 @@ import { ProfileTemplatesModule } from '../profile-templates/profile-templates.m
 import { HolidayTools } from './tools/holidays.tools';
 import { LeaveTools } from './tools/leave.tools';
 import { PayrollTools } from './tools/payroll.tools';
-import { ProjectTools } from './tools/projects.tools';
 import { ReportTools } from './tools/reports.tools';
 import { ShiftTools } from './tools/shifts.tools';
-import { TaskTools } from './tools/tasks.tools';
 import { VisaTools } from './tools/visa.tools';
 import { AssetsTools } from './tools/assets.tools';
 import { TravelTools } from './tools/travel.tools';
@@ -71,8 +67,6 @@ import { BankDetailsModule } from '../bank-details/bank-details.module';
     PayrollsModule,
     CalendarModule,
     DepartmentsModule,
-    ProjectsModule,
-    TasksModule,
     AttendancesModule,
     AttendanceCorrectionsModule,
     HolidaysModule,
@@ -107,8 +101,6 @@ import { BankDetailsModule } from '../bank-details/bank-details.module';
     PayrollTools,
     ShiftTools,
     DepartmentTools,
-    ProjectTools,
-    TaskTools,
     AttendanceTools,
     HolidayTools,
     ReportTools,
@@ -134,8 +126,6 @@ import { BankDetailsModule } from '../bank-details/bank-details.module';
         PayrollTools,
         ShiftTools,
         DepartmentTools,
-        ProjectTools,
-        TaskTools,
         AttendanceTools,
         HolidayTools,
         ReportTools,

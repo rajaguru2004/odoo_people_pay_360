@@ -108,7 +108,6 @@ const SCREENS: Array<{ name: string; path: string; group: string }> = [
   { group: 'Workplace', name: 'A0-hub', path: '/dashboard/workplace' },
   { group: 'Workplace', name: 'A1-assets', path: '/dashboard/assets' },
   { group: 'Workplace', name: 'A2-letters', path: '/dashboard/letters' },
-  { group: 'Workplace', name: 'A3-projects', path: '/dashboard/projects' },
 
   { group: 'System', name: 'B0-hub', path: '/dashboard/system' },
   { group: 'System', name: 'B1-settings', path: '/dashboard/settings' },

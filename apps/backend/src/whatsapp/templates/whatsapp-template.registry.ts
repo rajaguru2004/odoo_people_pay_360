@@ -8,7 +8,7 @@ import { bold, deepLink, escapeWa, fmtDate, kv, lines } from './format';
  * This file IS the blast radius. `NotificationsService` tees every notification
  * into the outbox, but the outbox drops anything that does not resolve to a
  * template here. So enabling the channel cannot start messaging people about
- * tasks, timesheets, grievances or the other ~40 chatty call sites — and adding
+ * timesheets, grievances or the other ~40 chatty call sites — and adding
  * a domain is one entry here plus one `waTemplate:` line at the trigger site.
  *
  * Every `render` is pure and synchronous. A template must never throw: it runs
@@ -432,46 +432,6 @@ const TEMPLATES: WhatsAppTemplate[] = [
           ['Reason', 'rejectionReason'],
         ]),
         escapeWa(ctx.message),
-        '',
-        footer(ctx),
-      ),
-  },
-
-  // ------------------------------------------------------------------- work
-  {
-    key: 'task_assigned',
-    group: 'Work',
-    label: 'Task assigned to you',
-    notificationTypes: ['TASK_ASSIGNED'],
-    render: (ctx) =>
-      lines(
-        header(ctx, '📋 A task was assigned to you'),
-        '',
-        detail(ctx, [
-          ['Task', 'taskTitle'],
-          ['Project', 'projectName'],
-          ['Due', 'dueDate'],
-          ['Priority', 'priority'],
-        ]),
-        bodyOr(ctx, ''),
-        '',
-        footer(ctx),
-      ),
-  },
-  {
-    key: 'project_member_added',
-    group: 'Work',
-    label: 'Added to a project',
-    notificationTypes: ['PROJECT_MEMBER_ADDED'],
-    render: (ctx) =>
-      lines(
-        header(ctx, '👥 You were added to a project'),
-        '',
-        detail(ctx, [
-          ['Project', 'projectName'],
-          ['Role', 'role'],
-        ]),
-        bodyOr(ctx, ''),
         '',
         footer(ctx),
       ),

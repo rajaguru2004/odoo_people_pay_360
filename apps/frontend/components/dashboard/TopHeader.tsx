@@ -47,8 +47,6 @@ const pageInfo: Record<string, { title: string; subtitle: string; icon?: any }> 
   '/dashboard/settings': { title: 'Settings', subtitle: 'System configuration' },
   '/dashboard/profile': { title: 'My Profile', subtitle: 'Personal Information' },
   '/dashboard/audit-logs': { title: 'Audit Logs', subtitle: 'System event logs' },
-  '/dashboard/work-logs': { title: 'Work Logs', subtitle: 'Track work hours and logs' },
-  '/dashboard/projects': { title: 'Projects', subtitle: 'Manage projects and their tasks' },
   '/dashboard/appraisal': { title: 'AI Appraisal & Ranking', subtitle: 'Autonomous performance analysis by the HR Copilot' },
 };
 
@@ -124,11 +122,6 @@ const getPageInfo = (pathname: string): { title: string; subtitle: string; icon?
     if (pathname.endsWith('/approvals')) return { title: 'Payroll Approvals', subtitle: 'Approve payroll runs' };
     if (pathname.endsWith('/salary-structure')) return { title: 'Salary Structures', subtitle: 'Manage salary components and templates' };
     return { title: 'Payroll Management', subtitle: 'Compensation and payroll runs' };
-  }
-
-  // Project sub-routes
-  if (pathname.startsWith('/dashboard/projects/')) {
-    return { title: 'Project', subtitle: 'Project workspace' };
   }
 
   // Department Head / Team sub-routes

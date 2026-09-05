@@ -95,10 +95,7 @@ async function main(): Promise<void> {
     deptIds,
     branchIds: branchIds.length ? branchIds : [employees[0].branchId!].filter(Boolean),
     userIdByEmpIdx: {},
-    hrUserId: hrUser.id,
-    projects: [],
-    statuses: [],
-    months: [
+    hrUserId: hrUser.id,    months: [
       { year: prevD.getUTCFullYear(), month: prevD.getUTCMonth() + 1 },
       { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 },
     ],

@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { ProjectStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AssetsService } from '../assets/assets.service';
 import { ClearanceService } from '../assets/clearance.service';
@@ -30,40 +29,12 @@ import {
  *    no `rejectedAt`; `updatedAt` moves on any later touch. Turnaround is
  *    reported for ISSUED only, and the panel says so.
  *
- * Branch scoping is ASYMMETRIC and is disclosed rather than hidden. `AssetItem`
- * and `LetterRequest` are branch-scoped by the Prisma extension; `Project` is
- * deliberately absent from `branch-scope.map.ts`, so project figures are
- * org-wide whatever branch is selected. `projectsAreBranchScoped: false` is in
- * the payload so the page can say that on the panel rather than leave the
- * reader to assume the numbers narrowed with everything else.
+ * `AssetItem` and `LetterRequest` are both branch-scoped by the Prisma
+ * extension, so every figure below narrows with the selected branch.
  */
-
-/** The five real `ProjectStatus` values, in lifecycle order. */
-const PROJECT_STATUSES: ProjectStatus[] = [
-  ProjectStatus.PLANNING,
-  ProjectStatus.ACTIVE,
-  ProjectStatus.ON_HOLD,
-  ProjectStatus.COMPLETED,
-  ProjectStatus.CANCELLED,
-];
 
 /** The five real `AssetStatus` values. */
 const ASSET_STATUSES = ['AVAILABLE', 'ASSIGNED', 'IN_REPAIR', 'LOST', 'RETIRED'] as const;
-
-/** Statuses that keep a project live — the ones an end date can be missed against. */
-const PROJECT_LIVE_STATUSES: ProjectStatus[] = [
-  ProjectStatus.PLANNING,
-  ProjectStatus.ACTIVE,
-  ProjectStatus.ON_HOLD,
-];
-
-/**
- * The base predicate `ProjectsService.buildWhere` applies for an ADMIN or
- * HR_MANAGER caller: not soft-deleted, not archived. This route is gated to
- * exactly those two roles, so the visibility clause `buildWhere` adds for
- * everybody else can never apply here.
- */
-const LIVE_PROJECT = { deletedAt: null, isArchived: false } as const;
 
 @Injectable()
 export class WorkplaceHubService {
@@ -96,7 +67,6 @@ export class WorkplaceHubService {
       prevLetterFlow,
       turnaround,
       byTemplate,
-      projects,
       trend,
     ] = await Promise.all([
       this.heldAsOf(window.previous.end),
@@ -109,7 +79,6 @@ export class WorkplaceHubService {
       this.lettersBetween(window.previous.start, window.previous.end),
       this.issueTurnaround(),
       this.lettersByTemplate(),
-      this.projectHealth(today),
       this.letterTrend(now),
     ]);
 
@@ -188,8 +157,6 @@ export class WorkplaceHubService {
           // measurable. Stated in the payload so the panel can say it.
           rejectTurnaroundMeasurable: false,
         },
-
-        projects,
 
         trendKind: 'month',
         trend,
@@ -298,51 +265,6 @@ export class WorkplaceHubService {
     return grouped
       .map((g) => ({ key: g.templateKey, count: g._count._all }))
       .sort((a, b) => b.count - a.count);
-  }
-
-  /**
-   * Project position, including the two statuses `/projects/stats` drops.
-   *
-   * That endpoint returns `total, active, completed, onHold` only, which is why
-   * the hub it replaces drew a mix bar covering two of three seeded projects.
-   *
-   * `overdue` is a real predicate — `endDate` and `status` are both real
-   * columns — but a project with no `endDate` can never be overdue, so
-   * `withoutEndDate` travels with it. A zero here means "none missed a date we
-   * know about", and the card has to be able to say how many dates we know.
-   */
-  private async projectHealth(today: Date) {
-    const in30 = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
-    const live = { ...LIVE_PROJECT, status: { in: PROJECT_LIVE_STATUSES } };
-
-    const [grouped, total, overdue, dueIn30Days, withoutEndDate] = await Promise.all([
-      this.prisma.project.groupBy({
-        by: ['status'],
-        where: LIVE_PROJECT,
-        _count: { _all: true },
-      }),
-      this.prisma.project.count({ where: LIVE_PROJECT }),
-      this.prisma.project.count({ where: { ...live, endDate: { lt: today } } }),
-      this.prisma.project.count({
-        where: { ...live, endDate: { gte: today, lte: in30 } },
-      }),
-      this.prisma.project.count({ where: { ...live, endDate: null } }),
-    ]);
-
-    const byStatus: Record<string, number> = {};
-    for (const s of PROJECT_STATUSES) byStatus[s] = 0;
-    for (const g of grouped) byStatus[g.status] = g._count._all;
-
-    return {
-      total,
-      byStatus,
-      overdue,
-      dueIn30Days,
-      withoutEndDate,
-      // `Project` is absent from `branch-scope.map.ts` by design, so these
-      // figures do not narrow when a branch is selected. The panel says so.
-      projectsAreBranchScoped: false,
-    };
   }
 
   /** Twelve months of the letter desk: what came in, what went out. */

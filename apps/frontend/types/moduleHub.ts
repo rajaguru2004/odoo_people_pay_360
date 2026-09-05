@@ -25,11 +25,11 @@ export interface HubWindow {
 /**
  * A change against the previous window.
  *
- * `null` — not a zero-valued delta — when the baseline is unknown. Three hub
- * figures genuinely cannot be reconstructed for a past date (asset and project
- * status have no history table; neither `Reimbursement` nor `LetterRequest`
- * carries a `rejectedAt`), and a card with no badge is the honest rendering of
- * that. A `0%` badge would claim the number held steady.
+ * `null` — not a zero-valued delta — when the baseline is unknown. Some hub
+ * figures genuinely cannot be reconstructed for a past date (asset status has
+ * no history table; neither `Reimbursement` nor `LetterRequest` carries a
+ * `rejectedAt`), and a card with no badge is the honest rendering of that. A
+ * `0%` badge would claim the number held steady.
  */
 export interface HubDelta {
   /** Percent change, or 0 when the baseline was 0 and only `absolute` is usable. */

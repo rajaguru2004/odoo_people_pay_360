@@ -371,17 +371,9 @@ export const ROUTES: RouteSpec[] = [
   { path: '/dashboard/my-documents', guarded: true, allowed: EVERYONE },
 
   // ── Work tracking ─────────────────────────────────────────────────────────
-  // VIEW_PROJECTS is held by every role.
-  { path: '/dashboard/projects', guarded: true, allowed: EVERYONE },
-  // CREATE_PROJECT: admin, hr, manager.
-  // R16: POST /projects admits MANAGER, and so do the three lists this page
-  // loads (employees, departments, teams). `usableBy: ADMIN_HR` claimed the
-  // server would refuse a manager here and it does not.
-  { path: '/dashboard/projects/new', guarded: true, allowed: ADMIN_HR_MANAGER },
   { path: '/dashboard/timesheets', guarded: true, allowed: EVERYONE },
   { path: '/dashboard/timesheets/new', guarded: true, allowed: EVERYONE },
   { path: '/dashboard/my-timesheets', guarded: true, allowed: EVERYONE },
-  { path: '/dashboard/work-logs', guarded: true, allowed: EVERYONE },
   { path: '/dashboard/my-team', guarded: false, allowed: EVERYONE },
 
   // ── Operator ──────────────────────────────────────────────────────────────

@@ -35,7 +35,6 @@ export class TimesheetsService {
         department: { select: { name: true } },
       },
     },
-    task: { select: { id: true, taskCode: true, title: true } },
     approver: {
       select: {
         id: true,
@@ -49,7 +48,6 @@ export class TimesheetsService {
     const where: any = { deletedAt: null };
     if (query.status) where.status = query.status;
     if (query.employeeId) where.employeeId = query.employeeId;
-    if (query.taskId) where.taskId = query.taskId;
     if (query.startDate || query.endDate) {
       where.workDate = {};
       if (query.startDate) where.workDate.gte = new Date(query.startDate);
@@ -66,17 +64,9 @@ export class TimesheetsService {
     if (!user?.employeeId)
       throw new BadRequestException('No employee profile linked');
 
-    const task = await this.prisma.task.findFirst({
-      where: { id: dto.taskId, deletedAt: null },
-    });
-    if (!task) {
-      throw new NotFoundException('Task not found');
-    }
-
     const timesheet = await this.prisma.timesheet.create({
       data: {
         employeeId: user.employeeId,
-        taskId: dto.taskId,
         workDate: new Date(dto.workDate),
         hoursWorked: dto.hoursWorked,
         description: dto.description,
@@ -175,19 +165,9 @@ export class TimesheetsService {
     if (ts.status !== 'DRAFT')
       throw new BadRequestException('Only draft timesheets can be updated');
 
-    if (dto.taskId) {
-      const task = await this.prisma.task.findFirst({
-        where: { id: dto.taskId, deletedAt: null },
-      });
-      if (!task) {
-        throw new NotFoundException('Task not found');
-      }
-    }
-
     const updated = await this.prisma.timesheet.update({
       where: { id },
       data: {
-        ...(dto.taskId !== undefined && { taskId: dto.taskId }),
         ...(dto.workDate !== undefined && { workDate: new Date(dto.workDate) }),
         ...(dto.hoursWorked !== undefined && { hoursWorked: dto.hoursWorked }),
         ...(dto.description !== undefined && { description: dto.description }),

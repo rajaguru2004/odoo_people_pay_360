@@ -22,7 +22,7 @@ import { AnalyticsService } from './analytics.service';
  *    path parameter, so without this check the route is an "any employee's
  *    conduct record" endpoint for anyone with a login.
  *  - The period is required and bounded. An unbounded range over attendance
- *    and worklogs is a table scan per request.
+ *    is a table scan per request.
  */
 @ApiTags('Analytics — per employee')
 @ApiBearerAuth('JWT-auth')
@@ -69,8 +69,8 @@ export class AnalyticsController {
   @ApiOperation({
     summary: 'Everything the appraisal agent sees about one employee in a period',
     description:
-      'Attendance, leave, overtime, tasks, projects, worklogs, timesheets, ' +
-      'reimbursements and conduct, for one date range. Defaults to the last 90 days.',
+      'Attendance, leave, overtime, timesheets, reimbursements and conduct, ' +
+      'for one date range. Defaults to the last 90 days.',
   })
   @ApiQuery({ name: 'from', required: false, description: 'ISO date; defaults to 90 days ago' })
   @ApiQuery({ name: 'to', required: false, description: 'ISO date; defaults to today' })
@@ -87,9 +87,6 @@ export class AnalyticsController {
       attendance,
       leave,
       overtime,
-      tasks,
-      projects,
-      worklogs,
       timesheets,
       reimbursements,
       conduct,
@@ -98,9 +95,6 @@ export class AnalyticsController {
       this.analytics.attendanceSummary(period),
       this.analytics.leaveSummary(period),
       this.analytics.overtimeSummary(period),
-      this.analytics.taskStats(period),
-      this.analytics.projectContribution(period),
-      this.analytics.worklogSummary(period),
       this.analytics.timesheetSummary(period),
       this.analytics.reimbursementSummary(period),
       this.analytics.conductRecords(period),
@@ -115,9 +109,6 @@ export class AnalyticsController {
         attendance,
         leave,
         overtime,
-        tasks,
-        projects,
-        worklogs,
         timesheets,
         reimbursements,
         conduct,

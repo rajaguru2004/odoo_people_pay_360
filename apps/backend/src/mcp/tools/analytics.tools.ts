@@ -67,24 +67,6 @@ export class AnalyticsTools implements DomainToolProvider {
         (a) => this.analytics.overtimeSummary(parse(a)),
       ),
       def(
-        'task_employee_stats',
-        'Task performance for one employee over a date range: completed, on-time rate, overdue, blocked, story points, estimated vs actual hours.',
-        'Task',
-        (a) => this.analytics.taskStats(parse(a)),
-      ),
-      def(
-        'project_contribution_get',
-        'Project involvement for one employee: memberships with roles, lead roles, owned projects, project statuses.',
-        'Project',
-        (a) => this.analytics.projectContribution(parse(a)),
-      ),
-      def(
-        'worklog_employee_summary',
-        'Time logged against tasks by one employee over a date range: entries, total hours, active days, average hours per active day.',
-        'WorkLog',
-        (a) => this.analytics.worklogSummary(parse(a)),
-      ),
-      def(
         'timesheet_employee_summary',
         'Timesheet discipline for one employee over a date range: submitted/approved/rejected entries, hours, approval rate, days covered.',
         'Timesheet',

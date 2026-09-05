@@ -53,7 +53,6 @@ import {
 } from '../payrolls/payroll-earnings.util';
 import { LibraryType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { reassignProjectOwnershipOnEmployeeDelete } from '../projects/projects.service';
 import { WhatsAppOutboxService } from '../whatsapp/whatsapp-outbox.service';
 import { WhatsAppSettingsService } from '../whatsapp/whatsapp-settings.service';
 import { toE164, normalisePhoneRegion, firstRegion } from '../whatsapp/utils/phone.util';
@@ -309,7 +308,7 @@ export class EmployeesService {
     };
   }
 
-  // Lightweight active-employee directory for pickers (e.g. project members).
+  // Lightweight active-employee directory for pickers.
   async directory(search?: string) {
     const where: any = { status: 'ACTIVE' };
     if (search) {
@@ -924,15 +923,12 @@ export class EmployeesService {
 
   /**
    * Permanent delete. Unlike `delete()` above, this one actually removes the
-   * row — so every `onDelete` rule on every FK that points at Employee fires,
-   * and two of them used to take a project's chain of command with them.
+   * row — so every `onDelete` rule on every FK that points at Employee fires.
    *
    * `actor` is optional only so the three specs that construct this service
-   * positionally keep compiling; the controller always passes the caller, and
-   * it is what makes the handover's audit rows attributable to a person rather
-   * than to nobody.
+   * positionally keep compiling; the controller always passes the caller.
    */
-  async hardDelete(id: string, actor?: { id?: string }) {
+  async hardDelete(id: string, _actor?: { id?: string }) {
     const settings = await this.settingsService.getAllSettings();
     if (settings['allow_hard_delete_terminated'] !== 'true') {
       throw new BadRequestException(
@@ -973,37 +969,14 @@ export class EmployeesService {
     // transaction, then drop the row entirely when nothing references it.
     // Straight deletion cannot be the primary path: several relations point at
     // User with onDelete: Restrict (leave approvals, termination requests,
-    // contract appendices, task attachments), so an approver's account would
-    // fail with P2003 and block the whole delete.
+    // contract appendices), so an approver's account would fail with P2003 and
+    // block the whole delete.
     const linkedUser = await this.prisma.user.findFirst({
       where: { OR: [{ employeeId: id }, { email: employee.email }] },
       select: { id: true },
     });
 
     await this.prisma.$transaction(async (tx) => {
-      // R12 + R13 — hand over what this delete would otherwise destroy, in the
-      // SAME transaction as the delete itself.
-      //
-      // `Project.ownerId` is `onDelete: SetNull` and `ProjectMember.employeeId`
-      // is `onDelete: Cascade`, so `tx.employee.delete()` below nulls the owner
-      // of every project this person owned AND erases their membership rows in
-      // one instant — severing both of the routes
-      // `ProjectAccessService.getAccess()` has to owner rights, so the surviving
-      // members were 403 on their own project and only a global ADMIN could act
-      // on it again. Reassigning first, inside this transaction, means a project
-      // can never be OBSERVED ownerless: either the whole delete lands with a
-      // new owner in place, or none of it does.
-      //
-      // Only this HARD path. The soft delete above writes
-      // `Employee.status = 'INACTIVE'` and fires neither FK, so an ordinary
-      // offboarding leaves ownership exactly where it was — which is why this
-      // was easy to miss.
-      const handovers = await reassignProjectOwnershipOnEmployeeDelete(
-        tx,
-        id,
-        actor?.id ?? null,
-      );
-
       if (linkedUser) {
         await tx.user.update({
           where: { id: linkedUser.id },
@@ -1017,14 +990,6 @@ export class EmployeesService {
         });
       }
       await tx.employee.delete({ where: { id } });
-
-      for (const h of handovers) {
-        this.logger.log(
-          h.newOwnerId
-            ? `Project ${h.projectCode} reassigned from hard-deleted employee ${id} to ${h.newOwnerId} (${h.via})`
-            : `Project ${h.projectCode} left OWNERLESS by the hard delete of employee ${id} — see GET /projects/ownerless`,
-        );
-      }
     });
 
     if (linkedUser) {

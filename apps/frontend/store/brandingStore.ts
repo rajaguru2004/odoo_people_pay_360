@@ -13,7 +13,6 @@ export interface BrandingData {
   office_end_time: string;
   payroll_work_hours_per_day: string;
   system_timezone: string;
-  task_assignment_list_mode: string;
   overtime_enabled: boolean;
   overtime_regular_rate: string;
   overtime_late_rate: string;
@@ -133,7 +132,6 @@ export const useBrandingStore = create<BrandingState>((set) => ({
     office_end_time: '17:30',
     payroll_work_hours_per_day: '8',
     system_timezone: 'Asia/Kolkata',
-    task_assignment_list_mode: 'all',
     overtime_enabled: true,
     overtime_regular_rate: '1.5',
     overtime_late_rate: '1.5',
@@ -212,7 +210,6 @@ export const useBrandingStore = create<BrandingState>((set) => ({
             office_end_time: res.data.office_end_time || '17:30',
             payroll_work_hours_per_day: res.data.payroll_work_hours_per_day || '8',
             system_timezone: res.data.system_timezone || 'Asia/Kolkata',
-            task_assignment_list_mode: res.data.task_assignment_list_mode || 'all',
             overtime_enabled: res.data.overtime_enabled !== false,
             overtime_regular_rate: res.data.overtime_regular_rate || '1.5',
             overtime_late_rate: res.data.overtime_late_rate || '1.5',

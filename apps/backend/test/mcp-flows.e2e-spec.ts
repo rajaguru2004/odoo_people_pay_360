@@ -352,68 +352,6 @@ describe('MCP business flows (e2e)', () => {
     });
   });
 
-  // ---------------------------------------------------------------- projects
-  describe('project: create → get → add member', () => {
-    let hr: Client;
-    let projectId: string;
-
-    beforeAll(async () => {
-      hr = await h.client(h.fx.scopedHr.token);
-    });
-
-    it('create is confirm-gated', async () => {
-      await h.preview(hr, 'project_create', { name: `Proj ${h.fx.runId}` });
-      const res = data(await h.callOk(hr, 'project_create', { name: `Proj ${h.fx.runId}`, confirm: true }));
-      projectId = res.id;
-      expect(projectId).toBeDefined();
-      const got = data(await h.callOk(hr, 'project_get', { id: projectId }));
-      expect(got.name).toBe(`Proj ${h.fx.runId}`);
-    });
-
-    it('add member', async () => {
-      await h.callOk(hr, 'project_member_add', {
-        projectId,
-        employeeId: h.fx.empAId,
-        confirm: true,
-      });
-      const count = await h.prisma.projectMember.count({
-        where: { projectId, employeeId: h.fx.empAId },
-      });
-      expect(count).toBe(1);
-    });
-  });
-
-  // ------------------------------------------------------------------- tasks
-  describe('task: create → get → assign → update → status change', () => {
-    let hr: Client;
-    let taskId: string;
-
-    beforeAll(async () => {
-      hr = await h.client(h.fx.scopedHr.token);
-    });
-
-    it('create → get', async () => {
-      await h.preview(hr, 'task_create', { title: `Task ${h.fx.runId}` });
-      const res = data(await h.callOk(hr, 'task_create', { title: `Task ${h.fx.runId}`, confirm: true }));
-      taskId = res.id;
-      expect(taskId).toBeDefined();
-      const got = data(await h.callOk(hr, 'task_get', { id: taskId }));
-      expect(got.title).toBe(`Task ${h.fx.runId}`);
-    });
-
-    it('assign → update → status change', async () => {
-      await h.callOk(hr, 'task_assign', { id: taskId, assigneeId: h.fx.empAId, confirm: true });
-      await h.callOk(hr, 'task_update', { id: taskId, priority: 'HIGH', confirm: true });
-      expect((await h.prisma.task.findUnique({ where: { id: taskId } }))?.priority).toBe('HIGH');
-      await h.callOk(hr, 'task_status_change', { id: taskId, status: 'IN_PROGRESS', confirm: true });
-      expect((await h.prisma.task.findUnique({ where: { id: taskId } }))?.status).toBe('IN_PROGRESS');
-    });
-
-    afterAll(async () => {
-      await h.prisma.task.deleteMany({ where: { title: { contains: h.fx.runId } } }).catch(() => 0);
-    });
-  });
-
   // -------------------------------------------------------------- attendance
   describe('attendance: manual create → history; correction approve / reject', () => {
     let admin: Client;

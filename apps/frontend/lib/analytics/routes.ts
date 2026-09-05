@@ -89,7 +89,6 @@ const MODULE_BY_SEGMENT: Record<string, string> = {
   attendance: 'attendance',
   'face-recognition': 'attendance',
   timesheets: 'attendance',
-  'work-logs': 'attendance',
   time: 'attendance',
   schedules: 'schedules',
   // Leave & overtime
@@ -118,7 +117,6 @@ const MODULE_BY_SEGMENT: Record<string, string> = {
   // Workplace
   assets: 'workplace',
   letters: 'workplace',
-  projects: 'workplace',
   workplace: 'workplace',
   // Cross-cutting
   approvals: 'approvals',
@@ -217,14 +215,14 @@ export function namedActionFor(method: string, sanitizedEndpoint: string): strin
  * vs `/dashboard/leaves`), hence the separate prefix list.
  */
 const MODULE_BY_ENDPOINT: Array<[RegExp, string]> = [
-  [/^\/(attendances|attendance-corrections|face-recognition|timesheets|work-logs)\b/, 'attendance'],
+  [/^\/(attendances|attendance-corrections|face-recognition|timesheets)\b/, 'attendance'],
   [/^\/(leave-requests|leave-balances|leave-types|overtime)\b/, 'leave'],
   [/^\/(payrolls|payroll|salary|banks|garnishments|wps)\b/, 'payroll'],
   [/^\/(reimbursements|travel-requests|advance-loans|budgets|accounting)\b/, 'finance'],
   [/^\/(employees|contracts|termination|supervisor|teams|visa)\b/, 'people'],
   [/^\/(departments|branches|organization)\b/, 'organization'],
   [/^\/(appraisals?|training|rewards|disciplines|grievances)\b/, 'talent'],
-  [/^\/(assets|letters|projects|tasks|sprints)\b/, 'workplace'],
+  [/^\/(assets|letters)\b/, 'workplace'],
   [/^\/(approval-workflows|approvals)\b/, 'approvals'],
   [/^\/(system-settings|audit|notifications|dev-mode)\b/, 'system'],
   [/^\/auth\b/, 'auth'],

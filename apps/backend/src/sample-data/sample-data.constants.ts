@@ -15,14 +15,14 @@ import { PrismaClient } from '@prisma/client';
 
 /** Email domain shared by every sample Employee AND its linked User login. */
 export const SAMPLE_EMAIL_DOMAIN = 'sample.hrms.local';
-/** Prefix for every other unique key (codes, contract numbers, project/task codes). */
+/** Prefix for every other unique key (codes, contract numbers). */
 export const SMP = 'SMP-';
 /** SystemSetting row written last; presence == "sample data is currently seeded". */
 export const SAMPLE_MARKER_KEY = 'sample_data_seeded';
 /** The PayrollBatch name that scopes the sample DRAFT payroll runs. */
 export const SAMPLE_BATCH_NAME = 'SMP Sample Payroll';
 
-/** Previous month relative to the project "today" (2026-07-08). */
+/** Previous month relative to the seeded "today" (2026-07-08). */
 export const SAMPLE_PAYROLL_MONTH = 6; // June
 export const SAMPLE_PAYROLL_YEAR = 2026;
 
@@ -34,8 +34,6 @@ export const sampleFilters = {
   employeeByEmail: { email: { endsWith: `@${SAMPLE_EMAIL_DOMAIN}` } },
   userByEmail: { email: { endsWith: `@${SAMPLE_EMAIL_DOMAIN}` } },
   byCodePrefix: { code: { startsWith: SMP } },
-  projectByCodePrefix: { projectCode: { startsWith: SMP } },
-  taskByCodePrefix: { taskCode: { startsWith: SMP } },
   /** relation filter: "belongs to a sample employee" */
   ofSampleEmployee: { employee: { email: { endsWith: `@${SAMPLE_EMAIL_DOMAIN}` } } },
 } as const;
@@ -274,12 +272,8 @@ export async function resetSampleChildren(prisma: PrismaClient): Promise<void> {
   await prisma.gratuityAccrual.deleteMany({ where: ofEmp });
   await prisma.finalSettlement.deleteMany({ where: ofEmp });
 
-  // 2. Tasks before projects (tasks.project_id is SetNull, not Cascade).
-  //    Timesheets/work logs hang off tasks, so they go first.
+  // 2. Timesheets hang off the sample employees.
   await prisma.timesheet.deleteMany({ where: ofEmp });
-  await prisma.workLog.deleteMany({ where: ofEmp });
-  await prisma.task.deleteMany({ where: sampleFilters.taskByCodePrefix });
-  await prisma.project.deleteMany({ where: sampleFilters.projectByCodePrefix });
 
   // 3. Budgets: commitments -> lines -> budget (all keyed on the SMP budget name).
   await prisma.budgetCommitment.deleteMany({

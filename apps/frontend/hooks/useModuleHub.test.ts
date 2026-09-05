@@ -4,10 +4,10 @@ import { ageInDays, toDelta } from './useModuleHub';
 /**
  * The two pure helpers behind every module hub card.
  *
- * `toDelta` is the one that matters: three hub figures have no history to
- * reconstruct a baseline from — `AssetItem.status` and `ProjectStatus` have no
- * history table, and neither `Reimbursement` nor `LetterRequest` carries a
- * `rejectedAt` — so the server sends `null` and the card must draw NO badge.
+ * `toDelta` is the one that matters: some hub figures have no history to
+ * reconstruct a baseline from — `AssetItem.status` has no history table, and
+ * neither `Reimbursement` nor `LetterRequest` carries a `rejectedAt` — so the
+ * server sends `null` and the card must draw NO badge.
  * A `0%` badge would say the number held steady, which is a different claim
  * from "we cannot tell".
  */

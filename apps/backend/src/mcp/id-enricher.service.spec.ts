@@ -24,7 +24,6 @@ describe('IdEnricherService', () => {
       },
       department: { findMany: jest.fn().mockResolvedValue([{ id: DEPT, name: 'Finance' }]) },
       branch: { findMany: jest.fn().mockResolvedValue([{ id: BRANCH, name: 'Head Office' }]) },
-      project: { findMany: jest.fn().mockResolvedValue([]) },
     };
     service = new IdEnricherService(prisma);
   });

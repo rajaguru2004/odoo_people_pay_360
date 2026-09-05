@@ -98,7 +98,6 @@ export default function TimesheetDetailPage() {
                 { label: 'Employee', value: ts.employee?.fullName },
                 { label: 'Department', value: ts.employee?.department?.name || '—' },
                 { label: 'Work Date', value: formatWallClockDate(ts.workDate) },
-                { label: 'Task', value: ts.task ? `[${ts.task.taskCode}] ${ts.task.title}` : '—' },
                 { label: 'Submitted', value: ts.submittedAt ? formatDateTime(ts.submittedAt) : '—' },
                 { label: 'Approved By', value: ts.approver?.employee?.fullName || '—' },
               ].map(({ label, value }) => (

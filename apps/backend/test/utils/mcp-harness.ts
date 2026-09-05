@@ -224,8 +224,6 @@ export async function fullCleanup(prisma: PrismaService, fx: Fixtures) {
 
   // 1. Tool-created domain rows (name-tagged).
   await safe(() => prisma.holiday.deleteMany({ where: { name: { contains: tag } } }));
-  await safe(() => prisma.task.deleteMany({ where: { title: { contains: tag } } }));
-  await safe(() => prisma.project.deleteMany({ where: { name: { contains: tag } } }));
   await safe(() => prisma.payrollItem.deleteMany({ where: inEmp }));
 
   // 2. Child rows that reference the test employees / users (FK blockers).
@@ -236,7 +234,6 @@ export async function fullCleanup(prisma: PrismaService, fx: Fixtures) {
   await safe(() => prisma.leaveBalance.deleteMany({ where: inEmp }));
   await safe(() => prisma.attendanceCorrection.deleteMany({ where: inEmp }));
   await safe(() => prisma.attendance.deleteMany({ where: inEmp }));
-  await safe(() => prisma.projectMember.deleteMany({ where: inEmp }));
   await safe(() => prisma.employeeHistory.deleteMany({ where: inEmp }));
   await safe(() => prisma.employeeActivity.deleteMany({ where: inEmp }));
   await safe(() => prisma.contract.deleteMany({ where: inEmp }));
