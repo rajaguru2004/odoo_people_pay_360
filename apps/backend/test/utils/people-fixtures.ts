@@ -65,8 +65,6 @@ export interface PeopleFixtures {
   staffBranchBId: string;
   /** TERMINATED and otherwise clean — the hard-delete happy path. */
   terminatedStaffId: string;
-  /** TERMINATED, holds an AdvanceLoanRequest — hard delete must refuse. */
-  staffWithLoanId: string;
   /** ACTIVE, holds an unreturned AssetAssignment — clearance must refuse. */
   staffWithOpenAssetId: string;
   /** ACTIVE with one ACTIVE contract — the "already has a contract" target. */
@@ -225,10 +223,6 @@ export async function setupPeopleFixtures(
     status: 'TERMINATED',
     endDate: monthsAgo(1),
   });
-  const staffWithLoan = await createEmployee('LOANED', {
-    status: 'TERMINATED',
-    endDate: monthsAgo(1),
-  });
   const staffWithOpenAsset = await createEmployee('ASSETED');
   const contractedStaff = await createEmployee('CONTRACTED');
   const uncontractedStaff = await createEmployee('UNCONTRACTED');
@@ -376,18 +370,6 @@ export async function setupPeopleFixtures(
       returnedAt: null,
     },
   });
-  await prisma.advanceLoanRequest.create({
-    data: {
-      employeeId: staffWithLoan.id,
-      type: 'LOAN',
-      amount: 10000,
-      amountRepaid: 0,
-      status: 'ACTIVE',
-      installments: 10,
-      reason: `people fixture loan ${runId}`,
-    },
-  });
-
   const userEmails = [
     adminUser.email,
     hrUser.email,
@@ -419,7 +401,6 @@ export async function setupPeopleFixtures(
     activeStaff: [staff1.id, staff2.id, staff3.id],
     staffBranchBId: staffBranchB.id,
     terminatedStaffId: terminatedStaff.id,
-    staffWithLoanId: staffWithLoan.id,
     staffWithOpenAssetId: staffWithOpenAsset.id,
     contractedStaffId: contractedStaff.id,
     activeContractId: activeContract.id,
@@ -480,9 +461,7 @@ export async function setupPeopleFixtures(
     },
 
     cleanup: async () => {
-      // FK-ordered, and the order is load-bearing in three places:
-      //   AdvanceLoanRequest.employee is RESTRICT (statutory retention), so a
-      //     loan has to go before its employee or teardown fails outright.
+      // FK-ordered, and the order is load-bearing in two places:
       //   TerminationRequest.requester and ContractAppendix.creator are RESTRICT
       //     on User, so every row a fixture user authored goes before the user.
       //   Department.manager is SetNull, but a department a TEST created may
@@ -555,16 +534,12 @@ export async function setupPeopleFixtures(
         where: { employeeId: { in: empIds } },
       });
 
-      // Assets and loans. AdvanceLoanRequest is RESTRICT, so this is not
-      // optional cleanup — skipping it fails the employee delete below.
+      // Assets.
       await prisma.assetAssignment.deleteMany({
         where: { employeeId: { in: empIds } },
       });
       await prisma.assetItem.deleteMany({
         where: { assetTag: { contains: runId } },
-      });
-      await prisma.advanceLoanRequest.deleteMany({
-        where: { employeeId: { in: empIds } },
       });
 
       await prisma.leaveRequest.deleteMany({

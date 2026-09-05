@@ -27,10 +27,10 @@ import { leaveWindow } from '../../windows';
  * ── Why it is gated ─────────────────────────────────────────────────────────
  *
  * The switch is shared, environment-wide configuration. Turned on, it re-routes
- * `leave.spec.ts`, `overtime.spec.ts`, `leave-approval.spec.ts`,
- * `reimbursement.spec.ts` and `loans.spec.ts` — the approve buttons those specs
- * press stop being offered, and the failures land in files that never touched
- * the flag. That is the worst attribution failure available here.
+ * `leave.spec.ts`, `overtime.spec.ts` and `leave-approval.spec.ts` — the approve
+ * buttons those specs press stop being offered, and the failures land in files
+ * that never touched the flag. That is the worst attribution failure available
+ * here.
  *
  * So: every case skips unless `E2E_ALLOW_FLAG_FLIP=1`, and the file is still
  * COLLECTED by the default run so it reports "skipped, and here is why" rather

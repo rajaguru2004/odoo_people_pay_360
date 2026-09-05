@@ -140,11 +140,6 @@ describe('feature kill switches', () => {
     expect(hrefs()).toContain('/dashboard/my-overtime');
   });
 
-  it('hides reimbursements when that feature is off', async () => {
-    await renderSidebar({ role: 'ADMIN', branding: { reimbursement_enabled: false } });
-    expect(hrefs()).not.toContain('/dashboard/reimbursements');
-  });
-
   it('leaves unrelated links alone when a switch is off', async () => {
     await renderSidebar({ role: 'ADMIN', branding: { overtime_enabled: false } });
     expect(hrefs()).toContain('/dashboard/employees');

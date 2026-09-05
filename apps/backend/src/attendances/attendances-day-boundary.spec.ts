@@ -279,62 +279,6 @@ describe('AttendancesService — attendance day boundary & flexible shifts', () 
     });
   });
 
-  // ── multi-punch days must not pay the gaps ──────────────────────────────────
-  describe('applySyncedAttendance', () => {
-    it('pays the sessions, not the span between the first and last punch', async () => {
-      prisma.workSchedule.findFirst.mockResolvedValue(flexibleSchedule(8));
-
-      await service.applySyncedAttendance({
-        employeeId: 'emp-1',
-        branchId: null,
-        dateKey: dateKey(2026, 6, 11),
-        checkIn: ist(2026, 6, 11, 9, 0),
-        checkOut: ist(2026, 6, 11, 18, 0),
-        status: 'PRESENT',
-        notes: 'Synced',
-        sessions: [
-          {
-            checkIn: ist(2026, 6, 11, 9, 0),
-            checkOut: ist(2026, 6, 11, 12, 0),
-          },
-          {
-            checkIn: ist(2026, 6, 11, 15, 0),
-            checkOut: ist(2026, 6, 11, 18, 0),
-          },
-        ],
-        timezone: null,
-      });
-
-      const { create } = prisma.attendance.upsert.mock.calls[0][0];
-      // 3h + 3h worked; the 3h gap between punches is an unpaid break. The old
-      // code billed the whole 09:00–18:00 span.
-      expect(create.workHours).toBe(6);
-    });
-
-    it('clamps a mirrored session that runs past the day end', async () => {
-      settingsMap.attendance_day_end_time = '20:00';
-      prisma.workSchedule.findFirst.mockResolvedValue(flexibleSchedule(8));
-
-      await service.applySyncedAttendance({
-        employeeId: 'emp-1',
-        branchId: null,
-        dateKey: dateKey(2026, 6, 11),
-        checkIn: ist(2026, 6, 11, 14, 0),
-        checkOut: ist(2026, 6, 11, 23, 0),
-        status: 'PRESENT',
-        notes: 'Synced',
-        sessions: null,
-        timezone: null,
-      });
-
-      const { create } = prisma.attendance.upsert.mock.calls[0][0];
-      expect(new Date(create.checkOut).getTime()).toBe(
-        ist(2026, 6, 11, 20, 0).getTime(),
-      );
-      expect(create.workHours).toBe(6); // 14:00 → 20:00, flexible ⇒ no lunch cut
-    });
-  });
-
   // ── manual entry: overnight + boundary ──────────────────────────────────────
   describe('createManualAttendance', () => {
     it('treats an earlier check-out clock time as the next morning', async () => {

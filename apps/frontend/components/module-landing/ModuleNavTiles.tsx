@@ -8,9 +8,9 @@ import {
   UserMinus, IdCard, Clock, ClipboardCheck, History, BarChart3, SlidersHorizontal, ScanFace,
   CalendarDays, CalendarClock, CalendarRange, CalendarCheck2, Hourglass, TimerReset, Scale,
   Banknote, PlayCircle, ShieldCheck, Layers, CheckCheck, Coins, Medal, LogOut, Gift, Undo2,
-  ArrowLeftRight, FileSpreadsheet, Landmark, Settings2, Globe2, DatabaseZap, Receipt, Plane,
-  HandCoins, PieChart, Wallet, Award, GraduationCap, Trophy, ThumbsUp, ThumbsDown, MessageSquareWarning,
-  Boxes, Mail, Settings, ScrollText, ChevronRight,
+  ArrowLeftRight, FileSpreadsheet, Landmark, Settings2, Globe2, DatabaseZap, Plane, Wallet, Award,
+  GraduationCap, Trophy, ThumbsUp, ThumbsDown, MessageSquareWarning, Boxes, Mail, Settings,
+  ScrollText, ChevronRight,
 } from 'lucide-react';
 import { useModuleNav } from '@/hooks/useModuleNav';
 
@@ -45,8 +45,7 @@ const CHILD_ICONS: Record<string, any> = {
   payrollReports: FileSpreadsheet, bankMaster: Landmark, bankFieldConfig: Settings2,
   bankBranchCountries: Globe2, bankMigration: DatabaseZap,
   // Finance
-  reimbursements: Receipt, travel: Plane, advancesLoans: HandCoins, loanReports: PieChart,
-  budgets: Wallet,
+  travel: Plane, budgets: Wallet,
   // Talent
   appraisals: Award, training: GraduationCap, rewardsOverview: Trophy, reward: ThumbsUp,
   discipline: ThumbsDown, grievances: MessageSquareWarning,

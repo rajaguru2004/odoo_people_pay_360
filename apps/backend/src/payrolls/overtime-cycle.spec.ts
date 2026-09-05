@@ -9,8 +9,6 @@ import { SalaryComponentsService } from '../salary-components/salary-components.
 import { SystemSettingsService } from '../system-settings/system-settings.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationDispatcher } from '../notifications/notification-dispatcher.service';
-import { LoanPolicyService, DEFAULT_LOAN_POLICY } from '../advance-loans/loan-policy.service';
-import { LoanRecoveryService } from '../advance-loans/loan-recovery.service';
 import { AuditService } from '../audit/audit.service';
 import { GarnishmentsService } from '../garnishments/garnishments.service';
 import { GratuityService } from '../gratuity/gratuity.service';
@@ -21,8 +19,6 @@ import {
   PayrollFeaturesService,
 } from './payroll-features.service';
 import { PayrollItemLinesService } from './payroll-item-lines.service';
-import { LoanNotificationService } from '../advance-loans/loan-notification.service';
-import { LoanScheduleService } from '../advance-loans/loan-schedule.service';
 
 /**
  * FULL OVERTIME CYCLE — verifies the flow exactly as described by the business:
@@ -137,19 +133,6 @@ describe('Overtime full cycle — normal → late-multiplier → payroll after a
       employee: { findMany: jest.fn() },
       salaryComponent: { findMany: jest.fn().mockResolvedValue([]) },
       overtimeRequest: { findMany: jest.fn().mockResolvedValue([]) },
-      reimbursement: {
-        findMany: jest.fn().mockResolvedValue([]),
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-      },
-      advanceLoanRequest: {
-        findMany: jest.fn().mockResolvedValue([]),
-        update: jest.fn().mockResolvedValue({}),
-      },
-      advanceLoanDeduction: {
-        findMany: jest.fn().mockResolvedValue([]),
-        createMany: jest.fn().mockResolvedValue({}),
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-      },
       attendance: {
         groupBy: jest.fn().mockImplementation(async (args: any) =>
           (args?.where?.employeeId?.in ?? []).map((employeeId: string) => ({
@@ -243,29 +226,6 @@ describe('Overtime full cycle — normal → late-multiplier → payroll after a
             rebuildForItem: jest.fn(),
             deleteForItem: jest.fn(),
           },
-        },
-        // Loan recovery is planned inside create(). The policy is stubbed to the
-        // hardcoded defaults (v2 kill-switch OFF) so these suites assert the
-        // LEGACY recovery behaviour, unchanged.
-        {
-          provide: LoanPolicyService,
-          useValue: { resolve: jest.fn().mockResolvedValue(DEFAULT_LOAN_POLICY) },
-        },
-        { provide: LoanRecoveryService, useValue: new LoanRecoveryService(prisma as any) },
-        // The loan notification log. Payroll only tells a borrower their loan
-        // is fully repaid, and does it once per cycle through this.
-        {
-          provide: LoanNotificationService,
-          useValue: { notifyOnce: jest.fn().mockResolvedValue(true) },
-        },
-        // Court orders. No employee in these fixtures has one, so the rung is
-        // empty and the loan arithmetic below is unchanged — which is the
-        // point: adding the rung must not move money where there is no order.
-        {
-          // Only reached when deferralMode is EXTEND_TENURE, which these
-          // fixtures leave at the CARRY_FORWARD default.
-          provide: LoanScheduleService,
-          useValue: { regenerate: jest.fn().mockResolvedValue(undefined) },
         },
         { provide: PrismaService, useValue: prisma },
         { provide: HolidaysService, useValue: holidays },

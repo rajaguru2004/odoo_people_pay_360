@@ -103,22 +103,14 @@ describe('Developer mode (e2e)', () => {
   });
 
   describe('gated surfaces refuse a plain ADMIN and admit an elevated one', () => {
-    // Only surfaces this e2e slice actually mounts. WhatsAppInboundModule
-    // (/whatsapp/actions) and SampleDataModule are not in TestAppModule, so they
-    // would 404 here regardless of the gate — asserting on them would test the
-    // slice, not the feature. Their controllers carry the same class-level
-    // @RequireDeveloper(), covered by dev-mode.guard.spec.ts.
-    const GATED = [
-      '/copilot-settings',
-      '/whatsapp/settings',
-      '/attendance-integrations',
-      '/wps/employer-profiles',
-    ];
+    // Only surfaces this e2e slice actually mounts. SampleDataModule is not in
+    // TestAppModule, so it would 404 here regardless of the gate — asserting on
+    // it would test the slice, not the feature. Its controller carries the same
+    // class-level @RequireDeveloper(), covered by dev-mode.guard.spec.ts.
+    it('/copilot-settings → 403 for ADMIN, 2xx once elevated', async () => {
+      await auth('/copilot-settings').expect(403);
 
-    it.each(GATED)('%s → 403 for ADMIN, 2xx once elevated', async (path) => {
-      await auth(path).expect(403);
-
-      const allowed = await authDev(path);
+      const allowed = await authDev('/copilot-settings');
       expect(allowed.status).toBeLessThan(400);
     });
   });
@@ -130,14 +122,6 @@ describe('Developer mode (e2e)', () => {
         .http()
         .get('/profile-templates/active')
         .set('Authorization', `Bearer ${fx.plainEmployee.token}`)
-        .expect(200);
-    });
-
-    it('WPS payroll operations still work for HR without elevation', async () => {
-      await ctx
-        .http()
-        .get('/wps/formats')
-        .set('Authorization', `Bearer ${fx.scopedHr.token}`)
         .expect(200);
     });
 

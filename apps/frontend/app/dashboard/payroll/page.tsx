@@ -83,22 +83,20 @@ function derivePayroll(payroll: PayrollItemWithPeriod) {
   const deduction = Number(payroll.deduction) || 0;
   const insurance = Number(payroll.insurance) || 0;
   const tax = Number(payroll.tax) || 0;
-  const advanceLoanDeduction = Number(payroll.advanceLoanDeduction) || 0;
   const netSalary = Number(payroll.netSalary) || 0;
 
   // There is no separate "attendance deduction" to reconstruct. Loss of Pay is
   // already inside `deduction` (the engine stores disciplineDeduction +
-  // lopDeduction there), and reimbursement is added to net after deductions —
-  // so backing net out to a "pro-rated salary" only ever reproduced baseSalary.
-  // The old reconstruction was structurally zero AND double-counted, since the
-  // same money was then added to the total again.
-  const totalDeductions = deduction + insurance + tax + advanceLoanDeduction;
+  // lopDeduction there), so backing net out to a "pro-rated salary" only ever
+  // reproduced baseSalary. The old reconstruction was structurally zero AND
+  // double-counted, since the same money was then added to the total again.
+  const totalDeductions = deduction + insurance + tax;
   const daily = isDailyWage(payroll.employee?.salaryType);
   // A daily-wage worker's unworked days are simply unpaid, so `deduction` for
   // them is discipline only, never LOP.
   const deductionLabelKey = daily ? 'deductionsOther' : 'deductionsAbsenceAndOther';
 
-  return { baseSalary, daily, deductionLabelKey, foodAllowance, totalDeductions, advanceLoanDeduction };
+  return { baseSalary, daily, deductionLabelKey, foodAllowance, totalDeductions };
 }
 
 export default function PayrollPage() {

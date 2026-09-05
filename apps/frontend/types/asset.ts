@@ -99,32 +99,17 @@ export interface OpenAssetSummary {
 }
 
 /**
- * An unrecovered advance/loan balance. `ClearanceService` blocks on any request
- * sitting in APPROVED | DISBURSED | ACTIVE | ON_HOLD whose outstanding amount is
- * still above zero — money that is actually out.
- */
-export interface OutstandingLoanSummary {
-  loanId: string;
-  type: string;
-  referenceNo: string | null;
-  outstanding: number;
-}
-
-/**
  * `cleared: false` blocks every offboarding path.
  *
- * Two obligations, not one: held assets AND unrecovered loan balances. The
- * split flags exist so a caller can tell them apart — quoting an asset count
- * while a loan is what is blocking sends the reader hunting for hardware that
- * was never issued (R20). Mirrors `ClearanceService.getClearanceStatus`.
+ * One obligation: assets still held. `assetCleared` is kept alongside `cleared`
+ * so a caller can name what is blocking rather than only that something is.
+ * Mirrors `ClearanceService.getClearanceStatus`.
  */
 export interface ClearanceStatus {
-  /** Everything is clear: `assetCleared && loanCleared`. */
+  /** Everything is clear: nothing is still issued to the employee. */
   cleared: boolean;
   assetCleared: boolean;
-  loanCleared: boolean;
   openAssets: OpenAssetSummary[];
-  outstandingLoans: OutstandingLoanSummary[];
 }
 
 export interface CreateAssetData {

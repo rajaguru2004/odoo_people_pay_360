@@ -30,7 +30,7 @@ import {
  * guards around generating one are the highest-value assertions in the module,
  * and each of them is asserted on the SERVER'S OWN SENTENCE rather than on a
  * status code: a 409 tells a user nothing, and the string is the only part of a
- * refusal they can act on. That lesson is `docs/LOAN-ADVANCES-TEST-CASES.md`'s,
+ * refusal they can act on. That lesson is the finance suite's,
  * paid for by a production incident.
  *
  * ## Two behaviours here are worth knowing before reading the cases

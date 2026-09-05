@@ -319,7 +319,7 @@ test('people', async ({ page }) => {
     callouts: [
       { selector: 'testid=term-stat-pending', label: 'How many are waiting', pad: 8 },
       { selector: 'testid=term-tab-pending', label: 'The queue, and the decided history beside it' },
-      { selector: 'testid=clearance-banner', label: 'Clearance — outstanding loans and assets block a leaver', pad: 8, optional: true },
+      { selector: 'testid=clearance-banner', label: 'Clearance — unreturned company assets block a leaver', pad: 8, optional: true },
       { selector: 'text=Approve', label: 'Approves the termination', badge: 'left' },
       { selector: 'text=Reject', label: 'Sends it back', badge: 'left' },
     ],
@@ -561,7 +561,7 @@ test('payroll', async ({ page }) => {
     callouts: [
       { selector: 'text=Run pipeline', label: 'Where each run has reached', pad: 10 },
       { selector: 'text=Payment readiness', label: 'What still blocks payment', pad: 10 },
-      { selector: 'testid=oman-compliance', label: 'Oman compliance — WPS, PASI, overtime and end-of-service', pad: 8 },
+      { selector: 'testid=oman-compliance', label: 'Oman compliance — PASI, overtime and end-of-service', pad: 8 },
       { selector: 'text=Manage runs', label: 'Go to the runs themselves', badge: 'left' },
     ],
   });
@@ -710,23 +710,7 @@ test('finance', async ({ page }) => {
     url: '/dashboard/finance',
     height: 1400,
     callouts: [
-      { selector: 'text=Employee expense', label: 'What staff have claimed', pad: 10 },
-      { selector: 'text=Reimbursement health', label: 'How quickly claims are being settled', pad: 10 },
-      { selector: 'text=Loans & advances', label: 'What is outstanding', pad: 10 },
       { selector: 'text=Budget health', label: 'Spend against budget', pad: 10 },
-    ],
-  });
-
-  await shot(page, {
-    name: 'reimbursements-admin',
-    caption: 'Reimbursement claims',
-    url: '/dashboard/reimbursements',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=reimb-tab-pending', label: 'Claims waiting for a decision' },
-      { selector: 'testid=reimb-tab-all', label: 'Every claim, whatever its state' },
-      { selector: 'testid=reimb-approve', label: 'Approves the claim for payment', badge: 'left', optional: true },
-      { selector: 'testid=reimb-reject', label: 'Sends it back with a reason', badge: 'left', optional: true },
     ],
   });
 
@@ -742,34 +726,6 @@ test('finance', async ({ page }) => {
       { selector: 'testid=travel-new', label: 'Opens the trip request form' },
       { selector: 'testid=travel-filter-status', label: 'Filter by state' },
       { selector: 'testid=travel-approve', label: 'Approves the trip', badge: 'left', optional: true },
-    ],
-  });
-
-  await shot(page, {
-    name: 'loans-admin',
-    caption: 'Advances and loans',
-    url: '/dashboard/advance-loans',
-    height: 1300,
-    callouts: [
-      { selector: 'testid=loan-tab-pending', label: 'Requests waiting for a decision' },
-      { selector: 'testid=loan-products', label: 'The loan types and their rules' },
-      { selector: 'testid=loan-settlement', label: 'Settle a loan early' },
-      { selector: 'testid=loan-reports', label: 'Outstanding, overdue and portfolio reports' },
-      { selector: 'testid=loan-approve', label: 'Approves the request', badge: 'left', optional: true },
-    ],
-  });
-
-  await shot(page, {
-    name: 'loan-reports',
-    caption: 'Loan reports',
-    url: '/dashboard/advance-loans/reports',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=loan-report-tab-outstanding', label: 'What is still owed' },
-      { selector: 'testid=loan-report-tab-emiDue', label: 'Instalments due this cycle' },
-      { selector: 'testid=loan-report-tab-overdue', label: 'Instalments that were missed' },
-      { selector: 'testid=loan-report-asof', label: 'The date the report is drawn to' },
-      { selector: 'testid=loan-report-export', label: 'Export to CSV', badge: 'left' },
     ],
   });
 
@@ -912,11 +868,11 @@ test('system administration', async ({ page }) => {
     height: 1000,
     fit: false,
     callouts: [
-      // Five tabs, not seventeen. The administrator's Settings screen carries
-      // System, Branding, Payroll, Overtime Policies, Reimbursement, Advance &
-      // Loan, Libraries and the operator tabs as well; an HR manager is offered
-      // none of them. Pointing a legend at a tab that does not render would put
-      // a control in this book that its reader cannot find.
+      // Five tabs, not all of them. The administrator's Settings screen carries
+      // System, Branding, Payroll, Overtime Policies, Libraries and the operator
+      // tabs as well; an HR manager is offered none of them. Pointing a legend at
+      // a tab that does not render would put a control in this book that its
+      // reader cannot find.
       { selector: 'testid=settings-tab-general', label: 'Language, time zone and date format' },
       { selector: 'testid=settings-tab-notifications', label: 'Which alerts you receive' },
       { selector: 'testid=settings-tab-security', label: 'Change your password' },
@@ -941,11 +897,11 @@ test('system administration', async ({ page }) => {
       'The public holidays this branch observes'],
     ['settings-approvals', 'settings-tab-approvals', 'Settings — Approval hierarchy',
       'Who decides each kind of request, and in what order'],
-    // The administrator's Payroll Settings and Salary Payment Files tabs are
-    // NOT offered to an HR manager, so clicking them did nothing and the shot
-    // came out as the General tab wearing a Payroll caption. Removed rather
-    // than captioned honestly: a figure of the wrong screen is worse than no
-    // figure, and those two screens belong to the administrator book.
+    // The administrator's Payroll Settings tab is NOT offered to an HR manager,
+    // so clicking it did nothing and the shot came out as the General tab
+    // wearing a Payroll caption. Removed rather than captioned honestly: a
+    // figure of the wrong screen is worse than no figure, and that screen
+    // belongs to the administrator book.
   ];
 
   for (const [name, tab, caption, what] of TABS) {

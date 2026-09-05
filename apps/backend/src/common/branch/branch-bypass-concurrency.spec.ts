@@ -19,8 +19,8 @@ import {
  *
  * A stuck bypass makes getBranchContext() return null, and the MCP executor
  * fail-closes on that with "branch context missing". It looked impossible from
- * the outside: on one WhatsApp message a read tool succeeded and, a fraction of
- * a second later in the same scope, the write refused to run.
+ * the outside: within one request a read tool succeeded and, a fraction of a
+ * second later in the same scope, the write refused to run.
  *
  * These tests interleave deliberately, because the sequential case always
  * passed — which is exactly why the bug survived.

@@ -1,7 +1,7 @@
 import { AssetStatus } from '@prisma/client';
 import { bootE2EApp, E2EContext } from './utils/e2e-app';
 import { bearer } from './utils/fixtures';
-import { withSetting, withSettings } from './utils/settings';
+import { withSetting } from './utils/settings';
 import {
   setupWorkplaceFixtures,
   WorkplaceFixtures,
@@ -23,29 +23,23 @@ import { AssetWarrantyReminderSource } from '../src/reminders/sources/asset-warr
  *      the RETURN as the only difference between the halves. A control that
  *      passes only the "blocked" half is indistinguishable from an endpoint
  *      that is broken for everyone.
- *   2. The two kill switches, INDEPENDENTLY. `clearance_blocking_enabled`
- *      releases everything; `loan_clearance_blocking_enabled` must release the
- *      loan half and leave the asset half intact. A site that stops chasing
- *      salary advances must not thereby stop chasing laptops.
- *   3. Loan statuses. Money is only actually out in
- *      `APPROVED|DISBURSED|ACTIVE|ON_HOLD`; a SETTLED or REJECTED request has a
- *      principal figure but no debt, and blocking on those would make the gate
- *      unusable. Driven through real `AdvanceLoanRequest` rows, because the
- *      status list is a string array in the service and a typo in it is exactly
- *      the kind of thing only a real row catches.
- *   4. The override: BOTH a reason AND an OVERRIDE_ROLE, always audited.
- *   5. `getClearanceStatus` keyed on `returnedAt IS NULL` and never on
+ *   2. The kill switch, BOTH WAYS. `clearance_blocking_enabled` releases all
+ *      three paths while the asset is still held, and the block is back the
+ *      instant the switch is restored. A gate that can be switched off but not
+ *      back on is not a control, and only the second half proves it is one.
+ *   3. The override: BOTH a reason AND an OVERRIDE_ROLE, always audited.
+ *   4. `getClearanceStatus` keyed on `returnedAt IS NULL` and never on
  *      `Employee.status` — asserted head-on with an INACTIVE employee who is
  *      still holding, because that is the rule most likely to be "simplified"
  *      into a status check by a later change.
- *   6. Who may ask, and what a stranger's id answers.
- *   7. XM-API-12, the warranty reminder source that keeps the register honest
+ *   5. Who may ask, and what a stranger's id answers.
+ *   6. XM-API-12, the warranty reminder source that keeps the register honest
  *      between offboardings.
- *   8. Branch scope on the read — the one that used to produce a FALSE
+ *   7. Branch scope on the read — the one that used to produce a FALSE
  *      CLEARANCE rather than a refusal, which is the failure mode nobody
  *      notices.
  *
- * FINDINGS. Four defects this file pinned are now FIXED, and each pin has been
+ * FINDINGS. Three defects this file pinned are now FIXED, and each pin has been
  * collapsed with its `it.failing` twin into a single case asserting the correct
  * behaviour, keeping the finding's own id and a comment recording what the
  * defect was (docs/TESTING.md, "Recorded defects"):
@@ -54,20 +48,17 @@ import { AssetWarrantyReminderSource } from '../src/reminders/sources/asset-warr
  *                    told a foreign employee owed nothing. Now 404.
  *   R27  CLR-API-37  an unknown employeeId answered `cleared:true`. Now 404.
  *   R28  CLR-API-34  the MANAGER read was not department-scoped. Now 403.
- *   R29  CLR-API-26  the CLEARANCE_OVERRIDDEN audit row dropped the loan half.
- *                    Now carries `outstandingLoans` beside `openAssets`.
  *
  * No `it.failing` remains in this file, which is the point of the convention:
  * a twin that would now pass is a pin that has to go.
  *
- * SETTINGS DISCIPLINE. `clearance_blocking_enabled`,
- * `loan_clearance_blocking_enabled` and `reminder_days_asset_warranty` are
- * GLOBAL rows shared with every other suite. Every flip below is wrapped around
- * ONE case (never a describe block) via `withSetting`/`withSettings`, which
- * restore in a `finally`. A suite that leaves one flipped fails a file that
- * never touched it.
+ * SETTINGS DISCIPLINE. `clearance_blocking_enabled` and
+ * `reminder_days_asset_warranty` are GLOBAL rows shared with every other suite.
+ * Every flip below is wrapped around ONE case (never a describe block) via
+ * `withSetting`, which restores in a `finally`. A suite that leaves one flipped
+ * fails a file that never touched it.
  */
-describe('Workplace — asset & loan clearance gate (e2e)', () => {
+describe('Workplace — asset clearance gate (e2e)', () => {
   let ctx: E2EContext;
   let fx: WorkplaceFixtures;
 
@@ -93,8 +84,6 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
     assetId?: string;
     assetTag?: string;
     assignmentId?: string;
-    loanId?: string;
-    loanRef?: string;
   }
 
   /**
@@ -110,11 +99,6 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
     opts: {
       withAsset?: boolean;
       withContract?: boolean;
-      loanStatus?: string;
-      loanAmount?: number;
-      loanRepaid?: number;
-      loanWrittenOff?: number;
-      loanWaived?: number;
       branchId?: string;
       employeeStatus?: string;
       warrantyExpiry?: Date;
@@ -187,25 +171,6 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
       out.assetId = asset.id;
       out.assetTag = asset.assetTag;
       out.assignmentId = assignment.id;
-    }
-
-    if (opts.loanStatus) {
-      const loan = await ctx.prisma.advanceLoanRequest.create({
-        data: {
-          employeeId: employee.id,
-          type: 'LOAN',
-          amount: opts.loanAmount ?? 5000,
-          amountRepaid: opts.loanRepaid ?? 0,
-          writtenOffAmount: opts.loanWrittenOff ?? 0,
-          waivedAmount: opts.loanWaived ?? 0,
-          status: opts.loanStatus,
-          referenceNo: `LN-${fx.runId}-${suffix}`,
-          reason: 'clearance e2e',
-          installments: 1,
-        },
-      });
-      out.loanId = loan.id;
-      out.loanRef = loan.referenceNo ?? undefined;
     }
 
     return out;
@@ -423,9 +388,9 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
     });
   });
 
-  // ══ 2. The two kill switches ═══════════════════════════════════════════════
+  // ══ 2. The kill switch ═════════════════════════════════════════════════════
 
-  describe('CLR-API-07..11 kill switches', () => {
+  describe('CLR-API-07..08 the clearance kill switch', () => {
     it('CLR-API-07 clearance_blocking_enabled=false admits all three paths while the asset is STILL held', async () => {
       const a = await makeLeaver('KS1', { withAsset: true, withContract: true });
       const b = await makeLeaver('KS2', { withAsset: true, withContract: true });
@@ -466,197 +431,9 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
       expect(res.body.message).toContain(l.assetTag!);
       expect(await statusOf(l.employeeId)).toBe('ACTIVE');
     });
-
-    it('CLR-API-09 loan_clearance_blocking_enabled=false releases a loan-only blocker', async () => {
-      const blocked = await makeLeaver('KS5', { loanStatus: 'ACTIVE' });
-      const released = await makeLeaver('KS6', { loanStatus: 'ACTIVE' });
-
-      // Switch ON (default): the loan blocks.
-      const refused = await deleteEmployee(
-        blocked.employeeId,
-        fx.admin.token,
-      ).expect(400);
-      expect(refused.body.message).toMatch(
-        /1 outstanding advance\/loan balance\(s\)/,
-      );
-      expect(refused.body.message).toContain(blocked.loanRef!);
-
-      // Switch OFF: the identical shape walks.
-      await withSetting(
-        ctx,
-        'loan_clearance_blocking_enabled',
-        'false',
-        async () => {
-          await deleteEmployee(released.employeeId, fx.admin.token).expect(200);
-        },
-      );
-      expect(await statusOf(released.employeeId)).toBe('INACTIVE');
-      expect(await statusOf(blocked.employeeId)).toBe('ACTIVE');
-    });
-
-    it('CLR-API-10 loan switch OFF releases ONLY the loan half — the asset half still blocks, and the message names only the asset', async () => {
-      const l = await makeLeaver('KS7', {
-        withAsset: true,
-        loanStatus: 'DISBURSED',
-      });
-
-      await withSetting(
-        ctx,
-        'loan_clearance_blocking_enabled',
-        'false',
-        async () => {
-          const res = await deleteEmployee(l.employeeId, fx.admin.token).expect(
-            400,
-          );
-          // The whole value of two switches: turning one off must not quietly
-          // turn the other off too.
-          expect(res.body.message).toMatch(/1 company asset\(s\)/);
-          expect(res.body.message).toContain(l.assetTag!);
-          expect(res.body.message).not.toMatch(/advance\/loan balance/);
-          expect(res.body.message).not.toContain(l.loanRef!);
-        },
-      );
-
-      expect(await statusOf(l.employeeId)).toBe('ACTIVE');
-    });
-
-    it('CLR-API-11 the master switch outranks the loan switch — blocking off, loan blocking on, still admitted', async () => {
-      const l = await makeLeaver('KS8', {
-        withAsset: true,
-        loanStatus: 'ACTIVE',
-      });
-
-      await withSettings(
-        ctx,
-        {
-          clearance_blocking_enabled: 'false',
-          loan_clearance_blocking_enabled: 'true',
-        },
-        async () => {
-          // `assertCleared` returns before it ever reads the loan switch.
-          await deleteEmployee(l.employeeId, fx.admin.token).expect(200);
-        },
-      );
-
-      expect(await statusOf(l.employeeId)).toBe('INACTIVE');
-    });
-
-    it('CLR-API-11b both obligations at once are named together in one refusal', async () => {
-      const l = await makeLeaver('KS9', {
-        withAsset: true,
-        loanStatus: 'APPROVED',
-      });
-
-      const res = await deleteEmployee(l.employeeId, fx.admin.token).expect(400);
-      expect(res.body.message).toMatch(
-        /1 company asset\(s\) and 1 outstanding advance\/loan balance\(s\)/,
-      );
-      expect(res.body.message).toContain(l.assetTag!);
-      expect(res.body.message).toContain(l.loanRef!);
-    });
   });
 
-  // ══ 3. Loan statuses ═══════════════════════════════════════════════════════
-  //
-  // The blocking set is a literal string array in `getClearanceStatus`. Driving
-  // real rows is the only way a typo in it fails, and the only way the boundary
-  // between "money is out" and "the outcome was decided" is actually asserted.
-
-  describe('CLR-API-12..19 which loan statuses block', () => {
-    const BLOCKING = ['APPROVED', 'DISBURSED', 'ACTIVE', 'ON_HOLD'];
-    const NOT_BLOCKING = ['SETTLED', 'REJECTED'];
-
-    BLOCKING.forEach((status, i) => {
-      it(`CLR-API-${12 + i} a ${status} loan with a balance blocks the exit`, async () => {
-        const l = await makeLeaver(`LN${status}`, { loanStatus: status });
-
-        const res = await deleteEmployee(l.employeeId, fx.admin.token).expect(
-          400,
-        );
-        expect(res.body.message).toMatch(
-          /1 outstanding advance\/loan balance\(s\)/,
-        );
-        expect(res.body.message).toContain(l.loanRef!);
-        expect(await statusOf(l.employeeId)).toBe('ACTIVE');
-
-        const view = await clearanceOf(l.employeeId, fx.admin.token).expect(200);
-        expect(view.body.data.loanCleared).toBe(false);
-        expect(view.body.data.assetCleared).toBe(true);
-        expect(view.body.data.outstandingLoans).toHaveLength(1);
-        expect(view.body.data.outstandingLoans[0]).toMatchObject({
-          loanId: l.loanId,
-          type: 'LOAN',
-          referenceNo: l.loanRef,
-          outstanding: 5000,
-        });
-      });
-    });
-
-    NOT_BLOCKING.forEach((status, i) => {
-      it(`CLR-API-${16 + i} a ${status} loan does NOT block — the outcome was already decided`, async () => {
-        const l = await makeLeaver(`LN${status}`, { loanStatus: status });
-
-        const view = await clearanceOf(l.employeeId, fx.admin.token).expect(200);
-        expect(view.body.data.cleared).toBe(true);
-        expect(view.body.data.outstandingLoans).toEqual([]);
-
-        await deleteEmployee(l.employeeId, fx.admin.token).expect(200);
-        expect(await statusOf(l.employeeId)).toBe('INACTIVE');
-      });
-    });
-
-    it('CLR-API-18 an ACTIVE loan repaid in full does not block — the status is not the debt', async () => {
-      const l = await makeLeaver('LNFULL', {
-        loanStatus: 'ACTIVE',
-        loanAmount: 5000,
-        loanRepaid: 5000,
-      });
-
-      const view = await clearanceOf(l.employeeId, fx.admin.token).expect(200);
-      expect(view.body.data.loanCleared).toBe(true);
-      expect(view.body.data.outstandingLoans).toEqual([]);
-
-      await deleteEmployee(l.employeeId, fx.admin.token).expect(200);
-    });
-
-    it('CLR-API-19 write-off and waiver net the balance away, and a residual cent still blocks', async () => {
-      // Written off + waived + repaid == principal: nothing is owed.
-      const netted = await makeLeaver('LNNET', {
-        loanStatus: 'ACTIVE',
-        loanAmount: 5000,
-        loanRepaid: 1000,
-        loanWrittenOff: 3000,
-        loanWaived: 1000,
-      });
-      const nettedView = await clearanceOf(
-        netted.employeeId,
-        fx.admin.token,
-      ).expect(200);
-      expect(nettedView.body.data.loanCleared).toBe(true);
-
-      // A residue above the 0.005 rounding floor is still a debt.
-      const residual = await makeLeaver('LNRES', {
-        loanStatus: 'ACTIVE',
-        loanAmount: 5000,
-        loanRepaid: 4999.5,
-      });
-      const residualView = await clearanceOf(
-        residual.employeeId,
-        fx.admin.token,
-      ).expect(200);
-      expect(residualView.body.data.loanCleared).toBe(false);
-      expect(residualView.body.data.outstandingLoans[0].outstanding).toBe(0.5);
-    });
-
-    it('CLR-API-19b a PENDING request is not a debt and never blocks an exit', async () => {
-      const l = await makeLeaver('LNPEND', { loanStatus: 'PENDING' });
-      const view = await clearanceOf(l.employeeId, fx.admin.token).expect(200);
-      expect(view.body.data.cleared).toBe(true);
-      await deleteEmployee(l.employeeId, fx.admin.token).expect(200);
-    });
-  });
-
-  // ══ 4. Override ════════════════════════════════════════════════════════════
+  // ══ 3. Override ════════════════════════════════════════════════════════════
 
   describe('CLR-API-20..26 the override', () => {
     it('CLR-API-20 ADMIN overrides with a reason, and the exit completes while the asset is still held', async () => {
@@ -763,15 +540,14 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
       expect(audit).toBe(0);
     });
 
-    it('CLR-API-26 the CLEARANCE_OVERRIDDEN audit row carries the actor, the reason and BOTH obligations outstanding at the time', async () => {
-      // REGRESSION LOCK (R29 — fixed). `assertCleared` wrote `newData
-      // .openAssets` only, so an exit overridden past an unrecovered advance
-      // left an audit trail that stated no money was owed — the half an auditor
-      // is most likely to be looking for, and the half nothing else in the
-      // system reconstructs once the employee is gone. The override row is the
-      // ONLY record that the obligation was waived rather than met.
-      // `clearance.service.ts` now writes `outstandingLoans` beside
-      // `openAssets`.
+    it('CLR-API-26 the CLEARANCE_OVERRIDDEN audit row carries the actor, the reason and the obligations outstanding at the time', async () => {
+      // The override row is the ONLY record that the obligation was waived
+      // rather than met: once the employee is INACTIVE and the assignment stops
+      // appearing in anybody's working queue, nothing else in the system
+      // reconstructs what was still held at the moment somebody decided to let
+      // the exit through. So the row has to name the actor, the reason and the
+      // assets themselves — an audit row that says only "overridden" answers
+      // none of the questions an auditor actually arrives with.
       const l = await makeLeaver('OV8', { withAsset: true });
       const reason = `Written off under case ${fx.runId}`;
 
@@ -787,60 +563,26 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
 
       const newData = audit!.newData as any;
       expect(newData.reason).toBe(reason);
-      expect(newData.openAssets).toEqual([
-        { assetTag: l.assetTag, name: expect.any(String) },
-      ]);
-      // Written even when empty, so a reader can tell "nothing was owed" apart
-      // from "we did not look".
-      expect(newData.outstandingLoans).toEqual([]);
-    });
-
-    it('CLR-API-26b the audit row records the outstanding LOANS, not just the assets', async () => {
-      // REGRESSION LOCK (R29 — fixed). The case the gap actually hid: an exit
-      // overridden while an advance was still unrecovered.
-      const l = await makeLeaver('OV9', {
-        withAsset: true,
-        loanStatus: 'ACTIVE',
-      });
-      const reason = `Both halves written off ${fx.runId}`;
-
-      await deleteEmployee(l.employeeId, fx.admin.token, reason).expect(200);
-
-      const audit = await ctx.prisma.auditLog.findFirst({
-        where: { action: 'CLEARANCE_OVERRIDDEN', resourceId: l.employeeId },
-        orderBy: { createdAt: 'desc' },
-      });
-      const newData = audit!.newData as any;
-      expect(newData.outstandingLoans).toEqual([
-        expect.objectContaining({ referenceNo: l.loanRef, outstanding: 5000 }),
-      ]);
-      // Both halves in one row — the asset side did not regress to make room.
+      // The tag AND the name, because a tag alone is unreadable to whoever
+      // reviews the trail months later without the register in front of them.
       expect(newData.openAssets).toEqual([
         { assetTag: l.assetTag, name: expect.any(String) },
       ]);
     });
   });
 
-  // ══ 5. `getClearanceStatus` shape, and the returnedAt rule ═════════════════
+  // ══ 4. `getClearanceStatus` shape, and the returnedAt rule ═════════════════
 
   describe('CLR-API-27..31 the status projection', () => {
-    it('CLR-API-27 a holder gets the full five-field shape with the assignment detail', async () => {
+    it('CLR-API-27 a holder gets the full three-field shape with the assignment detail', async () => {
       const res = await clearanceOf(fx.holderId, fx.admin.token).expect(200);
       const data = res.body.data;
 
       expect(Object.keys(data).sort()).toEqual(
-        [
-          'assetCleared',
-          'cleared',
-          'loanCleared',
-          'openAssets',
-          'outstandingLoans',
-        ].sort(),
+        ['assetCleared', 'cleared', 'openAssets'].sort(),
       );
       expect(data.cleared).toBe(false);
       expect(data.assetCleared).toBe(false);
-      expect(data.loanCleared).toBe(true);
-      expect(data.outstandingLoans).toEqual([]);
       expect(data.openAssets).toHaveLength(1);
       expect(data.openAssets[0]).toMatchObject({
         assignmentId: fx.openAssignmentHolderId,
@@ -851,16 +593,14 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
       expect(data.openAssets[0].assignedAt).toBeTruthy();
     });
 
-    it('CLR-API-28 an employee with nothing outstanding is cleared with EMPTY arrays, not a crash', async () => {
+    it('CLR-API-28 an employee with nothing outstanding is cleared with an EMPTY array, not a crash', async () => {
       const l = await makeLeaver('SH1');
 
       const res = await clearanceOf(l.employeeId, fx.admin.token).expect(200);
       expect(res.body.data).toEqual({
         cleared: true,
         assetCleared: true,
-        loanCleared: true,
         openAssets: [],
-        outstandingLoans: [],
       });
     });
 
@@ -951,7 +691,7 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
     });
   });
 
-  // ══ 6. Who may ask ═════════════════════════════════════════════════════════
+  // ══ 5. Who may ask ═════════════════════════════════════════════════════════
 
   describe('CLR-API-32..38 roles on the clearance endpoints', () => {
     it('CLR-API-32 ADMIN and HR_MANAGER may read a clearance', async () => {
@@ -972,9 +712,9 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
       // carried `@Roles('ADMIN','HR_MANAGER','MANAGER')` and nothing else, while
       // its sibling `/assets/assignments/open` narrowed a MANAGER to
       // `managedDepartmentIds` — so any manager could read what any employee in
-      // the company was holding, in any department. The clearance read is the
-      // door that names an employee's outstanding advances as well as their
-      // hardware, so the wider surface was the more sensitive of the two.
+      // the company was holding, in any department. The clearance read names an
+      // employee by id and enumerates their custody, which is exactly the
+      // surface the department narrowing exists to keep closed.
       //
       // The read path now runs `assertCanAccessEmployeeRecord`
       // (`common/services/record-access.util.ts`), which applies the same
@@ -1002,8 +742,8 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
 
     it('CLR-API-37 an UNKNOWN employeeId answers 404, not a clearance', async () => {
       // REGRESSION LOCK (R27 — fixed). `getClearanceStatus` never loaded the
-      // Employee: a uuid belonging to nobody matched no assignment and no loan,
-      // so the endpoint answered a confident `cleared: true` and `assertCleared`
+      // Employee: a uuid belonging to nobody matched no open assignment, so the
+      // endpoint answered a confident `cleared: true` and `assertCleared`
       // would have waved the same id straight through. An operator who pasted a
       // wrong id was told the wrong person was clear. The service now resolves
       // the subject first and 404s an id that belongs to nobody.
@@ -1047,7 +787,7 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
     });
   });
 
-  // ══ 7. XM-API-12 — the warranty reminder source ════════════════════════════
+  // ══ 6. XM-API-12 — the warranty reminder source ════════════════════════════
   //
   // Driven through `RemindersService.runSource` with the asset source only,
   // rather than `runAll()`: this file has no business dispatching contract,
@@ -1214,7 +954,7 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
     });
   });
 
-  // ══ 8. Branch scope on the clearance read ══════════════════════════════════
+  // ══ 7. Branch scope on the clearance read ══════════════════════════════════
 
   describe('CLR-API-39..40 branch scope', () => {
     let foreign: Leaver;
@@ -1229,12 +969,11 @@ describe('Workplace — asset & loan clearance gate (e2e)', () => {
     it('CLR-API-39 a branch-scoped HR gets 404 for an employee outside their branch, never a clearance', async () => {
       // REGRESSION LOCK (R26 — fixed, and the severe one). The controller handed
       // the raw id to `getClearanceStatus` with no `assertInBranch`.
-      // `AssetAssignment` is `'relation'`-scoped by the holder and
-      // `AdvanceLoanRequest` likewise, so for a branch-A HR the branch
-      // middleware FILTERED the branch-B holdings out and the projection
-      // reported zero obligations. The answer was not "you may not see this
-      // employee" — it was "this employee owes nothing" about someone provably
-      // holding a laptop. It failed toward "clear to go".
+      // `AssetAssignment` is `'relation'`-scoped by the holder, so for a
+      // branch-A HR the branch middleware FILTERED the branch-B holdings out
+      // and the projection reported zero obligations. The answer was not "you
+      // may not see this employee" — it was "this employee owes nothing" about
+      // someone provably holding a laptop. It failed toward "clear to go".
       //
       // The read now resolves the Employee and runs the same `assertInBranch`
       // the three offboarding doors already use. Per the house convention

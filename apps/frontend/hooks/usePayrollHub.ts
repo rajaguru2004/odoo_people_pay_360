@@ -26,16 +26,6 @@ import type { PayrollHubSummary, PayrollTrendMonths } from '@/types/payrollHub';
  * so two branches cannot share a cache entry.
  */
 
-/**
- * The period a payroll screen is about: the month being run right now.
- *
- * Kept exported although this hub no longer uses it — `hooks/useFinanceHub.ts`
- * imports it for the loan-recovery cycle, which genuinely is "this month".
- */
-export function currentPeriod(now = new Date()): { month: number; year: number } {
-  return { month: now.getMonth() + 1, year: now.getFullYear() };
-}
-
 export function usePayrollHub() {
   const branchId = useBranchStore((s) => s.selectedBranchId) ?? undefined;
   const [months, setMonths] = useState<PayrollTrendMonths>(6);

@@ -8,15 +8,12 @@ import { ChannelVerificationModule } from './channel-verification.module';
 import { ChannelVerificationController } from './channel-verification.controller';
 import { VerifyPageController } from './verify-page.controller';
 import { ChannelFaceVerificationService } from './channel-face-verification.service';
-import { WhatsAppModule } from '../../whatsapp/whatsapp.module';
-import { DiscordModule } from '../../discord/discord.module';
 import { TimezoneModule } from '../timezone/timezone.module';
 
 /**
  * The browser half of channel verification.
  *
- * A LEAF, like WhatsAppInboundModule and DiscordInboundModule, and for the same
- * reason: nothing imports it, which is what lets it depend on McpModule and on
+ * A LEAF: nothing imports it, which is what lets it depend on McpModule and on
  * FaceRecognitionModule at once. Putting either of those inside the token
  * module would drag a TensorFlow model into the graph every tool call runs
  * through.
@@ -28,10 +25,6 @@ import { TimezoneModule } from '../timezone/timezone.module';
     McpModule,
     FaceRecognitionModule,
     ChannelVerificationModule,
-    // The outbox sinks, so the page's outcome lands back in the chat it
-    // started from. Both are cycle-safe from a leaf.
-    WhatsAppModule,
-    DiscordModule,
     TimezoneModule,
   ],
   controllers: [ChannelVerificationController, VerifyPageController],

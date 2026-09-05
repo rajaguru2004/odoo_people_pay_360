@@ -2,18 +2,17 @@ import * as bcrypt from 'bcrypt';
 import { E2EContext } from './e2e-app';
 
 /**
- * The Finance module's own fixture set: reimbursements, travel, advances &
- * loans, loan reports, budgets and bank migration.
+ * The Finance module's own fixture set: travel, budgets and bank migration.
  *
  * Deliberately separate from `utils/fixtures.ts` and `utils/org-fixtures.ts`.
  * Finance needs three things neither of those provides:
  *
- *  1. **Employees shaped for the eligibility engine.** Ten of the rules under
+ *  1. **Employees shaped for the eligibility engine.** Many of the rules under
  *     test are expressed as "this employee cannot" — inactive, resigned, too
- *     new, already at the active-loan ceiling. A fixture set with one healthy
- *     employee can only ever exercise the happy path.
+ *     new. A fixture set with one healthy employee can only ever exercise the
+ *     happy path.
  *  2. **Reference data the modules cannot run without.** A travel request with
- *     no `PER_DIEM_DESTINATION` spawns no claim; a budget with no
+ *     no `PER_DIEM_DESTINATION` snapshots no rate; a budget with no
  *     `BUDGET_CATEGORY` has nothing to plan against; the bank screens are inert
  *     without a `Bank` and a `CountryBankingField` schema. None of this is in
  *     the base seed.
@@ -35,14 +34,8 @@ const PASSWORD = 'Passw0rd!';
 /** ISO-2 used for every banking fixture. Matches the Oman-first product bias. */
 export const FIN_COUNTRY = 'OM';
 
-/** A destination WITH a rate — approving a trip here must spawn a per-diem claim. */
+/** A destination WITH a rate — a trip here snapshots a per-diem rate at submit. */
 export const RATED_DESTINATION = 'E2E Muscat';
-/**
- * A destination with rate 0. `Decimal(0)` is a truthy object, so a service that
- * writes `if (rate)` instead of `Number(rate) > 0` spawns a zero-value claim
- * here. That is the case this fixture exists for.
- */
-export const ZERO_RATE_DESTINATION = 'E2E Zero Rate';
 
 export interface FinanceUser {
   userId: string;
@@ -99,8 +92,8 @@ export interface FinanceFixtures {
   /** EMPLOYEE in branch B, linked to `foreign`. */
   foreignEmployee: FinanceUser;
   /**
-   * EMPLOYEE whose user id goes in `advance_loan_auditor_user_ids` — read-all,
-   * write-nothing. The only role in Finance granted by user id rather than role.
+   * EMPLOYEE granted read-all, write-nothing by user id rather than by role —
+   * the one principal in Finance whose reach is not a `@Roles()` decision.
    */
   auditor: FinanceUser;
 
@@ -122,9 +115,8 @@ export interface FinanceFixtures {
   /** Line with departmentId null — the company-wide fallback. */
   budgetFallbackLineId: string;
 
-  /** `PER_DIEM_DESTINATION` library ids. */
+  /** `PER_DIEM_DESTINATION` library id. */
   ratedDestinationId: string;
-  zeroRateDestinationId: string;
 
   cleanup: () => Promise<void>;
 }
@@ -378,11 +370,6 @@ export async function setupFinanceFixtures(
     RATED_DESTINATION,
     { perDiemRate: 25 },
   );
-  const zeroRateDestination = await upsertLibraryItem(
-    'PER_DIEM_DESTINATION',
-    ZERO_RATE_DESTINATION,
-    { perDiemRate: 0 },
-  );
   for (const label of ['Travel', 'Training', 'Payroll', 'Overtime']) {
     await upsertLibraryItem('BUDGET_CATEGORY', label);
   }
@@ -501,16 +488,9 @@ export async function setupFinanceFixtures(
     budgetFallbackLineId: budgetFallbackLine.id,
 
     ratedDestinationId: ratedDestination.id,
-    zeroRateDestinationId: zeroRateDestination.id,
 
-    /**
-     * FK-ordered teardown. Order is not cosmetic: loans are `onDelete: Restrict`
-     * on the employee (loan history has to outlive the person for statutory
-     * audit), so the whole loan graph must go before any employee can.
-     */
+    /** FK-ordered teardown: every child row goes before the employee it hangs off. */
     cleanup: async () => {
-      const loanWhere = { request: { employee: employeeWhere } };
-
       await prisma.auditLog.deleteMany({ where: { userId: { in: userIds } } });
 
       // Budgets: commitments -> lines -> budget.
@@ -524,20 +504,11 @@ export async function setupFinanceFixtures(
         where: { branchId: { in: [branchA.id, branchB.id] } },
       });
 
-      // Travel: itineraries -> requests. Requests hold advanceLoanId, which is
-      // SetNull, so they can go before the loan graph.
+      // Travel: itineraries -> requests.
       await prisma.travelItinerary.deleteMany({
         where: { travel: { employee: employeeWhere } },
       });
       await prisma.travelRequest.deleteMany({
-        where: { employee: employeeWhere },
-      });
-
-      // Reimbursements: attachments -> claims.
-      await prisma.reimbursementAttachment.deleteMany({
-        where: { reimbursement: { employee: employeeWhere } },
-      });
-      await prisma.reimbursement.deleteMany({
         where: { employee: employeeWhere },
       });
 
@@ -556,24 +527,10 @@ export async function setupFinanceFixtures(
         where: { resolvedApproverId: { in: userIds } },
       });
 
-      // Loans, children first.
-      await prisma.advanceLoanNotificationLog.deleteMany({ where: loanWhere });
-      await prisma.loanTransaction.deleteMany({ where: loanWhere });
-      await prisma.loanRateChange.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanDeduction.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanAttachment.deleteMany({ where: loanWhere });
-      await prisma.loanSchedule.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanRequest.deleteMany({
-        where: { employee: employeeWhere },
-      });
-      await prisma.loanSettlement.deleteMany({
-        where: { employee: employeeWhere },
-      });
-
       await prisma.libraryItem.deleteMany({
         where: {
           libraryType: 'PER_DIEM_DESTINATION',
-          label: { in: [RATED_DESTINATION, ZERO_RATE_DESTINATION] },
+          label: RATED_DESTINATION,
         },
       });
 

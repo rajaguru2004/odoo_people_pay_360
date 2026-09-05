@@ -262,17 +262,7 @@ export class ApprovalEngineService {
           `A ${type.toLowerCase()} request from ${requester?.fullName ?? 'an employee'} awaits your approval (step ${step.stepOrder}).`,
           'APPROVAL_REQUESTED',
           APPROVAL_KINDS[type].link,
-          // WhatsApp comes free here: APPROVAL_REQUESTED is a discriminating
-          // type, so the template registry selects on it without an explicit
-          // key. waData only enriches the body. One block covers LEAVE,
-          // OVERTIME, BANK_CHANGE, TRAVEL, TRAINING and ADVANCE_LOAN.
           {
-            waData: {
-              requestType: type,
-              requesterName: requester?.fullName ?? 'An employee',
-              stepOrder: step.stepOrder,
-            },
-            waDedupeKey: `approval:${type}:${requestId}:step${step.stepOrder}:requested`,
             // What the approver is being asked to decide. Carries no authority:
             // each channel mints its own single-use, identity-bound capability
             // from it, so this row is never itself a way to approve anything.
@@ -444,10 +434,6 @@ export class ApprovalEngineService {
           : `Your ${type.toLowerCase()} request was rejected at step ${stepOrder}.`,
         approved ? 'APPROVAL_STEP_APPROVED' : 'APPROVAL_REJECTED',
         APPROVAL_KINDS[type].link,
-        {
-          waData: { requestType: type, stepOrder },
-          waDedupeKey: `approval:${type}:${requesterEmployeeId}:step${stepOrder}:${decision}`,
-        },
       )
       .catch((e) => this.logger.error(`notify requester failed: ${e.message}`));
   }

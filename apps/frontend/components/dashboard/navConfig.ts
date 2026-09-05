@@ -52,9 +52,9 @@ export interface NavGroup {
    * Payroll is the case it exists for: its hub is `/dashboard/payroll/overview`,
    * a SIBLING of the routes it owns, because `/dashboard/payroll` itself is the
    * payslip screen every role reaches from the user menu. Matching on `href`
-   * alone therefore resolved none of `/dashboard/payroll/:id`,
-   * `/dashboard/payroll/:id/wps` or `/dashboard/payroll` to this module, and
-   * those screens rendered no breadcrumb trail at all.
+   * alone therefore resolved neither `/dashboard/payroll/:id` nor
+   * `/dashboard/payroll` to this module, and those screens rendered no
+   * breadcrumb trail at all.
    */
   basePath?: string;
   roles: string[];
@@ -68,11 +68,11 @@ export type SubMenuItem = NavChild;
 /**
  * Routes that only exist when their feature is on.
  *
- * Read as `!== true` rather than `=== false`, unlike the older overtime and
- * reimbursement switches: those are established features that ship ON, so they
- * hide only when explicitly disabled. These ship OFF, so a missing key — an
- * older backend, a failed request — must hide them rather than surface a screen
- * whose API answers 404.
+ * Read as `!== true` rather than `=== false`, unlike the older overtime switch:
+ * that is an established feature that ships ON, so it hides only when
+ * explicitly disabled. These ship OFF, so a missing key — an older backend, a
+ * failed request — must hide them rather than surface a screen whose API
+ * answers 404.
  */
 export const FLAG_ROUTES: Array<{ flag: keyof BrandingData; hrefs: string[] }> = [
   { flag: 'payroll_preflight_enabled', hrefs: ['/dashboard/payroll/validate'] },
@@ -244,10 +244,7 @@ export const adminMenuItems: NavGroup[] = [
     href: '/dashboard/finance',
     roles: ['ADMIN', 'MANAGER'],
     children: [
-      { labelKey: 'reimbursements', href: '/dashboard/reimbursements' },
       { labelKey: 'travel', href: '/dashboard/travel' },
-      { labelKey: 'advancesLoans', href: '/dashboard/advance-loans' },
-      { labelKey: 'loanReports', href: '/dashboard/advance-loans/reports' },
       { labelKey: 'budgets', href: '/dashboard/budgets' },
     ],
   },
@@ -330,8 +327,6 @@ export const employeeMenuItems: NavGroup[] = [
     children: [
       { labelKey: 'myPayslips', href: '/dashboard/payroll' },
       { labelKey: 'myGratuity', href: '/dashboard/my-payroll/gratuity' },
-      { labelKey: 'myReimbursements', href: '/dashboard/reimbursements' },
-      { labelKey: 'myAdvancesLoans', href: '/dashboard/advance-loans' },
       { labelKey: 'myTravel', href: '/dashboard/my-travel' },
     ],
   },
@@ -413,12 +408,10 @@ export const departmentHeadMenuItems: NavGroup[] = [
   {
     icon: Wallet,
     labelKey: 'finance',
-    href: '/dashboard/reimbursements',
+    href: '/dashboard/travel',
     roles: ['MANAGER'],
     children: [
-      { labelKey: 'reimbursements', href: '/dashboard/reimbursements' },
       { labelKey: 'travel', href: '/dashboard/travel' },
-      { labelKey: 'advancesLoans', href: '/dashboard/advance-loans' },
     ],
   },
   {
@@ -448,14 +441,10 @@ export function hrefDisabled(href: string | undefined, branding: BrandingData | 
   ) {
     return true;
   }
-  if (branding?.reimbursement_enabled === false && href === '/dashboard/reimbursements') {
-    return true;
-  }
   // The payroll extensions, which are OFF by default rather than on. Note the
-  // direction: overtime and reimbursement are existing features, so they hide
-  // only on an explicit `false`; these hide unless explicitly `true`, because an
-  // older backend that has never heard of the key must not surface a screen
-  // whose API answers 404.
+  // direction: overtime is an existing feature, so it hides only on an explicit
+  // `false`; these hide unless explicitly `true`, because an older backend that
+  // has never heard of the key must not surface a screen whose API answers 404.
   for (const route of FLAG_ROUTES) {
     if (route.hrefs.includes(href) && branding?.[route.flag] !== true) {
       return true;

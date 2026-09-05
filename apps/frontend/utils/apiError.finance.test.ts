@@ -9,7 +9,7 @@
  * This one is about the other read, the one Finance depends on and nothing else
  * in the app does: `apiErrorBody(err)?.errors`, the per-FIELD map. Bank details
  * are the only place where the server's refusal is a dictionary rather than a
- * sentence, because a bank rejects an entire wage file over one mistyped digit
+ * sentence, because a bank rejects an entire transfer over one mistyped digit
  * and "which field" is the whole content of the refusal. `errors` lives on the
  * response BODY, which the flat rejection carries under `details` — so a caller
  * reading `err.response.data.errors` gets undefined and shows "Failed to
@@ -129,18 +129,18 @@ describe('a Nest array message — several constraints at once', () => {
       400,
       {
         message: [
-          'amount must be a positive number',
-          'expenseDate must be a valid ISO 8601 date string',
-          'type should not be empty',
+          'estimatedCost must be a positive number',
+          'departureDate must be a valid ISO 8601 date string',
+          'purpose should not be empty',
         ],
       },
-      '/reimbursements',
+      '/travel-requests',
     );
 
     expect(
       apiErrorMessage(err, 'Failed to create request'),
       'one readable sentence, never a comma-mashed blob',
-    ).toBe('amount must be a positive number');
+    ).toBe('estimatedCost must be a positive number');
 
     expect(
       apiErrorBody<{ message: string[] }>(err)?.message,
@@ -152,7 +152,7 @@ describe('a Nest array message — several constraints at once', () => {
     // `errors` is null on this shape. A screen keying on `errors` must not read
     // the array as a dictionary and render "0: amount must be…".
     const err = rejectedWith(400, {
-      message: ['amount must be a positive number'],
+      message: ['estimatedCost must be a positive number'],
     });
 
     expect(

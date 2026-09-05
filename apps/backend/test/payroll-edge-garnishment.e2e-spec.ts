@@ -521,8 +521,6 @@ describe('Payroll edge — garnishments and carry-forward (PE-GARN)', () => {
       afterGross -
       num(after.insurance) -
       num(after.tax) +
-      num(after.reimbursement) -
-      num(after.advanceLoanDeduction) -
       num(after.garnishment);
     expect(Math.abs(reconciled - num(after.netSalary))).toBeLessThan(0.02);
 

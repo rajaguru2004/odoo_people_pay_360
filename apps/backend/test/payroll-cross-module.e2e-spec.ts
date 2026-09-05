@@ -3,16 +3,15 @@ import {
   setupPayrollFixtures,
   seedAttendance,
   PayrollFixtures,
-  VALID_OM_IBAN,
   bearer,
 } from './utils/payroll-fixtures';
 
 /**
  * The seams around payroll — Phase 4, chunk C7.
  *
- * Everything here is asserted from the PAYROLL side. The loan module has its own
- * 120-case suite, attendance and overtime have theirs; what none of them can
- * prove is that the contract BETWEEN them and a payroll run holds.
+ * Everything here is asserted from the PAYROLL side. Attendance and overtime
+ * have their own suites; what none of them can prove is that the contract
+ * BETWEEN them and a payroll run holds.
  *
  * The centrepiece is `assertBankEditable` — the guard that freezes an employee's
  * bank details while their money is in motion. It is the highest-value
@@ -26,8 +25,6 @@ import {
  * |----------------------------------------|-------------|
  * | payroll DRAFT / PENDING_APPROVAL / APPROVED | 409    |
  * | payroll LOCKED / REJECTED              | allowed     |
- * | WPS file GENERATING / GENERATED / SUBMITTED | 409    |
- * | WPS row flipped REJECTED by the bank   | allowed, that employee only |
  * | employee has NO active detail, migration path | allowed (`exemptFirstTime`) |
  */
 describe('Payroll cross-module seams (e2e)', () => {
@@ -259,117 +256,6 @@ describe('Payroll cross-module seams (e2e)', () => {
         where: { requestType: 'BANK_CHANGE' },
         data: { isActive: false },
       });
-    });
-  });
-
-  // ── X-API-09..12  The WPS half of the freeze ─────────────────────────────
-  describe('X-API-09..12 — the WPS half', () => {
-    it('X-API-09: a GENERATED wage file freezes the employees it names', async () => {
-      // Build the Oman branch's file: WPS needs an employer profile, a per-branch
-      // config, a LOCKED payroll and a payable employee — the fixture already has
-      // the last of those.
-      const profile = await asAdmin(
-        api().post('/wps/employer-profiles'),
-        fx.branchOm,
-      ).send({
-        name: `Seam Employer ${fx.runId}`,
-        legalName: `Seam Employer Legal ${fx.runId}`,
-        country: 'OM',
-        format: 'generic-csv-v1',
-        data: {
-          employerReference: `SEAM-${fx.runId}`,
-          employerAccount: VALID_OM_IBAN,
-        },
-      });
-      expect(profile.status).toBe(201);
-
-      const config = await asAdmin(api().post('/wps/config'), fx.branchOm).send({
-        branchId: fx.branchOm,
-        employerProfileId: profile.body.data.id,
-        format: 'generic-csv-v1',
-        enabled: true,
-      });
-      expect(config.status).toBe(201);
-
-      const period = fx.periodAt(periodCursor++);
-      await seedAttendance(ctx.prisma, [fx.omEmpId], fx.branchOm, period);
-      const run = await asAdmin(api().post('/payrolls'), fx.branchOm).send({
-        month: period.month,
-        year: period.year,
-      });
-      expect(run.status).toBe(201);
-      const runId = run.body.data.id;
-      await asAdmin(api().post(`/payrolls/${runId}/submit`), fx.branchOm);
-      await asAdmin(api().post(`/payrolls/${runId}/approve`), fx.branchOm).send({});
-      expect(
-        (await asAdmin(api().post(`/payrolls/${runId}/lock`), fx.branchOm)).status,
-      ).toBe(201);
-
-      // The payroll is LOCKED, so the payroll half of the freeze is off...
-      const beforeGenerate = await as(
-        fx.admin.token,
-        api().post('/bank-change-requests'),
-        fx.branchOm,
-      ).send({
-        employeeId: fx.omEmpId,
-        bankId: fx.bankOmId,
-        data: { accountHolderName: 'Payroll OMAN', iban: VALID_OM_IBAN },
-      });
-      expect(beforeGenerate.status).toBe(201);
-
-      const generated = await asAdmin(
-        api().post('/wps/generate'),
-        fx.branchOm,
-      ).send({ payrollId: runId });
-      expect(generated.status).toBe(201);
-
-      // ...and the WPS half is now on.
-      const afterGenerate = await as(
-        fx.admin.token,
-        api().post('/bank-change-requests'),
-        fx.branchOm,
-      ).send({
-        employeeId: fx.omEmpId,
-        bankId: fx.bankOmId,
-        data: { accountHolderName: 'Payroll OMAN', iban: VALID_OM_IBAN },
-      });
-      expect(afterGenerate.status).toBe(409);
-      expect(afterGenerate.body.message).toMatch(/WPS|wage file/i);
-    });
-
-    it('X-API-10: a row the bank REJECTED is released, so the employee can fix it', async () => {
-      const file = await ctx.prisma.wpsFile.findFirst({
-        where: { branchId: fx.branchOm },
-        orderBy: { createdAt: 'desc' },
-      });
-      expect(file).toBeTruthy();
-
-      await asAdmin(api().post(`/wps/files/${file!.id}/submit`), fx.branchOm).send(
-        {},
-      );
-      const response = await asAdmin(
-        api().post(`/wps/files/${file!.id}/response`),
-        fx.branchOm,
-      ).send({
-        outcome: 'PARTIALLY_REJECTED',
-        rejectedRows: [
-          { employeeId: fx.omEmpId, code: 'IBAN', reason: 'account closed' },
-        ],
-      });
-      expect(response.status).toBe(201);
-
-      const res = await as(
-        fx.admin.token,
-        api().post('/bank-change-requests'),
-        fx.branchOm,
-      ).send({
-        employeeId: fx.omEmpId,
-        bankId: fx.bankOmId,
-        data: { accountHolderName: 'Payroll OMAN', iban: VALID_OM_IBAN },
-      });
-      // The whole point of a rejection: the employee must be able to correct the
-      // account the bank refused, even though the file is still on record.
-      expect(res.status).toBe(201);
     });
   });
 

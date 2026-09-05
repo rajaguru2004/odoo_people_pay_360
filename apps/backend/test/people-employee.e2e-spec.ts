@@ -171,9 +171,9 @@ describe('People — Employees (e2e)', () => {
     expect(res.status).toBe(201);
     expect(res.body.data.employeeCode).toBeTruthy();
 
-    // The user is NOT fire-and-forget (the welcome email and WhatsApp
-    // credential are). If this row is missing the person can never sign in,
-    // and nothing in the response would say so.
+    // The user is NOT fire-and-forget (the welcome email is). If this row is
+    // missing the person can never sign in, and nothing in the response would
+    // say so.
     const user = await ctx.prisma.user.findUnique({
       where: { email: payload.email as string },
     });
@@ -645,16 +645,7 @@ describe('People — Employees (e2e)', () => {
       expect(live.status).toBe(400);
       expect(body(live)).toContain('Only terminated employees');
 
-      // 3. Statutory retention wins over the request: a loan record pins the
-      //    employee in place even though they are terminated.
-      const withLoan = await ctx
-        .http()
-        .delete(`/employees/${fx.staffWithLoanId}/hard`)
-        .set(bearer(fx.hr.token));
-      expect(withLoan.status).toBe(400);
-      expect(body(withLoan)).toContain('advance/loan');
-
-      // 4. Clean and terminated — gone, and the user with it.
+      // 3. Clean and terminated — gone, and the user with it.
       const res = await ctx
         .http()
         .delete(`/employees/${fx.terminatedStaffId}/hard`)

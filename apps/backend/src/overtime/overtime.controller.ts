@@ -171,9 +171,8 @@ export class OvertimeController {
   approve(
     @Param('id') id: string,
     @CurrentUser() user: any,
-    // Optional in the wire sense as well as the type sense: the WhatsApp
-    // decision channel posts no body at all, and that must keep meaning
-    // "approve exactly as filed".
+    // Optional in the wire sense as well as the type sense: a caller may post
+    // no body at all, and that must keep meaning "approve exactly as filed".
     @Body() approveDto?: ApproveOvertimeDto,
   ) {
     return this.overtimeService.approve(id, user.id, user, approveDto);

@@ -9,23 +9,17 @@ import { AsyncLocalStorage } from 'async_hooks';
  * every call site.
  *
  * Stamping it here means every existing audit path — web, /mcp over HTTP, the
- * copilot, WhatsApp — records its channel with no migration and no changes at
- * the call sites.
+ * copilot — records its channel with no migration and no changes at the call
+ * sites.
  */
-export type ActorChannelName =
-  | 'web'
-  | 'mcp'
-  | 'copilot'
-  | 'whatsapp'
-  | 'discord'
-  | 'system';
+export type ActorChannelName = 'web' | 'mcp' | 'copilot' | 'system';
 
 export interface ActorChannel {
   channel: ActorChannelName;
   /**
    * Short, non-sensitive identifier for the specific actor within the channel —
-   * a masked phone for WhatsApp, a conversation id for the copilot. Never a
-   * full phone number: it lands in `audit_logs.userAgent`.
+   * a conversation id for the copilot, say. Never a full phone number: it lands
+   * in `audit_logs.userAgent`.
    */
   ref?: string;
 }
@@ -40,7 +34,7 @@ export function getActorChannel(): ActorChannel | null {
   return als.getStore() ?? null;
 }
 
-/** `whatsapp/+919•••••2836`, for the audit row's userAgent column. */
+/** `copilot/c-8f21`, for the audit row's userAgent column. */
 export function channelUserAgent(): string | undefined {
   const c = getActorChannel();
   if (!c) return undefined;

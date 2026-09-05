@@ -16,7 +16,7 @@ import { ApiClient, expect, settle, test } from '../../fixtures';
  *
  * The engine ships OFF and the e2e baseline pins it off, so this file flips
  * `document_engine_enabled` ON through the settings API and restores it in
- * afterAll — the same flip/restore the employee-template spec performs. The
+ * afterAll. The
  * first run of this file tried to SKIP when the flag was off by probing the
  * gallery testid; that guard was wrong twice over: the gallery shell renders
  * with the flag off (so nothing skipped), and a suite that silently skips in

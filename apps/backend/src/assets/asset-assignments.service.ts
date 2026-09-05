@@ -207,13 +207,6 @@ export class AssetAssignmentsService {
             message: `${asset.name} (${asset.assetTag}) has been assigned to you. Please acknowledge receipt.`,
             type: 'INFO' as any,
             link: '/dashboard/my-assets',
-            waTemplate: 'asset_assigned',
-            waData: {
-              assetName: asset.name,
-              assetTag: asset.assetTag,
-              assignedAt: new Date().toISOString(),
-            },
-            waDedupeKey: `asset:${assignment.id}:assigned`,
           })
           .catch(() => undefined);
       }

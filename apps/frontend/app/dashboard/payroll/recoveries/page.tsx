@@ -33,12 +33,11 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 /**
- * Money the employer is recovering, other than a loan.
+ * Money the employer is recovering from an employee.
  *
  * Clearance already blocks an exit while an asset is out; this is where the
- * money actually moves. Recovered after loans and never below the take-home
- * floor — a loan is money the employee asked for on an agreed schedule, this is
- * a claim the employer asserted.
+ * money actually moves. Never recovered below the take-home floor — this is a
+ * claim the employer asserted, not one the employee agreed to.
  */
 function RecoveriesContent() {
   const features = usePayrollFeatures();
@@ -115,8 +114,8 @@ function RecoveriesContent() {
         <HandCoins size={28} className="mx-auto mb-3 text-slate-300" />
         <h2 className="text-base font-semibold text-slate-800">Recoveries are switched off</h2>
         <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-          Recovering money stays a manual salary component or a loan, unlinked to
-          the asset. Turn it on under Settings → Payroll → Payroll extensions.
+          Recovering money stays a manual salary component, unlinked to the
+          asset. Turn it on under Settings → Payroll → Payroll extensions.
         </p>
       </div>
     );

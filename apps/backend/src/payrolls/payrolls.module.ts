@@ -12,7 +12,6 @@ import { OvertimePolicyModule } from '../overtime-policy/overtime-policy.module'
 import { SalaryComponentsModule } from '../salary-components/salary-components.module';
 import { SystemSettingsModule } from '../system-settings/system-settings.module';
 import { NotificationsModule } from '../notifications/notifications.module';
-import { AdvanceLoansModule } from '../advance-loans/advance-loans.module';
 import { AuditModule } from '../audit/audit.module';
 import { PayrollFeaturesService } from './payroll-features.service';
 import { PayrollItemLinesService } from './payroll-item-lines.service';
@@ -31,7 +30,7 @@ import { BankDetailsModule } from '../bank-details/bank-details.module';
     LeaveEncashmentModule,
     // The pre-run checklist validates against the calendar's window.
     PayrollCalendarModule,
-    // Asset damage, training bonds and notice shortfalls, after the loan ladder.
+    // Asset damage, training bonds and notice shortfalls.
     EmployeeRecoveriesModule,
     // The hub's payment-readiness check reuses BankingConfigService rather than
     // growing a second opinion about what a valid bank record is. One-way:
@@ -39,11 +38,8 @@ import { BankDetailsModule } from '../bank-details/bank-details.module';
     BankDetailsModule,
     // Locking a payroll realizes the budget commitments it pays out.
     BudgetsModule,
-    // Loan recovery planning (candidate selection + the affordability/priority
-    // allocator). One-way: AdvanceLoansModule never imports this one.
-    AdvanceLoansModule,
-    // Court orders are subtracted from the pool before loan recovery sees it.
-    // One-way, like AdvanceLoansModule: GarnishmentsModule never imports this.
+    // Court orders are subtracted from the pool before net pay is settled.
+    // One-way: GarnishmentsModule never imports this one.
     GarnishmentsModule,
     PrismaModule,
     HolidaysModule,

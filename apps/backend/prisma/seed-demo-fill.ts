@@ -34,11 +34,8 @@ function mulberry32(seed: number): () => number {
 /** Only what this script writes — never the base sample data. */
 async function clearOwnRows(): Promise<void> {
   const ofEmp = { employee: { email: { endsWith: SAMPLE_EMAIL } } };
-  // WPS holds payroll_id with onDelete: Restrict, so it leads.
-  await prisma.wpsFile.deleteMany({ where: { payroll: { batch: { name: { startsWith: 'SMP' } } } } });
   await prisma.gratuityAccrual.deleteMany({ where: ofEmp });
   await prisma.finalSettlement.deleteMany({ where: ofEmp });
-  await prisma.loanSchedule.deleteMany({ where: { request: ofEmp } });
   // The extra open run this script creates, identified by its note.
   await prisma.payroll.deleteMany({
     where: { batch: { name: { startsWith: 'SMP' } }, notes: { startsWith: 'Left open' } },

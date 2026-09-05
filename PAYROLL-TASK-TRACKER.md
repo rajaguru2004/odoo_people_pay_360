@@ -3,8 +3,8 @@
 **Plan:** `payroll-migration-plan.md`
 **Source (read-only):** `/home/suryaguru/StudioProjects/CRM/hrm_branch2/human-resource-management`
 **Target:** this repo.
-**Goal:** base payroll end-to-end. No settings-driven/advanced features (EOSB, WPS,
-loans, garnishments, encashment, batches, run versioning, statutory calculators).
+**Goal:** base payroll end-to-end. No settings-driven/advanced features (EOSB,
+garnishments, encashment, batches, run versioning, statutory calculators).
 
 Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked · `[-]` dropped (reason given)
 
@@ -181,12 +181,12 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked · `[-]` 
 
 ## Explicitly OUT (base system only)
 
-WPS wage files · gratuity / EOSB · advances & loans · garnishments · reimbursements ·
-leave encashment · carry-forward · run versioning / unlock-relock · payroll batches ·
-payroll calendar periods & cut-off · off-cycle / bonus / final-settlement run types ·
-statutory tax & social-insurance calculators · bank transfer files · notifications ·
-approval engine · audit logging · `PayrollFeaturesService` / feature flags ·
-percentage-of-basic salary rules (fixed amounts only, matching HRM's live engine).
+Gratuity / EOSB · garnishments · leave encashment · carry-forward · run versioning /
+unlock-relock · payroll batches · payroll calendar periods & cut-off · off-cycle /
+bonus / final-settlement run types · statutory tax & social-insurance calculators ·
+bank transfer files · notifications · approval engine · audit logging ·
+`PayrollFeaturesService` / feature flags · percentage-of-basic salary rules (fixed
+amounts only, matching HRM's live engine).
 
 ## Blocked upstream
 

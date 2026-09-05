@@ -13,10 +13,10 @@ const CONFIRM_FIELD = z
  * Call an MCP tool by name, in-process, with the same validation the HTTP
  * transport applies.
  *
- * Extracted from `copilot/mcp/in-process.transport.ts` so a second non-LLM
- * caller (the WhatsApp channel) can reuse it without depending on CopilotModule
- * — which also provides the OpenRouter client and the agent loop, i.e. exactly
- * the LLM coupling the WhatsApp path is required not to have.
+ * Extracted from `copilot/mcp/in-process.transport.ts` so a non-LLM caller can
+ * reuse it without depending on CopilotModule — which also provides the
+ * OpenRouter client and the agent loop, i.e. exactly the LLM coupling such a
+ * caller is required not to have.
  *
  * Everything that makes a tool call safe still happens inside
  * ToolExecutorService: role check, self-scope injection, the fail-closed branch

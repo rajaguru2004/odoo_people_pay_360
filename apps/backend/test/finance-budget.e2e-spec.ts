@@ -287,8 +287,8 @@ describe('Finance — HR budgets (e2e)', () => {
     });
 
     it('BUD-API-10 F10 — Budget.branchId is NOT NULL, which is what makes plain "direct" scoping safe', async () => {
-      // `Budget` is `'direct'` in the branch scope map while `LoanType`,
-      // `LoanPolicy` and `TrainingSession` are `'direct-or-global'`. The
+      // `Budget` is `'direct'` in the branch scope map while `TrainingSession`
+      // is `'direct-or-global'`. The
       // difference is safe only because a budget always has a branch: a
       // nullable one would be invisible from every branch rather than visible
       // from all. Locked here so a future "company-wide budget" migration

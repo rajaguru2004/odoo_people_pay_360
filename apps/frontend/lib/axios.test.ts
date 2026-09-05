@@ -235,12 +235,12 @@ describe('response interceptor — success', () => {
   });
 
   it('passes a blob response through untouched, keeping .data for the caller', async () => {
-    // File downloads (payslips, the WPS wage file) rely on this bypass; the
+    // File downloads (payslips, the employee export) rely on this bypass; the
     // unwrap would hand the caller the blob's *contents* rather than the
     // response, losing the headers a download needs.
     respondWith('binary-ish');
 
-    const response = (await axiosInstance.get('/wps/files/1/download', {
+    const response = (await axiosInstance.get('/export/employees', {
       responseType: 'blob',
     })) as unknown as { data: string; status: number };
 
@@ -273,12 +273,12 @@ describe('response interceptor — the flat error shape', () => {
   });
 
   it('preserves the whole body under .details so nothing is lost to flattening', async () => {
-    // WPS pre-flight returns its findings in the error body; the screen
+    // The payroll pre-flight returns its findings in the error body; the screen
     // re-renders them from here.
     const body = { message: 'Pre-flight failed', findings: [{ code: 'NO_IBAN', severity: 'BLOCKING' }] };
     failWith(422, body);
 
-    const err = await axiosInstance.post('/wps/generate', {}).catch((e) => e);
+    const err = await axiosInstance.post('/payrolls/preflight', {}).catch((e) => e);
 
     expect(err.details).toEqual(body);
     expect(err.statusCode).toBe(422);

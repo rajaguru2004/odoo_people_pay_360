@@ -226,16 +226,15 @@ export class AttendanceCorrectionsService {
   /**
    * Notify the requesting employee's user account of an approve/reject decision.
    *
-   * `type` is what selects the WhatsApp template, so it must discriminate —
-   * the generic 'INFO' this used to send resolved to no template, which is why
-   * the decision arrived by email and in the portal but never on WhatsApp.
+   * `type` is a discriminating value rather than the generic 'INFO' this used
+   * to send, so the recipient's notification list can tell an attendance
+   * decision apart from every other message in the system.
    */
   private async notifyRequester(
     employeeId: string,
     title: string,
     message: string,
     type: 'ATTENDANCE_CORRECTION_APPROVED' | 'ATTENDANCE_CORRECTION_REJECTED',
-    waData?: Record<string, unknown>,
   ) {
     try {
       const user = await this.prisma.user.findFirst({
@@ -249,7 +248,6 @@ export class AttendanceCorrectionsService {
           message,
           type,
           '/dashboard/attendance/corrections',
-          { waData },
         );
       }
     } catch {
@@ -665,7 +663,6 @@ export class AttendanceCorrectionsService {
       'Attendance request approved',
       `Your attendance adjustment for ${correction.date.toLocaleDateString('en-US')} was approved.`,
       'ATTENDANCE_CORRECTION_APPROVED',
-      { date: correction.date.toISOString(), status: 'Approved' },
     );
 
     return updated;
@@ -724,11 +721,6 @@ export class AttendanceCorrectionsService {
       'Attendance request rejected',
       `Your attendance adjustment for ${correction.date.toLocaleDateString('en-US')} was rejected: ${dto.rejectedReason}`,
       'ATTENDANCE_CORRECTION_REJECTED',
-      {
-        date: correction.date.toISOString(),
-        status: 'Rejected',
-        rejectionReason: dto.rejectedReason,
-      },
     );
 
     return updated;

@@ -7,10 +7,10 @@ import type { PayrollFinding } from '@/services/payrollExtensionsService';
 /**
  * One problem, rendered the same way wherever it came from.
  *
- * The WPS pre-flight and the payroll pre-run checklist answer the same shape of
- * question — what is wrong, per employee, and which screen fixes it — so they
- * render through the same component. Two components would drift, and the drift
- * would be visible to the same operator on two screens a minute apart.
+ * Every pre-flight check answers the same shape of question — what is wrong,
+ * per employee, and which screen fixes it — so they all render through the same
+ * component. Two components would drift, and the drift would be visible to the
+ * same operator on two screens a minute apart.
  */
 export function FindingRow({ finding }: { finding: PayrollFinding }) {
   const blocking = finding.severity === 'BLOCKING';

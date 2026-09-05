@@ -205,30 +205,12 @@ export async function setupFixtures(ctx: E2EContext): Promise<Fixtures> {
       });
       await prisma.user.deleteMany({ where: { email: { contains: runId } } });
 
-      // Loans/advances are onDelete: RESTRICT on the employee — loan history has
-      // to outlive the person for statutory audit — so a test employee who was
-      // given a loan can no longer be deleted while it exists. Clear the loan
-      // graph explicitly, children first. Skipping this leaves the shared
-      // database littered with half-deleted fixtures.
       const employeeWhere = {
         OR: [
           { employeeCode: { contains: runId } },
           { email: { contains: runId } },
         ],
       };
-      const loanWhere = { request: { employee: employeeWhere } };
-      await prisma.advanceLoanNotificationLog.deleteMany({ where: loanWhere });
-      await prisma.loanTransaction.deleteMany({ where: loanWhere });
-      await prisma.loanRateChange.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanDeduction.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanAttachment.deleteMany({ where: loanWhere });
-      await prisma.loanSchedule.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanRequest.deleteMany({
-        where: { employee: employeeWhere },
-      });
-      await prisma.loanSettlement.deleteMany({
-        where: { employee: employeeWhere },
-      });
 
       // Onboarded employees have auto-generated codes but a runId-tagged email.
       await prisma.employee.deleteMany({ where: employeeWhere });

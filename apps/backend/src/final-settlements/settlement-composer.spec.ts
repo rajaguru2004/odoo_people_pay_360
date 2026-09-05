@@ -12,7 +12,6 @@ const input = (over: Partial<ComposeInput> = {}): ComposeInput => ({
   leaveEncashment: 450,
   noticePay: 0,
   otherEarnings: [],
-  loanRecovery: 0,
   garnishment: 0,
   recoveries: [],
   carryForward: 0,
@@ -27,7 +26,7 @@ describe('settlement composer', () => {
       // which is what lets a regenerated settlement be compared with the one it
       // replaced.
       const r = composeSettlement(
-        input({ noticePay: 900, loanRecovery: 300, garnishment: 100, carryForward: 50 }),
+        input({ noticePay: 900, garnishment: 100, carryForward: 50 }),
       );
       expect(r.lines.map((l) => l.code)).toEqual([
         'PENDING_SALARY',
@@ -35,15 +34,14 @@ describe('settlement composer', () => {
         'LEAVE_ENCASHMENT',
         'NOTICE_PAY',
         'GARNISHMENT',
-        'LOAN_RECOVERY',
         'CARRY_FORWARD',
       ]);
     });
 
-    it('puts the court order ahead of the loan, as payroll does', () => {
-      const r = composeSettlement(input({ loanRecovery: 300, garnishment: 100 }));
+    it('puts the court order ahead of the carried-forward balance, as payroll does', () => {
+      const r = composeSettlement(input({ carryForward: 300, garnishment: 100 }));
       const codes = r.lines.filter((l) => l.category === 'DEDUCTION').map((l) => l.code);
-      expect(codes.indexOf('GARNISHMENT')).toBeLessThan(codes.indexOf('LOAN_RECOVERY'));
+      expect(codes.indexOf('GARNISHMENT')).toBeLessThan(codes.indexOf('CARRY_FORWARD'));
     });
 
     it('drops a zero line rather than printing "Notice pay 0.00"', () => {
@@ -53,14 +51,14 @@ describe('settlement composer', () => {
     });
 
     it('numbers lines consecutively from zero', () => {
-      const r = composeSettlement(input({ loanRecovery: 300 }));
+      const r = composeSettlement(input({ garnishment: 300 }));
       expect(r.lines.map((l) => l.displayOrder)).toEqual([0, 1, 2, 3]);
     });
 
     it('never emits a negative amount — the sign lives in the category', () => {
-      const r = composeSettlement(input({ loanRecovery: 300 }));
+      const r = composeSettlement(input({ garnishment: 300 }));
       expect(r.lines.every((l) => l.computedAmount >= 0)).toBe(true);
-      expect(r.lines.find((l) => l.code === 'LOAN_RECOVERY')!.category).toBe('DEDUCTION');
+      expect(r.lines.find((l) => l.code === 'GARNISHMENT')!.category).toBe('DEDUCTION');
     });
 
     it('carries named recoveries through with their own labels', () => {
@@ -80,7 +78,7 @@ describe('settlement composer', () => {
 
   describe('totals', () => {
     it('sums each side and nets them', () => {
-      const r = composeSettlement(input({ loanRecovery: 500 }));
+      const r = composeSettlement(input({ carryForward: 500 }));
       expect(r.totalEarnings).toBe(4150);
       expect(r.totalDeductions).toBe(500);
       expect(r.netPayable).toBe(3650);
@@ -90,10 +88,9 @@ describe('settlement composer', () => {
     it('goes NEGATIVE when the employee owes more than they are due', () => {
       // Deliberately unlike a payslip, which floors at zero because you do not
       // collect money through one. A leaver can genuinely owe money, and the
-      // document has to be able to say so — that is what CARRY_AS_RECEIVABLE on
-      // the loan side exists for.
+      // document has to be able to say so.
       const r = composeSettlement(
-        input({ pendingSalary: 100, gratuity: 0, leaveEncashment: 0, loanRecovery: 900 }),
+        input({ pendingSalary: 100, gratuity: 0, leaveEncashment: 0, carryForward: 900 }),
       );
       expect(r.netPayable).toBe(-800);
       expect(r.isReceivable).toBe(true);
@@ -102,7 +99,7 @@ describe('settlement composer', () => {
 
     it('reports a zero net as payable, not receivable', () => {
       const r = composeSettlement(
-        input({ pendingSalary: 500, gratuity: 0, leaveEncashment: 0, loanRecovery: 500 }),
+        input({ pendingSalary: 500, gratuity: 0, leaveEncashment: 0, carryForward: 500 }),
       );
       expect(r.netPayable).toBe(0);
       expect(r.isReceivable).toBe(false);
@@ -145,10 +142,10 @@ describe('settlement composer', () => {
 
   describe('the working', () => {
     it('names the variant and every line', () => {
-      const r = composeSettlement(input({ variant: 'RETIREMENT', loanRecovery: 200 }));
+      const r = composeSettlement(input({ variant: 'RETIREMENT', carryForward: 200 }));
       expect(r.workingLines[0]).toBe('Settlement variant: RETIREMENT.');
       expect(r.workingLines.some((l) => l.startsWith('+ End-of-service gratuity: 2700'))).toBe(true);
-      expect(r.workingLines.some((l) => l.startsWith('− Outstanding loans and advances: 200'))).toBe(true);
+      expect(r.workingLines.some((l) => l.startsWith('− Deductions carried from earlier payslips: 200'))).toBe(true);
     });
 
     it('ends with the three figures the document is judged on', () => {

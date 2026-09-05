@@ -1,10 +1,11 @@
 import { NotificationsService } from './notifications.service';
 
 /**
- * The WhatsApp tee lives inside NotificationsService.create(), which is called
+ * The channel tee lives inside NotificationsService.create(), which is called
  * from ~60 sites deep inside business transactions (leave approvals, payroll
- * locks, the reminders cron). The non-negotiable is that the channel can fail in
- * any way without the in-app notification — or the transaction — noticing.
+ * locks, the reminders cron). The non-negotiable is that a delivery channel can
+ * fail in any way without the in-app notification — or the transaction —
+ * noticing.
  */
 function makeHarness() {
   const prisma: any = {
@@ -13,19 +14,19 @@ function makeHarness() {
       createMany: jest.fn().mockResolvedValue({ count: 2 }),
     },
   };
-  const whatsapp: any = {
-    channelName: 'whatsapp',
+  const channelA: any = {
+    channelName: 'channel-a',
     enqueueFromNotifications: jest.fn().mockResolvedValue(1),
   };
-  const discord: any = {
-    channelName: 'discord',
+  const channelB: any = {
+    channelName: 'channel-b',
     enqueueFromNotifications: jest.fn().mockResolvedValue(1),
   };
   return {
     prisma,
-    whatsapp,
-    discord,
-    svc: new NotificationsService(prisma, [whatsapp, discord]),
+    channelA,
+    channelB,
+    svc: new NotificationsService(prisma, [channelA, channelB]),
   };
 }
 
@@ -38,85 +39,64 @@ const dto = (over: any = {}) => ({
   ...over,
 });
 
-describe('NotificationsService — WhatsApp tee', () => {
-  it('constructs without the WhatsApp module at all', () => {
+describe('NotificationsService — channel tee', () => {
+  it('constructs with no delivery channel registered at all', () => {
     // @Optional() injection: existing specs do `new NotificationsService(prisma)`,
-    // and a deployment may drop WhatsAppModule entirely.
+    // and a deployment may register no channel module whatsoever.
     const prisma: any = { notification: { create: jest.fn().mockResolvedValue({ id: 'n1' }) } };
     const svc = new NotificationsService(prisma);
     return expect(svc.create(dto())).resolves.toMatchObject({ success: true });
   });
 
-  it('forwards the notification to the outbox', async () => {
-    const { svc, whatsapp } = makeHarness();
-    await svc.create(dto({ waTemplate: 'leave_approved', waData: { leaveType: 'ANNUAL' } }));
+  it('forwards the notification to the channel', async () => {
+    const { svc, channelA } = makeHarness();
+    await svc.create(dto());
 
-    expect(whatsapp.enqueueFromNotifications).toHaveBeenCalledWith([
+    expect(channelA.enqueueFromNotifications).toHaveBeenCalledWith([
       expect.objectContaining({
         userId: 'u1',
         type: 'LEAVE_APPROVED',
-        waTemplate: 'leave_approved',
-        waData: { leaveType: 'ANNUAL' },
+        link: '/dashboard/leaves',
       }),
     ]);
   });
 
-  it('never persists the transient WhatsApp fields', async () => {
+  it('never persists the transient decision field', async () => {
     const { svc, prisma } = makeHarness();
-    await svc.create(
-      dto({ waTemplate: 'leave_approved', waData: { a: 1 }, waDedupeKey: 'k', suppressWhatsApp: false }),
-    );
+    await svc.create(dto({ decision: { requestType: 'LEAVE', requestId: 'req1' } }));
 
     const written = prisma.notification.create.mock.calls[0][0].data;
-    expect(written).not.toHaveProperty('waTemplate');
-    expect(written).not.toHaveProperty('waData');
-    expect(written).not.toHaveProperty('waDedupeKey');
-    expect(written).not.toHaveProperty('suppressWhatsApp');
-  });
-
-  it('honours suppressWhatsApp', async () => {
-    const { svc, whatsapp } = makeHarness();
-    await svc.create(dto({ suppressWhatsApp: true }));
-    expect(whatsapp.enqueueFromNotifications).not.toHaveBeenCalled();
+    expect(written).not.toHaveProperty('decision');
   });
 
   it('does not reject when a channel throws', async () => {
-    const { svc, whatsapp } = makeHarness();
-    whatsapp.enqueueFromNotifications.mockRejectedValue(new Error('evolution down'));
+    const { svc, channelA } = makeHarness();
+    channelA.enqueueFromNotifications.mockRejectedValue(new Error('channel down'));
 
     await expect(svc.create(dto())).resolves.toMatchObject({ success: true });
   });
 
   it('fans out to every registered channel', async () => {
-    const { svc, whatsapp, discord } = makeHarness();
+    const { svc, channelA, channelB } = makeHarness();
     await svc.create(dto());
 
-    expect(whatsapp.enqueueFromNotifications).toHaveBeenCalledTimes(1);
-    expect(discord.enqueueFromNotifications).toHaveBeenCalledTimes(1);
+    expect(channelA.enqueueFromNotifications).toHaveBeenCalledTimes(1);
+    expect(channelB.enqueueFromNotifications).toHaveBeenCalledTimes(1);
   });
 
   it('one failing channel does not stop the others', async () => {
-    const { svc, whatsapp, discord } = makeHarness();
-    whatsapp.enqueueFromNotifications.mockImplementation(() => {
+    const { svc, channelA, channelB } = makeHarness();
+    channelA.enqueueFromNotifications.mockImplementation(() => {
       throw new Error('sync boom');
     });
 
     await expect(svc.create(dto())).resolves.toMatchObject({ success: true });
-    expect(discord.enqueueFromNotifications).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not reject when the outbox throws synchronously', async () => {
-    const { svc, whatsapp } = makeHarness();
-    whatsapp.enqueueFromNotifications.mockImplementation(() => {
-      throw new Error('boom');
-    });
-
-    await expect(svc.create(dto())).resolves.toMatchObject({ success: true });
+    expect(channelB.enqueueFromNotifications).toHaveBeenCalledTimes(1);
   });
 
   it('still writes the in-app row when the channel fails', async () => {
-    const { svc, prisma, whatsapp } = makeHarness();
-    whatsapp.enqueueFromNotifications.mockRejectedValue(new Error('nope'));
+    const { svc, prisma, channelA } = makeHarness();
+    channelA.enqueueFromNotifications.mockRejectedValue(new Error('nope'));
 
     await svc.create(dto());
     expect(prisma.notification.create).toHaveBeenCalled();
@@ -124,42 +104,21 @@ describe('NotificationsService — WhatsApp tee', () => {
 
   describe('createBulk', () => {
     it('tees the whole batch in one call', async () => {
-      const { svc, whatsapp } = makeHarness();
+      const { svc, channelA } = makeHarness();
       await svc.createBulk([dto(), dto({ userId: 'u2' })]);
 
-      expect(whatsapp.enqueueFromNotifications).toHaveBeenCalledTimes(1);
-      expect(whatsapp.enqueueFromNotifications.mock.calls[0][0]).toHaveLength(2);
-    });
-
-    it('drops only the suppressed entries', async () => {
-      const { svc, whatsapp } = makeHarness();
-      await svc.createBulk([dto(), dto({ userId: 'u2', suppressWhatsApp: true })]);
-
-      const forwarded = whatsapp.enqueueFromNotifications.mock.calls[0][0];
-      expect(forwarded).toHaveLength(1);
-      expect(forwarded[0].userId).toBe('u1');
+      expect(channelA.enqueueFromNotifications).toHaveBeenCalledTimes(1);
+      expect(channelA.enqueueFromNotifications.mock.calls[0][0]).toHaveLength(2);
     });
   });
 
   describe('notifyUsers', () => {
-    it('makes a caller-supplied dedupe key unique per recipient', async () => {
-      // A shared key across a fan-out would collapse to one message on the
-      // unique index and silently skip everybody but the first person.
-      const { svc, whatsapp } = makeHarness();
-      await svc.notifyUsers(['u1', 'u2'], 'T', 'M', 'INFO', '/x', {
-        waTemplate: 'generic',
-        waDedupeKey: 'approval:LEAVE:req1',
-      });
+    it('writes one in-app row per recipient', async () => {
+      const { svc, prisma } = makeHarness();
+      await svc.notifyUsers(['u1', 'u2'], 'T', 'M', 'INFO', '/x');
 
-      const keys = whatsapp.enqueueFromNotifications.mock.calls[0][0].map((n: any) => n.dedupeKey);
-      expect(keys).toEqual(['approval:LEAVE:req1:u1', 'approval:LEAVE:req1:u2']);
-    });
-
-    it('leaves the key undefined when the caller supplies none', async () => {
-      const { svc, whatsapp } = makeHarness();
-      await svc.notifyUsers(['u1'], 'T', 'M', 'LEAVE_APPROVED', '/x');
-
-      expect(whatsapp.enqueueFromNotifications.mock.calls[0][0][0].dedupeKey).toBeUndefined();
+      const rows = prisma.notification.createMany.mock.calls[0][0].data;
+      expect(rows.map((r: any) => r.userId)).toEqual(['u1', 'u2']);
     });
 
     it('keeps the existing five-argument signature working', async () => {

@@ -22,110 +22,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 
 
--- ── employees.attendance_external_id — attendance integrations ───────────────
--- Identity of an employee inside the branch's external attendance provider.
--- Unique per BRANCH, not globally: two providers at two branches may legitimately
--- reuse the same external id string for different people. Postgres allows
--- unlimited NULLs in a unique index, so unlinked employees are unaffected.
-
-ALTER TABLE "employees"
-  ADD COLUMN IF NOT EXISTS "attendance_external_id" VARCHAR(100);
-
-DO $$
-DECLARE
-  duplicate_sample TEXT;
-BEGIN
-  -- Already applied (fresh DB, or a previous start) — nothing to do.
-  IF to_regclass('"unique_branch_external_attendance_id"') IS NOT NULL THEN
-    RETURN;
-  END IF;
-
-  -- Rows with a NULL on either side can never collide in a unique index, so
-  -- only fully-populated pairs can block the index.
-  SELECT string_agg(format('branch=%s external_id=%s (%s rows)', branch_id, attendance_external_id, n), ', ')
-    INTO duplicate_sample
-    FROM (
-      SELECT "branch_id" AS branch_id,
-             "attendance_external_id" AS attendance_external_id,
-             COUNT(*) AS n
-        FROM "employees"
-       WHERE "attendance_external_id" IS NOT NULL
-         AND "branch_id" IS NOT NULL
-       GROUP BY 1, 2
-      HAVING COUNT(*) > 1
-       LIMIT 10
-    ) d;
-
-  IF duplicate_sample IS NOT NULL THEN
-    RAISE EXCEPTION
-      'Cannot create unique_branch_external_attendance_id: employees.attendance_external_id is duplicated within a branch. Clear the duplicates (set the wrong one to NULL) and restart. Offenders: %',
-      duplicate_sample;
-  END IF;
-
-  CREATE UNIQUE INDEX "unique_branch_external_attendance_id"
-    ON "employees" ("branch_id", "attendance_external_id");
-END
-$$;
-
-CREATE INDEX IF NOT EXISTS "employees_attendance_external_id_idx"
-  ON "employees" ("attendance_external_id");
-
-
--- ── advance_loan_requests.reference_no — unique loan reference ────────────────
--- Human-readable reference (e.g. LN-2026-000123). NULL for legacy rows that
--- pre-date v2; NULLs never collide in a unique constraint so they are safe.
--- Prisma names a single-field @unique constraint as <table>_<column>_key.
---
--- Step 1: ensure the column exists before we try to constrain it.
---   On a fresh DB or one that pre-dates v2, the column may not exist yet.
---   ADD COLUMN IF NOT EXISTS is idempotent and runs instantly on an empty column.
-
-ALTER TABLE "advance_loan_requests"
-  ADD COLUMN IF NOT EXISTS "reference_no" VARCHAR(40);
-
--- Step 2: add the unique constraint (skipped if already present).
-
-DO $$
-DECLARE
-  duplicate_sample TEXT;
-BEGIN
-  -- Already applied — nothing to do. Checked as a RELATION, not as a
-  -- pg_constraint row: a database provisioned by `db push` gets a plain
-  -- CREATE UNIQUE INDEX under this name with no constraint backing it, so a
-  -- pg_constraint-only guard sees nothing, falls through, and ADD CONSTRAINT
-  -- dies on the name collision ("relation ... already exists"), killing the
-  -- container on `set -e`. Index and constraint share one namespace, so
-  -- to_regclass catches both spellings. Either one enforces the uniqueness
-  -- Prisma expects and leaves `db push` with no diff.
-  IF to_regclass('"advance_loan_requests_reference_no_key"') IS NOT NULL THEN
-    RETURN;
-  END IF;
-
-  -- Only non-NULL values can create a collision in a unique constraint.
-  SELECT string_agg(format('reference_no=%s (%s rows)', reference_no, n), ', ')
-    INTO duplicate_sample
-    FROM (
-      SELECT "reference_no", COUNT(*) AS n
-        FROM "advance_loan_requests"
-       WHERE "reference_no" IS NOT NULL
-       GROUP BY 1
-      HAVING COUNT(*) > 1
-       LIMIT 10
-    ) d;
-
-  IF duplicate_sample IS NOT NULL THEN
-    RAISE EXCEPTION
-      'Cannot create advance_loan_requests_reference_no_key: reference_no has duplicate values. '
-      'De-duplicate the rows and restart. Offenders: %',
-      duplicate_sample;
-  END IF;
-
-  ALTER TABLE "advance_loan_requests"
-    ADD CONSTRAINT "advance_loan_requests_reference_no_key" UNIQUE ("reference_no");
-END
-$$;
-
-
 -- ── Employee Profile Template — objects `db push` cannot create ─────────────
 -- Partial indexes and GIN indexes are inexpressible in schema.prisma, so these
 -- live in migration 20260807120000 and nowhere else. The container never runs
@@ -417,36 +313,11 @@ BEGIN
 END
 $$;
 
--- ── Accounting: partial uniques `db push` cannot create ─────────────────────
--- See prisma/e2e-partial-indexes.sql for why these are partial.
---
--- Guarded on the table existing: this file runs BEFORE `db push`, so on a
--- brand-new database `ledger_mappings` has not been created yet. The indexes
--- are then made by the migration (or by the e2e partial-index file) instead,
--- and this block becomes a no-op on the next start.
-DO $$ BEGIN
-  IF to_regclass('"ledger_mappings"') IS NULL THEN
-    RETURN;
-  END IF;
-
-  CREATE UNIQUE INDEX IF NOT EXISTS "ledger_mappings_event_component_branch_key"
-    ON "ledger_mappings" ("event", "component", "branch_id")
-    WHERE "branch_id" IS NOT NULL;
-  CREATE UNIQUE INDEX IF NOT EXISTS "ledger_mappings_event_component_global_key"
-    ON "ledger_mappings" ("event", "component")
-    WHERE "branch_id" IS NULL;
-END $$;
-
--- ── Loans: the reference sequence ───────────────────────────────────────────
--- `prisma db push` cannot create a bare SEQUENCE, and loan references are
--- minted with `nextval` — without this, every native loan creation fails.
-CREATE SEQUENCE IF NOT EXISTS "loan_reference_seq" START WITH 1 INCREMENT BY 1;
-
 -- ── Document engine: partial uniques and the serial sequence ────────────────
--- Guarded on the tables existing, for the same reason as ledger_mappings
--- above: this file runs BEFORE `db push`, so on a brand-new database these
--- tables do not exist yet and the migration (or e2e-partial-indexes.sql)
--- creates the indexes instead. The block becomes a no-op on the next start.
+-- Guarded on the tables existing: this file runs BEFORE `db push`, so on a
+-- brand-new database these tables do not exist yet and the migration (or
+-- e2e-partial-indexes.sql) creates the indexes instead. The block becomes a
+-- no-op on the next start.
 DO $$ BEGIN
   IF to_regclass('"document_template_versions"') IS NOT NULL THEN
     -- At most one DRAFT and one PUBLISHED version per template. This is the
@@ -461,7 +332,7 @@ DO $$ BEGIN
   IF to_regclass('"document_templates"') IS NOT NULL THEN
     -- Split in two because NULL never equals NULL in a unique index, so one
     -- index over (type_key, locale, branch_id) would allow unlimited duplicate
-    -- COMPANY rows — the same trap ledger_mappings documents above.
+    -- COMPANY rows.
     CREATE UNIQUE INDEX IF NOT EXISTS "document_templates_branch_key"
       ON "document_templates" ("type_key", "locale", "branch_id")
       WHERE "branch_id" IS NOT NULL AND "is_active" = true;
@@ -472,7 +343,7 @@ DO $$ BEGIN
 END $$;
 
 -- `prisma db push` cannot create a bare SEQUENCE, and engine document serials
--- are minted with `nextval` — same reason as loan_reference_seq above.
+-- are minted with `nextval`.
 CREATE SEQUENCE IF NOT EXISTS "document_serial_seq" START WITH 1 INCREMENT BY 1;
 
 -- Per-branch document identity. Nullable => inherit the company-wide setting.

@@ -8,9 +8,8 @@ import { Fixtures, setupFixtures } from './fixtures';
  * LAYERED on `utils/fixtures.ts` rather than replacing it. That base already
  * builds the exact tenancy skeleton these three modules are asserted against —
  * two branches, a global ADMIN, a **branch-A-scoped** HR_MANAGER and a plain
- * EMPLOYEE — and its `cleanup()` already knows the awkward edges (the loan
- * graph's RESTRICT on Employee, audit rows pinned to a user). Rebuilding that
- * here would mean re-deriving those lessons.
+ * EMPLOYEE — and its `cleanup()` already knows the awkward edges (audit rows
+ * pinned to a user). Rebuilding that here would mean re-deriving those lessons.
  *
  * What the base cannot give, and this file adds:
  *

@@ -12,9 +12,9 @@ import {
  *
  * Employees onboarded before the Bank Master existed carry their bank as loose
  * text on `EmployeeProfile` (`bankName`, `bankBranch`, `bankAccountNumber`,
- * `bankAccountHolderName`). Nothing can be paid from that: WPS needs a `Bank`
- * row, a validated account and a country whose field schema it can check
- * against. `POST /bank-change-requests/migration` is how HR converts one.
+ * `bankAccountHolderName`). Nothing can be paid from that: a payable employee
+ * needs a `Bank` row, a validated account and a country whose field schema it
+ * can check against. `POST /bank-change-requests/migration` is how HR converts one.
  *
  * Two properties make it different from an ordinary bank change, and both are
  * deliberate:
@@ -356,7 +356,7 @@ describe('Bank migration — legacy free-text to Bank Master (e2e)', () => {
       expect(active!.accountNumber).toContain('555');
     });
 
-    it('BMIG-API-22: a migrated employee is payable — the detail is what WPS reads', async () => {
+    it('BMIG-API-22: a migrated employee is payable — the detail is what payroll reads', async () => {
       const active = await ctx.prisma.employeeBankDetail.findFirst({
         where: { employeeId: fx.migrationCandidateId, isActive: true },
         include: { bank: true },

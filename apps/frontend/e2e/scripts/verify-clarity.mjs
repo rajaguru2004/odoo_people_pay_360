@@ -202,7 +202,7 @@ if (!LIVE) {
   for (const [path, expected] of [
     ['/dashboard/attendance', 'attendance'],
     ['/dashboard/payroll/manage', 'payroll'],
-    ['/dashboard/reimbursements', 'finance'],
+    ['/dashboard/budgets', 'finance'],
     ['/dashboard/training', 'talent'],
   ]) {
     await visit(path, 900);

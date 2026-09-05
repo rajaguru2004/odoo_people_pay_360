@@ -17,7 +17,7 @@ export interface Employee {
   /**
    * ISO-3166 alpha-2 the phone belongs to. Only consulted when `phone` was typed
    * without a country prefix. Empty/absent means "not stated" — the server falls
-   * back to the branch country, then the global WhatsApp default region.
+   * back to the branch country, then the global default region.
    */
   phoneCountryCode?: string;
   email: string;

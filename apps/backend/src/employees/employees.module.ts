@@ -13,7 +13,6 @@ import { ProfileTemplatesModule } from '../profile-templates/profile-templates.m
 import { SupervisorsModule } from '../supervisors/supervisors.module';
 import { ContractsModule } from '../contracts/contracts.module';
 import { AssetsModule } from '../assets/assets.module';
-import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { memoryStorage } from 'multer';
 import { existsSync, mkdirSync } from 'fs';
 
@@ -34,8 +33,6 @@ uploadDirs.forEach((dir) => {
     SystemSettingsModule,
     // ClearanceService — soft-delete is an offboarding path too.
     AssetsModule,
-    // WhatsApp outbox for sending credentials via WhatsApp on resend.
-    WhatsAppModule,
     // Resolves which employee-form template governs a write.
     ProfileTemplatesModule,
     // Owns the supervisor-assignment invariants the employee form delegates to.

@@ -632,51 +632,6 @@ test('a Muscat operation for the administrator manual to photograph', async () =
   });
 
   // ── the approval queues ───────────────────────────────────────────────────
-  await step('reimbursements — three waiting for approval', async () => {
-    // The type is validated against the REIMBURSEMENT_TYPE library by LABEL,
-    // not by an upper-case code: "Travel", never "TRAVEL". The server lists the
-    // permitted set in its refusal, which is how these were arrived at.
-    const CLAIMS: Array<[string, string, number, string]> = [
-      ['fatma.alzadjali@company.com', 'Travel', 42.5, 'Taxi fares — bank visits for the WPS setup.'],
-      ['anil.kumar@company.com', 'Office Supplies', 118, 'Annual developer tooling licence.'],
-      ['maryam.alkindi@company.com', 'Food', 26.75, 'Interview panel lunch — four candidates.'],
-    ];
-    // `POST /reimbursements` accepts the same claim twice — quite rightly, an
-    // employee may take two taxis — so `idempotent()` cannot help. Without a
-    // real check a third run of this seed left twelve claims in a queue that is
-    // meant to show three.
-    const filed = asList<{ description?: string }>(
-      await scoped.get('/reimbursements').catch(() => null),
-    ).map((r) => r.description);
-
-    for (const [email, type, amount, description] of CLAIMS) {
-      const api = logins.get(email);
-      if (!api || filed.includes(description)) continue;
-      await api.post('/reimbursements', { type, amount, expenseDate: day(-6), description });
-    }
-  });
-
-  await step('advances and loans — two waiting for approval', async () => {
-    const rashid = logins.get('rashid.alhinai@company.com');
-    if (rashid) {
-      await idempotent(() => rashid.post('/advance-loans', {
-        type: 'LOAN', amount: 900, installments: 9,
-        reason: 'Vehicle repair — repayable over nine months.',
-      }));
-    }
-    // Kept small on purpose. `loan_max_emi_percent_of_net` caps every
-    // instalment at 50% of monthly NET, and net is measured after loss of pay —
-    // so an advance sized off the basic salary is refused for staff who have
-    // not been paid a full month yet. 250 was rejected; this is not.
-    const maryam = logins.get('maryam.alkindi@company.com');
-    if (maryam) {
-      await idempotent(() => maryam.post('/advance-loans', {
-        type: 'ADVANCE', amount: 100, installments: 1,
-        reason: 'School fees — to be recovered from next month.',
-      }));
-    }
-  });
-
   await step('letters — two requests waiting to be issued', async () => {
     // Checked before writing, not merely tolerated on failure.
     //
@@ -725,7 +680,7 @@ test('a Muscat operation for the administrator manual to photograph', async () =
     // is tolerated rather than fixed here, for the same reason it cannot be
     // checked: nothing in the console can see them, so nothing in the manual
     // shows them. When P1 is fixed, replace this with the `filed.includes(...)`
-    // shape used by the reimbursements and letters above.
+    // shape used by the letters step above.
     const raised = asList<{ subject?: string }>(
       await scoped.get('/grievances').catch(() => null),
     ).map((g) => g.subject);

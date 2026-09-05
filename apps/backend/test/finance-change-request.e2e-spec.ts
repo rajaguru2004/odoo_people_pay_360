@@ -9,20 +9,20 @@ import { bearer } from './utils/settings';
 /**
  * The Change Request lifecycle, over Finance.
  *
- * Three of the six Finance areas are governed by the shared approval engine —
- * `TRAVEL`, `ADVANCE_LOAN` and `BANK_CHANGE` — and until this file **not one
- * test anywhere drove a multi-step chain over any of them.** The e2e baseline
- * pins `supervisor_approval_enabled = 'false'`, so every other suite in the
- * repo, including the five Finance ones beside this, exercises only the legacy
+ * Two of the Finance areas are governed by the shared approval engine —
+ * `TRAVEL` and `BANK_CHANGE` — and until this file **not one test anywhere
+ * drove a multi-step chain over either of them.** The e2e baseline pins
+ * `supervisor_approval_enabled = 'false'`, so every other suite in the repo,
+ * including the five Finance ones beside this, exercises only the legacy
  * single-approver path. The chain is the product's answer to "who signs off on
- * company money", and it was untested for the three request kinds that move it.
+ * company money", and it was untested for the request kinds that move it.
  *
  * The engine's contract, which shapes every case here:
  *
  *   - It is **engaged** only when the master switch is on AND an active
  *     `ApprovalWorkflow` exists for the type. Otherwise callers keep their
- *     legacy path, and the three domains disagree about what that means —
- *     which is finding F9, pinned in `finance-travel.e2e-spec.ts`.
+ *     legacy path — which is NOT the same as no approval at all, and is
+ *     finding F9, pinned in `finance-travel.e2e-spec.ts`.
  *   - It runs **no domain side-effects**. The calling service does those when
  *     `finalized && outcome === 'APPROVED'`. So "the chain finished" and "the
  *     money moved" are two assertions, and a test that makes only the first
@@ -72,7 +72,7 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
    * type, so a later call replaces an earlier one rather than stacking.
    */
   const setChain = async (
-    requestType: 'TRAVEL' | 'ADVANCE_LOAN' | 'BANK_CHANGE',
+    requestType: 'TRAVEL' | 'BANK_CHANGE',
     approverTypes: Array<'SUPERVISOR' | 'MANAGER' | 'HR_MANAGER' | 'ADMIN'>,
     mode: 'SEQUENTIAL' | 'PARALLEL' = 'SEQUENTIAL',
   ) => {
@@ -108,7 +108,7 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
       orderBy: { stepOrder: 'asc' },
     });
 
-  // ── Per-kind request factories ────────────────────────────────────────────
+  // ── The request factory ───────────────────────────────────────────────────
   const raiseTravel = async () =>
     ctx
       .http()
@@ -123,19 +123,13 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
         estimatedCost: 250,
       });
 
-  const raiseLoan = async () =>
-    ctx
-      .http()
-      .post('/advance-loans')
-      .set(bearer(fx.employee.token))
-      .send({
-        type: 'ADVANCE',
-        amount: 50,
-        reason: `chain e2e ${fx.runId}`,
-      });
-
-  const claimsFor = (travelId: string) =>
-    ctx.prisma.reimbursement.findMany({
+  /**
+   * The surviving domain side effect of a travel approval: `travel.service.ts`
+   * commits the estimated cost against the department's budget line. It is what
+   * separates "the chain closed" from "the money moved".
+   */
+  const commitmentsFor = (travelId: string) =>
+    ctx.prisma.budgetCommitment.findMany({
       where: { sourceType: 'TRAVEL', sourceId: travelId },
     });
 
@@ -169,7 +163,7 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
       }
       await ctx.prisma.requestApproval
         .deleteMany({
-          where: { requestType: { in: ['TRAVEL', 'ADVANCE_LOAN', 'BANK_CHANGE'] } },
+          where: { requestType: { in: ['TRAVEL', 'BANK_CHANGE'] } },
         })
         .catch(() => undefined);
     }
@@ -208,14 +202,14 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
       }
     });
 
-    it('CR-API-02 the governable kinds include all three Finance ones', async () => {
+    it('CR-API-02 the governable kinds include both Finance ones', async () => {
       const res = await ctx
         .http()
         .get('/approval-workflows/kinds')
         .set(bearer(fx.admin.token));
       expectStatus(res, 200);
       const kinds = JSON.stringify(dataOf(res));
-      for (const kind of ['TRAVEL', 'ADVANCE_LOAN', 'BANK_CHANGE']) {
+      for (const kind of ['TRAVEL', 'BANK_CHANGE']) {
         expect(kinds).toContain(kind);
       }
     });
@@ -261,7 +255,7 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
       expect(row.status).toBe('PENDING');
 
       // No side effects yet: the money must not move until the chain finishes.
-      expect(await claimsFor(id)).toEqual([]);
+      expect(await commitmentsFor(id)).toEqual([]);
 
       const trail = await trailFor('TRAVEL', id);
       expect(trail).toHaveLength(2);
@@ -288,7 +282,7 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
         where: { id },
       });
       expect(row.status).toBe('PENDING');
-      expect(await claimsFor(id)).toEqual([]);
+      expect(await commitmentsFor(id)).toEqual([]);
 
       const trail = await trailFor('TRAVEL', id);
       expect(trail[0].status).toBe('APPROVED');
@@ -323,7 +317,7 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
       expect(row.status).toBe('APPROVED');
       // The engine runs no side effects — the DOMAIN does, once. This is the
       // assertion that separates "the chain closed" from "the money moved".
-      expect(await claimsFor(id)).toHaveLength(1);
+      expect(await commitmentsFor(id)).toHaveLength(1);
 
       const trail = await trailFor('TRAVEL', id);
       expect(trail.map((t) => t.status)).toEqual(['APPROVED', 'APPROVED']);
@@ -377,7 +371,7 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
       });
       expect(row.status).toBe('REJECTED');
       expect(row.rejectedReason).toBe('no budget this quarter');
-      expect(await claimsFor(id)).toEqual([]);
+      expect(await commitmentsFor(id)).toEqual([]);
 
       const trail = await trailFor('TRAVEL', id);
       expect(trail[0].status).toBe('REJECTED');
@@ -444,7 +438,7 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
         (await ctx.prisma.travelRequest.findUniqueOrThrow({ where: { id } }))
           .status,
       ).toBe('APPROVED');
-      expect(await claimsFor(id)).toHaveLength(1);
+      expect(await commitmentsFor(id)).toHaveLength(1);
     });
 
     it('CR-API-12 one rejection finalises a parallel chain too', async () => {
@@ -583,10 +577,10 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
   describe('engagement', () => {
     it('CR-API-17 F9 — with the workflow DEACTIVATED, travel falls back to a HUMAN, not to nothing', async () => {
       // F9, seen from the chain side. Deactivating a workflow used to fall back
-      // to NO approval — the trip's per-diem claim, advance and budget
-      // commitment all fired on submit. It now falls back to the legacy
-      // single-approver path, which is what "no chain governs this" has always
-      // meant for Advances & Loans (CR-API-18).
+      // to NO approval at all — the trip's budget commitment fired on submit,
+      // with nobody having agreed to it. It now falls back to the legacy
+      // single-approver path: a human still decides, and the money still waits
+      // for that decision.
       const workflowId = await setChain('TRAVEL', ['SUPERVISOR']);
       expectStatus(
         await ctx
@@ -602,7 +596,7 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
         where: { id },
       });
       expect(row.status).toBe('PENDING');
-      expect(await claimsFor(id)).toEqual([]);
+      expect(await commitmentsFor(id)).toEqual([]);
       // No trail: the engine is disengaged, so there is nothing for it to own.
       expect(await trailFor('TRAVEL', id)).toEqual([]);
 
@@ -616,31 +610,7 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
           .send({}),
         201,
       );
-      expect(await claimsFor(id)).toHaveLength(1);
-    });
-
-    it('CR-API-18 an ADVANCE_LOAN in the same situation WAITS instead — the asymmetry, from both sides', async () => {
-      const workflowId = await setChain('ADVANCE_LOAN', ['SUPERVISOR']);
-      expectStatus(
-        await ctx
-          .http()
-          .patch(`/approval-workflows/${workflowId}/active`)
-          .set(bearer(fx.admin.token))
-          .send({ isActive: false }),
-        200,
-      );
-
-      const res = await raiseLoan();
-      expectStatus(res, 201);
-      const id = dataOf(res).id;
-      const row = await ctx.prisma.advanceLoanRequest.findUniqueOrThrow({
-        where: { id },
-      });
-      // Same engine answer, opposite default. A loan waits for a human; a trip
-      // pays out. Both are one line in their own service.
-      expect(row.status).toBe('PENDING');
-
-      await ctx.prisma.advanceLoanRequest.delete({ where: { id } });
+      expect(await commitmentsFor(id)).toHaveLength(1);
     });
 
     it('CR-API-19 turning the master switch off disengages every kind at once', async () => {
@@ -654,117 +624,8 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
             .status,
         ).toBe('PENDING');
         expect(await trailFor('TRAVEL', id)).toEqual([]);
-
-        // A loan behaves identically, which is the point of "every kind at
-        // once": one switch, one answer.
-        const loanId = dataOf(await raiseLoan()).id;
-        expect(
-          (
-            await ctx.prisma.advanceLoanRequest.findUniqueOrThrow({
-              where: { id: loanId },
-            })
-          ).status,
-        ).toBe('PENDING');
-        expect(await trailFor('ADVANCE_LOAN', loanId)).toEqual([]);
-        await ctx.prisma.advanceLoanRequest.delete({ where: { id: loanId } });
       } finally {
         await setSwitch('true');
-      }
-    });
-  });
-
-  // ── A governed advance loan, all the way through ──────────────────────────
-  describe('an advance loan through the chain', () => {
-    it('CR-API-20 a governed loan waits, then approves, and only then gets a schedule', async () => {
-      await setChain('ADVANCE_LOAN', ['SUPERVISOR', 'HR_MANAGER']);
-      const res = await raiseLoan();
-      expectStatus(res, 201);
-      const id = dataOf(res).id;
-
-      try {
-        expect(
-          (
-            await ctx.prisma.advanceLoanRequest.findUniqueOrThrow({
-              where: { id },
-            })
-          ).status,
-        ).toBe('PENDING');
-
-        const trail = await trailFor('ADVANCE_LOAN', id);
-        expect(trail).toHaveLength(2);
-        expect(trail[0].status).toBe('ACTIVE');
-
-        expectStatus(
-          await ctx
-            .http()
-            .post(`/advance-loans/${id}/approve`)
-            .set(bearer(fx.manager.token))
-            .send({}),
-          201,
-        );
-        // Still no money committed after step 1.
-        expect(
-          (
-            await ctx.prisma.advanceLoanRequest.findUniqueOrThrow({
-              where: { id },
-            })
-          ).status,
-        ).toBe('PENDING');
-        expect(
-          await ctx.prisma.loanSchedule.findMany({ where: { requestId: id } }),
-        ).toEqual([]);
-
-        expectStatus(
-          await ctx
-            .http()
-            .post(`/advance-loans/${id}/approve`)
-            .set(bearer(fx.hrGlobal.token))
-            .send({}),
-          201,
-        );
-
-        const settled = await ctx.prisma.advanceLoanRequest.findUniqueOrThrow({
-          where: { id },
-        });
-        expect(['APPROVED', 'DISBURSED', 'ACTIVE']).toContain(settled.status);
-        // The repayment schedule is the side effect that proves the DOMAIN ran,
-        // not merely the engine.
-        const schedule = await ctx.prisma.loanSchedule.findMany({
-          where: { requestId: id },
-        });
-        expect(schedule.length).toBeGreaterThan(0);
-      } finally {
-        await ctx.prisma.loanSchedule.deleteMany({ where: { requestId: id } });
-        await ctx.prisma.advanceLoanRequest
-          .delete({ where: { id } })
-          .catch(() => undefined);
-      }
-    });
-
-    it('CR-API-21 a rejected loan gets no schedule and keeps its reason', async () => {
-      await setChain('ADVANCE_LOAN', ['SUPERVISOR']);
-      const id = dataOf(await raiseLoan()).id;
-      try {
-        expectStatus(
-          await ctx
-            .http()
-            .post(`/advance-loans/${id}/reject`)
-            .set(bearer(fx.manager.token))
-            .send({ remarks: 'already holds two advances' }),
-          201,
-        );
-        const row = await ctx.prisma.advanceLoanRequest.findUniqueOrThrow({
-          where: { id },
-        });
-        expect(row.status).toBe('REJECTED');
-        expect(row.rejectedReason).toBe('already holds two advances');
-        expect(
-          await ctx.prisma.loanSchedule.findMany({ where: { requestId: id } }),
-        ).toEqual([]);
-      } finally {
-        await ctx.prisma.advanceLoanRequest
-          .delete({ where: { id } })
-          .catch(() => undefined);
       }
     });
   });
@@ -861,11 +722,11 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
       ]);
 
       // Exactly one arm may win. This used to be an intermittent product race
-      // (roughly 1 run in 7): both callers read PENDING, the approve arm raised
-      // the per-diem claim and the advance, and the reject arm then won the
-      // status write — leaving a trip that was refused AND paid. The decision
-      // paths now claim the transition with a conditional update before they
-      // spend anything, so the loser is refused outright.
+      // (roughly 1 run in 7): both callers read PENDING, the approve arm
+      // committed the trip's cost against the budget, and the reject arm then
+      // won the status write — leaving a trip that was refused AND funded. The
+      // decision paths now claim the transition with a conditional update
+      // before they spend anything, so the loser is refused outright.
       const succeeded = [a, b].filter((r) => r.status < 400);
       const refused = [a, b].filter((r) => r.status >= 400);
       expect(succeeded).toHaveLength(1);
@@ -880,14 +741,13 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
       expect(['APPROVED', 'REJECTED']).toContain(row.status);
 
       // The invariant that actually matters: the money follows the outcome.
-      // A refused trip has raised nothing; an approved one has raised exactly
-      // one claim, never two.
-      const claims = await claimsFor(id);
+      // A refused trip has committed nothing; an approved one holds exactly one
+      // commitment, never two.
+      const commitments = await commitmentsFor(id);
       if (row.status === 'REJECTED') {
-        expect(claims).toEqual([]);
-        expect(row.advanceLoanId).toBeNull();
+        expect(commitments).toEqual([]);
       } else {
-        expect(claims).toHaveLength(1);
+        expect(commitments).toHaveLength(1);
       }
     });
 
@@ -916,11 +776,11 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
         const row = await ctx.prisma.travelRequest.findUniqueOrThrow({
           where: { id },
         });
-        const claims = await claimsFor(id);
+        const commitments = await commitmentsFor(id);
         if (row.status === 'REJECTED') {
-          expect(claims).toEqual([]);
+          expect(commitments).toEqual([]);
         } else {
-          expect(claims).toHaveLength(1);
+          expect(commitments).toHaveLength(1);
         }
       } finally {
         await setSwitch('true');
@@ -956,11 +816,11 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
   // ── The frontend seam ─────────────────────────────────────────────────────
   describe('the inbox contract with the screen', () => {
     it('CR-API-28 F8 — every kind the API will govern is actionable from the inbox', async () => {
-      // `/approval-workflows/kinds` returns ADVANCE_LOAN, and a chain over it
-      // works end to end (CR-API-20). `apps/frontend/lib/approvalKinds.tsx` used
-      // to carry entries for LEAVE, OVERTIME, TRAVEL and BANK_CHANGE only, so
-      // the shared inbox drew a loan row whose Approve button answered
-      // "Unsupported request type: ADVANCE_LOAN".
+      // `/approval-workflows/kinds` answers with every type the API is willing
+      // to govern, and a chain over each works end to end (CR-API-04 … -06).
+      // `apps/frontend/lib/approvalKinds.tsx` carries one entry per kind, and a
+      // kind the API governs with no entry there draws an inbox row whose
+      // Approve button answers "Unsupported request type: <that kind>".
       //
       // Asserted from the backend because that is where the contract lives:
       // every kind the API is willing to govern needs a UI entry. `UI_KINDS`
@@ -979,7 +839,6 @@ describe('Finance — the Change Request lifecycle (e2e)', () => {
         'LEAVE',
         'OVERTIME',
         'TRAVEL',
-        'ADVANCE_LOAN',
         'TRAINING',
         'BANK_CHANGE',
       ];

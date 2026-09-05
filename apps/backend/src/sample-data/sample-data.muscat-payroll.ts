@@ -3,13 +3,12 @@
  *
  * The rest of the sample seed populates people, attendance and pay runs. This
  * module fills the gap that stopped the Oman demo short: every payroll screen
- * downstream of a run had nothing behind it, and — the visible failure — the
- * WPS pre-flight blocked the wage file for ten of thirteen employees, so the
- * one flow the Oman branch exists to show could not be finished.
+ * downstream of a run had nothing behind it, and the pre-flight blocked the run
+ * for ten of thirteen employees.
  *
  * Three classes of fix live here:
  *
- *   1. WAGE-FILE BLOCKERS. `EmployeeBankDetail.data` is the source of truth for
+ *   1. PRE-FLIGHT BLOCKERS. `EmployeeBankDetail.data` is the source of truth for
  *      every payment field; the scalar `iban` / `accountHolderName` columns are
  *      back-compat only. Rows written with the scalars alone read as "Account
  *      Holder Name is required, IBAN is required" to the pre-flight, which
@@ -17,9 +16,8 @@
  *      also have to be 23 characters AND embed the selected bank's 3-digit CBO
  *      code, or the cross-check rejects them.
  *
- *   2. CONFIGURATION a payroll screen refuses to open without: the branch's
- *      wage-file configuration, a payroll calendar, pay grades, end-of-service
- *      rules and an encashment policy.
+ *   2. CONFIGURATION a payroll screen refuses to open without: a payroll
+ *      calendar, pay grades, end-of-service rules and an encashment policy.
  *
  *   3. WORKED EXAMPLES for the flows that read those tables — encashment
  *      requests in three states, recoveries, a transfer in and one pending out.
@@ -83,8 +81,8 @@ interface Emp {
  * OM is 23 characters: `OM` + 2 check digits + a 19-digit BBAN whose first
  * three digits are the CBO bank code (`IBAN_COUNTRY_RULES.OM.bankCodeRange`).
  * A checksum-valid IBAN of the wrong length, or one whose embedded code names a
- * different bank, still blocks the wage file — so the result is put back
- * through the app's own validator before it is stored.
+ * different bank, still fails pre-flight — so the result is put back through
+ * the app's own validator before it is stored.
  */
 export function omIban(bankCode: string, accountDigits: string): string {
   const bban = `${bankCode}${accountDigits}`.padEnd(19, '0').slice(0, 19);
@@ -126,9 +124,9 @@ async function repairBankDetails(
   let touched = 0;
   for (const e of emps) {
     // A FUTURE JOINER is skipped on purpose. They are on no payroll run, so
-    // their missing bank details cannot block a wage file — and they are the
-    // Bank Master migration queue's only candidate. Repairing them here would
-    // empty that screen on every re-seed.
+    // their missing bank details cannot block a run — and they are the Bank
+    // Master migration queue's only candidate. Repairing them here would empty
+    // that screen on every re-seed.
     if (e.startDate && e.startDate > today) continue;
     const detail = await prisma.employeeBankDetail.findFirst({
       where: { employeeId: e.id, isActive: true },
@@ -176,10 +174,10 @@ async function repairBankDetails(
 /**
  * Decide any bank-change request still open in this branch.
  *
- * A PENDING request is a BLOCKING pre-flight finding by design — the file would
+ * A PENDING request is a BLOCKING pre-flight finding by design — the run would
  * otherwise pay an account the employee is in the middle of replacing. The
- * approval-queue demo lives on a branch with no wage file to produce; here the
- * queue is left empty so the Oman file generates.
+ * approval-queue demo lives on another branch; here the queue is left empty so
+ * the Oman run passes pre-flight.
  */
 async function decideBankChanges(
   prisma: PrismaLike,
@@ -251,71 +249,13 @@ async function decideBankChanges(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. Wage-file configuration
+// 2. Statutory identifiers
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Without a `WpsConfiguration` the pre-flight does not report findings — it
- * refuses outright ("No wage-file configuration exists for branch SMP-MCT"),
- * which is a dead end for anyone opening the screen on fresh sample data.
- *
- * The employer figures are demo values in the shape the Oman format declares:
- * a 7-digit Ministry of Labour establishment number, a CR number, and a salary
- * account whose IBAN embeds the same bank code it names. None of the OM
- * employer fields are secrets, so nothing here needs encrypting.
- */
-async function ensureWpsConfiguration(
-  prisma: PrismaLike,
-  branchId: string,
-  branchName: string,
-): Promise<boolean> {
-  const format = 'om-cbo-v1';
-  const employerBankCode = '018';
-  const employerData = {
-    molEstablishmentNumber: '1234567',
-    crNumber: '1010101',
-    employerBankCode,
-    employerAccountIban: omIban(employerBankCode, '0000001299123456'),
-  };
-
-  const existing = await prisma.wpsConfiguration.findUnique({ where: { branchId } });
-  if (existing) return false;
-
-  const profile =
-    (await prisma.wpsEmployerProfile.findFirst({ where: { country: 'OM', format } })) ??
-    (await prisma.wpsEmployerProfile.create({
-      data: {
-        name: `${branchName} — employer`,
-        legalName: 'Nexura Business Solutions LLC',
-        country: 'OM',
-        format,
-        data: employerData,
-        isActive: true,
-      },
-    }));
-
-  await prisma.wpsConfiguration.create({
-    data: {
-      branchId,
-      employerProfileId: profile.id,
-      format,
-      enabled: true,
-      // Payment date is left to the format's default (period end) so it can
-      // never land before the period closes, which is a BLOCKING finding.
-      defaultRunOptions: { purposeCode: 'SAL' },
-    },
-  });
-  return true;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. Identifiers the Oman wage file asks for
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * The om-cbo format declares LABOUR_CARD and CIVIL_ID as WARNING-severity
- * identifiers. They do not block the file, but with neither on file every
- * employee raised two warnings and the demo had to be talked past them.
+ * LABOUR_CARD and CIVIL_ID are WARNING-severity pre-flight identifiers in Oman.
+ * They do not block a run, but with neither on file every employee raised two
+ * warnings and the demo had to be talked past them.
  * `Employee.idCard` cannot stand in — onboarding sets it to the employee code,
  * so it is an internal code, not a government number.
  */
@@ -379,7 +319,7 @@ async function seedIdentifiers(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. Payroll calendar
+// 3. Payroll calendar
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Oman practice: the period is the calendar month and inputs close on the 25th. */
@@ -419,7 +359,7 @@ async function seedCalendar(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Grades
+// 4. Grades
 // ─────────────────────────────────────────────────────────────────────────────
 
 const GRADES = [
@@ -515,7 +455,7 @@ async function seedGrades(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 6. End-of-service rules
+// 5. End-of-service rules
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -589,7 +529,7 @@ async function seedGratuityRules(prisma: PrismaLike): Promise<number> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7. Leave encashment
+// 6. Leave encashment
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function seedEncashment(
@@ -691,7 +631,7 @@ async function seedEncashment(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 8. Recoveries
+// 7. Recoveries
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function seedRecoveries(
@@ -770,7 +710,7 @@ async function seedRecoveries(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 9. Transfers
+// 8. Transfers
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function seedTransfers(
@@ -839,7 +779,7 @@ async function seedTransfers(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 10. Payslip breakdown lines
+// 9. Payslip breakdown lines
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Which PayrollItem column becomes which line, and what a payslip calls it. */
@@ -854,10 +794,8 @@ const FIGURE_LINES: {
   { bucket: 'overtimePay', column: 'overtimePay', code: 'OVERTIME', label: 'Overtime', sourceType: 'OVERTIME' },
   { bucket: 'foodAllowance', column: 'foodAllowance', code: 'FOOD_ALLOWANCE', label: 'Food Allowance', sourceType: 'OVERTIME' },
   { bucket: 'siteAllowance', column: 'siteAllowance', code: 'SITE_ALLOWANCE', label: 'Site Allowance', sourceType: 'SALARY_COMPONENT' },
-  { bucket: 'reimbursement', column: 'reimbursement', code: 'REIMBURSEMENT', label: 'Reimbursement', sourceType: 'REIMBURSEMENT' },
   { bucket: 'leaveEncashment', column: 'leaveEncashment', code: 'LEAVE_ENCASHMENT', label: 'Leave Encashment', sourceType: 'ENCASHMENT' },
   { bucket: 'deduction', column: 'deduction', code: 'DEDUCTION', label: 'Deduction', sourceType: 'MANUAL' },
-  { bucket: 'advanceLoanDeduction', column: 'advanceLoanDeduction', code: 'LOAN_EMI', label: 'Loan Instalment', sourceType: 'LOAN' },
   { bucket: 'garnishment', column: 'garnishment', code: 'GARNISHMENT', label: 'Garnishment', sourceType: 'GARNISHMENT' },
   { bucket: 'otherRecovery', column: 'otherRecovery', code: 'RECOVERY', label: 'Recovery', sourceType: 'RECOVERY' },
   { bucket: 'insurance', column: 'insurance', code: 'SPF', label: 'Social Protection Fund', sourceType: 'STATUTORY' },
@@ -979,7 +917,7 @@ export async function seedMuscatPayrollDemo(
     return {};
   }
 
-  say('Completing the Muscat payroll story (payment details, wage file, EOSB)…');
+  say('Completing the Muscat payroll story (payment details, grades, EOSB)…');
 
   const emps: Emp[] = await prisma.employee.findMany({
     where: { branchId: branch.id },
@@ -1007,7 +945,6 @@ export async function seedMuscatPayrollDemo(
 
   const bankDetails = await repairBankDetails(prisma, branch.id, emps);
   const bankChanges = await decideBankChanges(prisma, branch.id, emps);
-  const wpsConfigured = await ensureWpsConfiguration(prisma, branch.id, branch.name);
   const identifiers = await seedIdentifiers(prisma, emps, actorId);
   const calendarPeriods = await seedCalendar(prisma, branch.id, year);
   const { grades, placed } = await seedGrades(prisma, branch.id, emps);
@@ -1021,8 +958,7 @@ export async function seedMuscatPayrollDemo(
     `Muscat payroll: ${bankDetails} payment detail(s) repaired, ${bankChanges} bank change(s) decided, ` +
       `${identifiers} identifier(s), ${calendarPeriods} pay period(s), ${grades} grade(s), ` +
       `${gratuityRules} EOSB rule(s), ${encashment.requests} encashment request(s), ` +
-      `${recoveries} recovery(ies), ${transfers} transfer(s), ${payslipLines.lines} payslip line(s)` +
-      `${wpsConfigured ? ', wage-file configuration created' : ''}.`,
+      `${recoveries} recovery(ies), ${transfers} transfer(s), ${payslipLines.lines} payslip line(s).`,
   );
 
   return {
@@ -1038,6 +974,5 @@ export async function seedMuscatPayrollDemo(
     muscatRecoveries: recoveries,
     muscatTransfers: transfers,
     muscatPayslipLines: payslipLines.lines,
-    muscatWpsConfigured: wpsConfigured ? 1 : 0,
   };
 }

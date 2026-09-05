@@ -11,7 +11,7 @@
  * Serving the page from the API removes the question. Every call is
  * same-origin, so the page needs no address at all, no CORS, and no build step.
  * The only thing that decides where the link points is the API address the
- * admin typed in WhatsApp settings.
+ * admin typed in settings.
  *
  * Deliberately dependency-free: no bundler, no framework, no network fetch for
  * anything. This page is opened by somebody standing outside on a phone, and

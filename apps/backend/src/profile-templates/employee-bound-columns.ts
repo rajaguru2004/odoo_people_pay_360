@@ -18,9 +18,9 @@
  *                    something outside the form depends on it. Locking rule —
  *                    lock when ANY of these is true:
  *                      1. money or time arithmetic reads it (payroll, overtime,
- *                         loans, leave accrual);
- *                      2. a regulator or external system reads it (WPS wage
- *                         files, statutory returns);
+ *                         leave accrual);
+ *                      2. a regulator or external system reads it (statutory
+ *                         returns, bank payment files);
  *                      3. a foreign key or unique constraint depends on it;
  *                      4. row visibility depends on it (branchId — the branch
  *                         isolation axis);
@@ -98,7 +98,7 @@ export const EMPLOYEE_BOUND_COLUMNS: BoundColumn[] = [
     systemRequired: true,
     locked: true,
     reason:
-      'Primary business key: payroll, WPS wage files, attendance sync and bulk import all match on it.',
+      'Primary business key: payroll, reports and bulk import all match on it.',
   },
   {
     fieldKey: 'fullName',
@@ -108,7 +108,7 @@ export const EMPLOYEE_BOUND_COLUMNS: BoundColumn[] = [
     systemRequired: true,
     locked: true,
     reason:
-      'Written into WPS wage files and cross-checked against the bank account holder name; a mismatch makes the bank reject the whole file.',
+      'Written into bank payment instructions and cross-checked against the account holder name; a mismatch makes the bank reject the payment.',
   },
   {
     fieldKey: 'dateOfBirth',
@@ -245,9 +245,10 @@ export const EMPLOYEE_BOUND_COLUMNS: BoundColumn[] = [
     locked: false,
   },
   {
-    // Qualifies `phone`: which country's numbering plan it belongs to. Read by
-    // the WhatsApp outbox to build an E.164 address, falling back to the branch
-    // country when unset — so it is genuinely optional, not locked.
+    // Qualifies `phone`: which country's numbering plan it belongs to. Read
+    // when a number typed without a country prefix has to be normalised,
+    // falling back to the branch country when unset — so it is genuinely
+    // optional, not locked.
     fieldKey: 'phoneCountryCode',
     table: 'employee',
     column: 'phoneCountryCode',
@@ -502,7 +503,7 @@ export const EMPLOYEE_BOUND_COLUMNS: BoundColumn[] = [
   },
 
   // ── employee_profiles: legacy bank ───────────────────────────────────────
-  // Superseded by EmployeeBankDetail (versioned, country-aware, WPS-facing).
+  // Superseded by EmployeeBankDetail (versioned, country-aware).
   // Kept bound so historic values stay visible; expect admins to deactivate them.
   {
     fieldKey: 'bankName',

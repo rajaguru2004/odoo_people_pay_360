@@ -64,7 +64,7 @@ export class UpdateEmployeeDto {
     required: false,
     description:
       'ISO-3166 alpha-2 country of the phone number. Send an empty string to clear it and ' +
-      'fall back to branch country / the global WhatsApp default region.',
+      'fall back to the branch country.',
   })
   @IsOptional()
   @IsString()

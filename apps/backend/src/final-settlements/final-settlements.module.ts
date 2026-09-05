@@ -10,10 +10,9 @@ import { FinalSettlementsService } from './final-settlements.service';
 /**
  * Final settlements.
  *
- * Imports GratuityModule for the entitlement, and reads loans, carry-forwards
- * and garnishments through Prisma directly rather than importing their modules —
- * AdvanceLoansModule's settlement service needs to see settlements, so importing
- * it here would close a cycle.
+ * Imports GratuityModule for the entitlement, and reads carry-forwards and
+ * garnishments through Prisma directly rather than importing their modules, so
+ * no module that needs to see settlements can close a cycle back onto this one.
  */
 @Module({
   imports: [PrismaModule, AuditModule, SystemSettingsModule, GratuityModule],

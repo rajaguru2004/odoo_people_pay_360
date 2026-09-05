@@ -78,9 +78,8 @@ export async function withSetting<T>(
 
 /**
  * Same as `withSetting` for several keys at once, restored in reverse order.
- * People needs this: the clearance rules read two switches
- * (`clearance_blocking_enabled`, `loan_clearance_blocking_enabled`) and several
- * cases have to move both.
+ * Several suites need this: a rule that reads more than one switch cannot be
+ * exercised by moving them one at a time.
  */
 export async function withSettings<T>(
   ctx: E2EContext,

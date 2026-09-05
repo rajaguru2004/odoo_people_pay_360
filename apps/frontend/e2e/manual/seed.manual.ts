@@ -502,67 +502,6 @@ test('seed one employee’s working life, for the manual to photograph', async (
     });
   }
 
-  // ── reimbursements ────────────────────────────────────────────────────────
-  const claims: Array<{ type: string; amount: number; expenseDate: string; description: string; settle?: 'approve' | 'reject' }> = [
-    // The type is validated against the REIMBURSEMENT library, and the server
-    // matches the human label rather than a slug: "Invalid reimbursement type.
-    // Allowed: Travel, Per Diem, Training, Medical, Food, Office Supplies, Other".
-    // Amounts are OMR. The rial runs to three decimals (1,000 baisa), so these
-    // are deliberately the sort of figures a Muscat employee actually claims —
-    // a manual whose screenshots show a 60,000 cab fare teaches the reader to
-    // distrust the screenshots.
-    { type: 'Travel', amount: 24.5, expenseDate: day(-25), description: 'Taxi fare — client site visit, Al Khuwair.', settle: 'approve' },
-    { type: 'Food', amount: 8.75, expenseDate: day(-12), description: 'Team dinner during the release weekend.' },
-    { type: 'Office Supplies', amount: 13.9, expenseDate: day(-6), description: 'Replacement keyboard — approved by team lead.' },
-  ];
-
-  for (const [i, claim] of claims.entries()) {
-    await step(`reimbursement — ${claim.type.toLowerCase()} claim`, async () => {
-      const made = await employee.post<{ id: string }>('/reimbursements', {
-        type: claim.type,
-        amount: claim.amount,
-        expenseDate: claim.expenseDate,
-        description: claim.description,
-      });
-      const id = inner<{ id: string }>(made)?.id ?? (made as any)?.id;
-      if (id && claim.settle === 'approve') {
-        await admin
-          .withBranch(branchId)
-          .post(`/reimbursements/${id}/approve`, { comment: 'Approved — receipt verified.' })
-          .catch(() => undefined);
-      }
-      void i;
-    });
-  }
-
-  // ── advances and loans ────────────────────────────────────────────────────
-  await step('loan — an approved, disbursed staff loan', async () => {
-    const made = await employee.post<{ id: string }>('/advance-loans', {
-      type: 'LOAN',
-      amount: 1200,
-      reason: 'Home appliance purchase — repayable over six months.',
-      installments: 6,
-    });
-    const id = inner<{ id: string }>(made)?.id ?? (made as any)?.id;
-    if (!id) return;
-
-    const scoped = admin.withBranch(branchId);
-    // The lifecycle differs by configuration — approve, then disburse if the
-    // route exists. Each step is optional; a loan stuck at APPROVED still makes
-    // a perfectly good figure for the chapter.
-    await scoped.post(`/advance-loans/${id}/approve`, { comment: 'Approved under the staff loan policy.' }).catch(() => undefined);
-    await scoped.post(`/advance-loans/${id}/disburse`, { disbursedAt: day(-20) }).catch(() => undefined);
-  });
-
-  await step('advance — a pending salary advance', async () => {
-    await employee.post('/advance-loans', {
-      type: 'ADVANCE',
-      amount: 300,
-      reason: 'Medical expense — to be recovered from next month’s salary.',
-      installments: 1,
-    });
-  });
-
   // ── travel ────────────────────────────────────────────────────────────────
   await step('travel — an upcoming domestic trip', async () => {
     // The REQUEST carries departureDate/returnDate/estimatedCost; only the
@@ -600,7 +539,7 @@ test('seed one employee’s working life, for the manual to photograph', async (
     await employee.post('/letters', {
       templateKey: 'SALARY_CERTIFICATE',
       locale: 'en',
-      purpose: 'Home loan application',
+      purpose: 'Mortgage application',
       addressedTo: 'The Manager, State Bank',
     });
   });

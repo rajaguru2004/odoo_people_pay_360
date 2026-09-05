@@ -370,49 +370,6 @@ describe('People — Termination requests (e2e)', () => {
     await ctx.prisma.assetItem.delete({ where: { id: asset.id } });
   });
 
-  it('TERM-API-15: an outstanding loan blocks approval, and its own switch releases it', async () => {
-    const { employee, contract } = await seedContracted();
-    await ctx.prisma.advanceLoanRequest.create({
-      data: {
-        employeeId: employee.id,
-        type: 'LOAN',
-        amount: 5000,
-        amountRepaid: 0,
-        status: 'ACTIVE',
-        installments: 5,
-        reason: `termination fixture loan ${fx.runId}`,
-      },
-    });
-    const created = await request(newRequest(contract.id));
-    const id = created.body.data.id;
-
-    const blocked = await ctx
-      .http()
-      .post(`/contracts/termination-requests/${id}/approve`)
-      .set(bearer(fx.hr.token))
-      .send({ approverId: fx.hr.userId });
-    expect(blocked.status).toBe(400);
-
-    // The loan half has its own kill switch, separate from the asset half.
-    await withSetting(
-      ctx,
-      'loan_clearance_blocking_enabled',
-      'false',
-      async () => {
-        const res = await ctx
-          .http()
-          .post(`/contracts/termination-requests/${id}/approve`)
-          .set(bearer(fx.hr.token))
-          .send({ approverId: fx.hr.userId });
-        expect(res.status).toBe(201);
-      },
-    );
-
-    await ctx.prisma.advanceLoanRequest.deleteMany({
-      where: { employeeId: employee.id },
-    });
-  });
-
   it('TERM-API-16: MANAGER and EMPLOYEE cannot decide', async () => {
     const { contract } = await seedContracted();
     const created = await request(newRequest(contract.id));

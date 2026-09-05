@@ -2,7 +2,7 @@
  * Sample-data EXTRAS — every module the core `SampleDataService` did not reach.
  *
  * The core seed builds the org (branches, departments, employees, contracts,
- * attendance, leave, overtime, reimbursements, advances, payroll).
+ * attendance, leave, overtime, payroll).
  * This file fills the remaining pages so a client demo never lands on an empty
  * screen: assets, travel, training, budgets, banking, letters, grievances,
  * rewards/disciplines, documents, visas, teams, timesheets, appraisals,
@@ -10,8 +10,8 @@
  *
  * Oman weighting: the Muscat branch (branchIndex 3) is the showcase branch, so
  * it gets the deepest data — Omani banks with valid IBANs, visa lifecycle with a
- * renewal chain, an OMR budget, a completed AI appraisal run, Omani public
- * holidays and an external attendance-provider integration.
+ * renewal chain, an OMR budget, a completed AI appraisal run and Omani public
+ * holidays.
  *
  * Every row written here is inside the `SMP-` / `@sample.hrms.local` namespace
  * (or hangs off a row that is), so `resetSampleChildren()` can remove all of it
@@ -245,51 +245,6 @@ async function seedMasters(ctx: ExtrasContext): Promise<void> {
     await prisma.employee.updateMany({
       where: { branchId: branchIds[MUSCAT] },
       data: { overtimePolicyId: omanPolicy.id },
-    });
-  }
-
-  // External attendance provider on the Muscat branch — disabled, so no cron
-  // ever dials out, but the integration page and its run history are populated.
-  const integration = await prisma.attendanceIntegration.upsert({
-    where: { branchId: branchIds[MUSCAT] },
-    update: {},
-    create: {
-      branchId: branchIds[MUSCAT],
-      provider: 'fusion-analytics',
-      displayName: 'Fusion / TAGGER (Muscat)',
-      enabled: false,
-      baseUrl: 'https://tagger.example.om/api',
-      authScheme: 'header',
-      authHeaderName: 'X-Api-Key',
-      externalBranchId: 'TAGGER',
-      externalTenantId: '10',
-      options: { calculationVersion: 2, sourceTimezone: 'Asia/Muscat', pageSize: 500 },
-      conflictPolicy: 'PROVIDER_WINS_SAFE',
-      syncIntervalMinutes: 15,
-      lookbackDays: 3,
-      lastSyncAt: day(-1),
-      lastSyncStatus: 'OK',
-    },
-  });
-  await prisma.attendanceSyncRun.deleteMany({ where: { integrationId: integration.id } });
-  for (let i = 1; i <= 3; i++) {
-    await prisma.attendanceSyncRun.create({
-      data: {
-        integrationId: integration.id,
-        trigger: i === 1 ? 'MANUAL' : 'CRON',
-        windowStart: day(-i - 3),
-        windowEnd: day(-i),
-        startedAt: day(-i),
-        finishedAt: day(-i),
-        status: i === 3 ? 'PARTIAL' : 'OK',
-        fetched: 120 + i * 6,
-        matched: 118 + i * 6,
-        created: 6,
-        updated: 12,
-        skipped: i,
-        unmapped: i === 3 ? 2 : 0,
-        errorCount: 0,
-      },
     });
   }
 }
@@ -594,9 +549,9 @@ async function seedBanking(ctx: ExtrasContext): Promise<void> {
   // migrate screen. Everyone else is already on the versioned model.
   //
   // All three are deliberately OUTSIDE Muscat (indices 18-23). An employee with
-  // no active bank detail is a BLOCKING `NO_ACTIVE_BANK_DETAIL` finding on the
-  // wage file, and Muscat is the branch whose file the demo has to generate —
-  // so the migration queue is shown on a branch that produces no wage file.
+  // no active bank detail is a BLOCKING `NO_ACTIVE_BANK_DETAIL` pre-flight
+  // finding, and Muscat is the branch whose payroll the demo has to run — so
+  // the migration queue is shown on a branch the demo does not run.
   const legacyOnly = new Set([15, 16, 17]);
 
   for (const emp of employees) {
@@ -659,11 +614,11 @@ async function seedBanking(ctx: ExtrasContext): Promise<void> {
   // (partial unique index), so each state goes to a different person.
   //
   // The two PENDING requests sit on INDIA employees on purpose. A pending bank
-  // change is a BLOCKING wage-file finding — "decide it before generating, or
-  // the file may pay the wrong account" — and it blocked ten of Muscat's
-  // thirteen employees before this. The approval queue is the same screen
-  // wherever the requester works, and India produces no wage file, so the
-  // reviewer demo and the Oman file demo stop fighting each other.
+  // change is a BLOCKING pre-flight finding — "decide it before running, or the
+  // run may pay the wrong account" — and it blocked ten of Muscat's thirteen
+  // employees before this. The approval queue is the same screen wherever the
+  // requester works, and the demo does not run India's payroll, so the reviewer
+  // demo and the Oman payroll demo stop fighting each other.
   const omBanks = banksByCountry['OM'];
   const inBanks = banksByCountry['IN'];
   const reqSpecs = [
@@ -991,12 +946,12 @@ async function seedLettersAndGrievances(ctx: ExtrasContext): Promise<void> {
   say('Issuing self-service letters & opening grievance cases…');
 
   const letterSpecs = [
-    { empIdx: 18, key: 'SALARY_CERTIFICATE', locale: 'en', status: 'ISSUED', addressedTo: 'Bank Muscat', purpose: 'Personal loan application' },
+    { empIdx: 18, key: 'SALARY_CERTIFICATE', locale: 'en', status: 'ISSUED', addressedTo: 'Bank Muscat', purpose: 'Personal credit application' },
     { empIdx: 19, key: 'SALARY_CERTIFICATE', locale: 'ar', status: 'PENDING', addressedTo: 'بنك ظفار', purpose: 'طلب تمويل شخصي' },
     { empIdx: 20, key: 'NOC', locale: 'en', status: 'ISSUED', addressedTo: 'Royal Oman Police', purpose: 'Driving licence transfer' },
     { empIdx: 21, key: 'EXPERIENCE', locale: 'en', status: 'PENDING', addressedTo: 'To whom it may concern', purpose: 'Professional membership' },
     { empIdx: 22, key: 'EMBASSY', locale: 'en', status: 'REJECTED', addressedTo: 'Embassy of France', purpose: 'Schengen visa' },
-    { empIdx: 0, key: 'SALARY_CERTIFICATE', locale: 'en', status: 'ISSUED', addressedTo: 'HDFC Bank', purpose: 'Home loan' },
+    { empIdx: 0, key: 'SALARY_CERTIFICATE', locale: 'en', status: 'ISSUED', addressedTo: 'HDFC Bank', purpose: 'Home mortgage' },
     { empIdx: 1, key: 'NOC', locale: 'en', status: 'PENDING', addressedTo: 'Regional Transport Office', purpose: 'Vehicle registration' },
     { empIdx: 6, key: 'EXPERIENCE', locale: 'en', status: 'ISSUED', addressedTo: 'To whom it may concern', purpose: 'Higher studies application' },
   ];
@@ -1193,7 +1148,7 @@ async function seedAssets(ctx: ExtrasContext): Promise<void> {
 
 async function seedTravel(ctx: ExtrasContext): Promise<void> {
   const { prisma, employees, hrUserId, say } = ctx;
-  say('Booking business travel (trips, itineraries & per-diem claims)…');
+  say('Booking business travel (trips & itineraries)…');
 
   const destinations = await prisma.libraryItem.findMany({
     where: { libraryType: 'PER_DIEM_DESTINATION', isActive: true },
@@ -1251,7 +1206,7 @@ async function seedTravel(ctx: ExtrasContext): Promise<void> {
     const days = Math.max(1, t.to - t.from + 1);
     const rate = rateOf(t.destination);
     const decided = t.status === 'APPROVED' || t.status === 'REJECTED' || t.status === 'COMPLETED';
-    const trip = await prisma.travelRequest.create({
+    await prisma.travelRequest.create({
       data: {
         employeeId: employees[t.empIdx].id,
         purpose: t.purpose,
@@ -1282,28 +1237,6 @@ async function seedTravel(ctx: ExtrasContext): Promise<void> {
         },
       },
     });
-
-    // An approved/completed trip spawns its per-diem claim on the reimbursement
-    // ledger — the same path payroll already pays out.
-    if (t.status === 'APPROVED' || t.status === 'COMPLETED') {
-      await prisma.reimbursement.create({
-        data: {
-          employeeId: employees[t.empIdx].id,
-          type: 'Travel',
-          amount: rate * days,
-          expenseDate: day(t.to),
-          description: `Per diem — ${t.purpose} (${days} days @ ${rate}/day)`,
-          status: t.status === 'COMPLETED' ? 'PAID' : 'APPROVED',
-          approverId: hrUserId,
-          approvedAt: day(t.to),
-          approverRemarks: 'Per-diem entitlement for an approved trip.',
-          paidAt: t.status === 'COMPLETED' ? day(t.to + 3) : null,
-          sourceType: 'TRAVEL',
-          sourceId: trip.id,
-          budgetCategory: 'Travel',
-        },
-      });
-    }
   }
 }
 
@@ -1390,7 +1323,7 @@ async function seedTraining(ctx: ExtrasContext): Promise<void> {
     for (const empIdx of n.empIdxs) {
       const attended = n.status === 'ATTENDED';
       const decided = ['APPROVED', 'REJECTED', 'ATTENDED', 'NO_SHOW'].includes(n.status);
-      const nomination = await prisma.trainingNomination.upsert({
+      await prisma.trainingNomination.upsert({
         where: { sessionId_employeeId: { sessionId: session.id, employeeId: employees[empIdx].id } },
         update: {},
         create: {
@@ -1411,26 +1344,6 @@ async function seedTraining(ctx: ExtrasContext): Promise<void> {
             attended && session.validMonths ? addMonths(session.endsAt, session.validMonths) : null,
         },
       });
-
-      // Attended training bills back through the reimbursement ledger.
-      if (attended) {
-        await prisma.reimbursement.create({
-          data: {
-            employeeId: employees[empIdx].id,
-            type: 'Training',
-            amount: session.cost,
-            expenseDate: session.endsAt,
-            description: `Training fee — ${courseSpecs.find((c) => c.code === session.code)?.title}`,
-            status: 'PAID',
-            approverId: hrUserId,
-            approvedAt: session.endsAt,
-            paidAt: day(-2),
-            sourceType: 'TRAINING',
-            sourceId: nomination.id,
-            budgetCategory: 'Training',
-          },
-        });
-      }
     }
   }
 }
@@ -1560,7 +1473,7 @@ async function seedBudgets(ctx: ExtrasContext): Promise<void> {
           amount: n.cost ?? 0,
           status: n.status === 'ATTENDED' ? 'REALIZED' : 'OPEN',
           resolvedAt: n.status === 'ATTENDED' ? day(-2) : null,
-          resolvedNote: n.status === 'ATTENDED' ? 'Training fee reimbursed.' : null,
+          resolvedNote: n.status === 'ATTENDED' ? 'Training fee settled.' : null,
         },
       });
     }
@@ -2137,7 +2050,7 @@ async function seedGarnishments(ctx: ExtrasContext): Promise<void> {
       endDaysFromNow: 210,
       isActive: true,
       priority: 10,
-      notes: 'Bank loan recovery via DRT order.',
+      notes: 'Bank debt recovery via DRT order.',
     },
     {
       empIdx: 2,
@@ -2181,7 +2094,7 @@ async function seedGarnishments(ctx: ExtrasContext): Promise<void> {
       endDaysFromNow: 300,
       isActive: true,
       priority: 10,
-      notes: 'Federal student-loan garnishment under Title IV.',
+      notes: 'Federal student-debt garnishment under Title IV.',
     },
     {
       empIdx: 14,

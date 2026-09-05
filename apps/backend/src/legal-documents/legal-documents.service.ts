@@ -655,22 +655,6 @@ export class LegalDocumentsService {
               message: `Your ${doc.documentType} (${doc.country}) expires in ${daysRemaining} day(s) on ${expiryDateStr}. Please contact HR to start the renewal.`,
               type: NotificationType.VISA_EXPIRING,
               link: profileLink,
-              // Explicit rather than type-based: VISA_EXPIRING is also raised
-              // for the HR recipients above, and only the employee's own copy
-              // belongs on their handset.
-              waTemplate: 'expiry_reminder',
-              waData: {
-                entityLabel: doc.documentType,
-                subjectName: doc.employee.fullName,
-                expiryDate: doc.expiryDate,
-                daysRemaining,
-                fields: [
-                  { label: 'Country', value: doc.country },
-                  { label: 'Number', value: doc.documentNumber },
-                ],
-              },
-              // The cron re-runs; one message per document per expiry window.
-              waDedupeKey: `legal-doc-expiry:${doc.id}:${expiryDateStr}`,
             });
           } catch (err) {
             console.error(

@@ -26,7 +26,7 @@ function useMenu(): NavGroup[] {
   return useMemo(
     () => buildMenu(user?.role, branding),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user?.role, branding?.overtime_enabled, branding?.reimbursement_enabled, payrollFlagsKey],
+    [user?.role, branding?.overtime_enabled, payrollFlagsKey],
   );
 }
 

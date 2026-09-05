@@ -59,7 +59,7 @@ export type ConsumeVerificationResult =
  * Issues and burns the one-time capability a channel hands out when a punch
  * needs proof it cannot collect in the chat.
  *
- * A direct generalisation of DiscordCheckinTokenService: same sha256-only
+ * Channel-agnostic by design: sha256-only
  * storage, same atomic CAS on consumption, same one-live-row-per-employee rule,
  * same deliberate absence of an identity check AT CONSUME TIME for links — the
  * whole point is that the link opens in a browser with no channel session to

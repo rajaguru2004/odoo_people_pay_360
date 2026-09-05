@@ -44,12 +44,11 @@ describe('branch-scope.map', () => {
 
   describe('registry coverage', () => {
     it('scopes the previously-leaking models', () => {
-      expect(BRANCH_SCOPE.AdvanceLoanRequest).toBe('relation');
       expect(BRANCH_SCOPE.TerminationRequest).toEqual({
         path: ['contract', 'employee'],
       });
-      expect(BRANCH_SCOPE.AdvanceLoanDeduction).toEqual({
-        path: ['request', 'employee'],
+      expect(BRANCH_SCOPE.LeaveAttachment).toEqual({
+        path: ['leaveRequest', 'employee'],
       });
       expect(BRANCH_SCOPE.Payroll).toBe('direct');
       expect(BRANCH_SCOPE.PayrollBatch).toBe('direct');

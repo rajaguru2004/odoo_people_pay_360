@@ -21,8 +21,8 @@ describe('StatusBadge', () => {
   });
 
   it('renders the label it is given, verbatim', () => {
-    // It maps nothing. The domain owns its vocabulary — see the docblock, and
-    // `components/advance-loans/loanStatus.ts` for the argument.
+    // It maps nothing. The domain owns its vocabulary — see the docblock for
+    // the argument.
     renderWithProviders(<StatusBadge tone="danger" label="Refused" testId="b" />);
     expect(screen.getByTestId('b')).toHaveTextContent('Refused');
     expect(screen.getByTestId('b')).toHaveAttribute('data-tone', 'danger');

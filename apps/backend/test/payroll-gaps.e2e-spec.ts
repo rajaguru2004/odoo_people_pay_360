@@ -15,7 +15,6 @@ import { bearer, withSettings } from './utils/settings';
  *
  *   PGAP-01  `payroll_reports_enabled` gates the API, not only the menu
  *   PGAP-02  YTD reads LOCKED runs only, and reports 2 decimals
- *   PGAP-03  the WPS submitted total counts ACKNOWLEDGED files
  */
 describe('Payroll — the recorded gaps (e2e)', () => {
   let ctx: E2EContext;
@@ -165,31 +164,6 @@ describe('Payroll — the recorded gaps (e2e)', () => {
       );
       // Twelve independent roundings used to drift the total away from the rows.
       expect(Math.abs(summed - Number(d.totalNetIncome))).toBeLessThan(0.02);
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  describe('PGAP-03 — the wage-file total counts what the bank took', () => {
-    it('PGAP-03 the summary is well-formed and never negative', async () => {
-      const res = await api()
-        .get('/wps/status-summary')
-        .set(bearer(fx.admin.token));
-      expect(res.status).toBe(200);
-
-      const d = res.body.data;
-      expect(d).toEqual(
-        expect.objectContaining({
-          byStatus: expect.any(Object),
-          rejected: expect.any(Number),
-          submittedTotalMinor: expect.any(String),
-        }),
-      );
-      expect(BigInt(d.submittedTotalMinor) >= 0n).toBe(true);
-
-      // The aggregate used to match on 'ACCEPTED', which is a WpsFileRow status
-      // and not a WpsFile one, so every acknowledged file was silently omitted.
-      // Whatever this database holds, no status key may be that word.
-      expect(Object.keys(d.byStatus)).not.toContain('ACCEPTED');
     });
   });
 });

@@ -93,10 +93,6 @@ describe('EmployeesService — employee email and login email stay in sync', () 
       {} as any,
       {} as any,
       { assertCleared: jest.fn().mockResolvedValue(undefined) } as any,
-      // WhatsApp outbox / settings — the resend also messages the employee, but
-      // it is fire-and-forget and disabled here so nothing races the assertions.
-      { enqueueDirect: jest.fn().mockResolvedValue(undefined) } as any,
-      { get: jest.fn().mockResolvedValue({ enabled: false }) } as any,
       { resolve: jest.fn().mockResolvedValue({ enabled: false, fields: [] }) } as any,
       {
         assign: jest.fn().mockResolvedValue(undefined),

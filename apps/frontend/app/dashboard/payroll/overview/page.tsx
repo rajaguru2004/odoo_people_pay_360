@@ -33,9 +33,8 @@ import type { PayrollTrendMonths } from '@/types/payrollHub';
  *
  * The question this hub owns is **"what is the current payroll processing
  * position, what has been processed, what is waiting for action, and is payroll
- * ready for payment?"** It carries no headcount card (People's), no loan book
- * (Finance's) and no attendance rate (Time & Attendance's). Loan recovery
- * appears only as a payslip column inside the composition panel.
+ * ready for payment?"** It carries no headcount card (People's), no budget
+ * variance (Finance's) and no attendance rate (Time & Attendance's).
  *
  * Two rules run through every figure:
  *
@@ -207,14 +206,7 @@ function PayrollHubContent() {
       trend: series((b) => b.statutory),
       // More statutory deduction is not "good", but it moving is worth seeing.
       delta: moneyDelta(money?.statutory, money?.previousStatutory, 'down'),
-      subStats: [
-        { key: 'tax', label: labels.tax, value: amount(comp.get('tax')) },
-        {
-          key: 'loans',
-          label: t('money.advanceLoanDeduction'),
-          value: amount(comp.get('advanceLoanDeduction')),
-        },
-      ],
+      subStats: [{ key: 'tax', label: labels.tax, value: amount(comp.get('tax')) }],
       footnote: summary
         ? money?.statutory === null
           ? t('kpiNetNotFinalised', { period: summary.anchor.label })
@@ -376,15 +368,6 @@ function PayrollHubContent() {
         href: '/dashboard/payroll/settlements',
       });
     }
-    if ((summary.wps?.rejected ?? 0) > 0) {
-      attention.push({
-        key: 'wps-rejected',
-        label: t('attnWpsRejected', { count: summary.wps!.rejected }),
-        detail: t('attnBankRefused'),
-        severity: 'critical',
-        href: '/dashboard/payroll/manage',
-      });
-    }
     if (summary.unscopedLegacyRuns > 0) {
       attention.push({
         key: 'legacy-runs',
@@ -541,7 +524,6 @@ function PayrollHubContent() {
             />
             <PaymentReadinessPanel
               readiness={readiness}
-              wps={summary?.wps}
               loading={loading}
               failed={failed}
             />

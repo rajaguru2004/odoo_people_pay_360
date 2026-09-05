@@ -318,60 +318,6 @@ test('my pay', async ({ page }) => {
   });
 
   await shot(page, {
-    name: 'reimbursements',
-    caption: 'My Reimbursements — claiming money back',
-    url: '/dashboard/reimbursements',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=reimb-new', label: 'Start a new claim', badge: 'right' },
-      { selector: 'testid=reimb-row', label: 'One claim — type, amount, date and status', pad: 6 },
-    ],
-  });
-
-  await shot(page, {
-    name: 'reimbursement-new',
-    caption: 'Making a reimbursement claim',
-    url: '/dashboard/reimbursements',
-    height: 1200,
-    prepare: async (p) => {
-      await p.getByTestId('reimb-new').click().catch(() => undefined);
-      await p.waitForTimeout(900);
-    },
-    callouts: [
-      { selector: 'select', label: 'What kind of expense this is' },
-      { selector: 'input[type="number"]', label: 'How much you spent, in OMR' },
-      { selector: 'input[type="date"]', label: 'The date on the receipt' },
-    ],
-  });
-
-  await shot(page, {
-    name: 'advance-loans',
-    caption: 'My Advances & Loans',
-    url: '/dashboard/advance-loans',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=loan-new', label: 'Request an advance or a loan', badge: 'right' },
-      { selector: 'testid=loan-my-statement', label: 'Your full repayment statement' },
-      { selector: 'testid=loan-row', label: 'One request — amount, repayment progress and status', pad: 6 },
-      { selector: 'testid=loan-cancel', label: 'Withdraw a request that is still pending' },
-    ],
-  });
-
-  await shot(page, {
-    name: 'loan-statement',
-    caption: 'My loan statement — what is left to repay',
-    url: '/dashboard/my-loan-statement',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=statement-amount', label: 'What you borrowed' },
-      { selector: 'testid=statement-repaid', label: 'Repaid so far' },
-      { selector: 'testid=statement-outstanding', label: 'Still owing' },
-      { selector: 'testid=statement-installments', label: 'How many instalments remain' },
-      { selector: 'testid=statement-toggle', label: 'Show the instalment-by-instalment schedule' },
-    ],
-  });
-
-  await shot(page, {
     name: 'my-travel',
     caption: 'My Travel — trip requests',
     url: '/dashboard/my-travel',

@@ -38,7 +38,7 @@ import {
  * ALREADY COVERED ELSEWHERE — deliberately not repeated here:
  *
  *   XM-API-01..04  the clearance gate across all three offboarding doors, the
- *                  two kill switches, loans in four statuses, override + audit
+ *                  kill switch, custody states, override + audit
  *                  -> `workplace-asset-clearance.e2e-spec.ts` (CLR-API-01..26)
  *   XM-API-12      warranty reminder tiers and the dedupe key
  *                  -> `workplace-asset-clearance.e2e-spec.ts` (XM-API-12a..g)

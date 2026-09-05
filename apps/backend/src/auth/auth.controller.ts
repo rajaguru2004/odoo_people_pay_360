@@ -1,5 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards, Patch, Req } from '@nestjs/common';
-import type { Request } from 'express';
+import { Controller, Post, Body, Get, UseGuards, Patch } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -18,7 +17,6 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-import { extractRequestMeta } from '../common/utils/request-meta.util';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -35,11 +33,8 @@ export class AuthController {
   @ApiBody({ type: LoginDto })
   @ApiResponse({ status: 201, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  login(@Body() loginDto: LoginDto, @Req() req: Request) {
-    // The IP and User-Agent are read here rather than in the service because
-    // the service is also reached from non-HTTP entry points, which have no
-    // request to read them from.
-    return this.authService.login(loginDto, extractRequestMeta(req));
+  login(@Body() loginDto: LoginDto) {
+    return this.authService.login(loginDto);
   }
 
   @Post('register')

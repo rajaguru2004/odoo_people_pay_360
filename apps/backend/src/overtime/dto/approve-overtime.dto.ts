@@ -12,8 +12,7 @@ import {
  * Approver-supplied corrections carried on `POST /overtime/:id/approve`.
  *
  * Every field is optional and the body itself may be absent entirely — a plain
- * bodyless approve (the WhatsApp decision channel sends one) must keep meaning
- * "approve exactly as filed".
+ * bodyless approve must keep meaning "approve exactly as filed".
  *
  * Note what is NOT here: `hours` and `date`. Hours are derived from the worked
  * window by the same tier/boundary engine that classified the request, so a

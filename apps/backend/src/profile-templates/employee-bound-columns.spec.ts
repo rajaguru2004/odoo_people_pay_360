@@ -210,7 +210,7 @@ describe('phoneCountryCode is bound, not excluded', () => {
 
   it('is optional and unlocked', () => {
     const bound = BOUND_BY_KEY.get('phoneCountryCode')!;
-    // The column is nullable with no default, and the WhatsApp outbox falls
+    // The column is nullable with no default, and phone normalisation falls
     // back to the branch country, so requiring it would be a lie.
     expect(bound.systemRequired).toBe(false);
     // Nothing does money or regulatory arithmetic on it, so an admin may

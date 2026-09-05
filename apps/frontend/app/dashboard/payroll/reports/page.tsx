@@ -23,9 +23,8 @@ const TABS: Array<{ id: Tab; label: string }> = [
 /**
  * Per-tab empty states.
  *
- * Copied from the loan reports for the reason its own comment gives: an empty
- * Variance is good news, an empty Register means nothing has been locked. One
- * generic "no data" makes those two indistinguishable.
+ * An empty Variance is good news, an empty Register means nothing has been
+ * locked. One generic "no data" makes those two indistinguishable.
  */
 const EMPTY: Record<Tab, string> = {
   register: 'No payroll has been LOCKED for this period yet, so nobody has been paid.',

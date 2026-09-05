@@ -105,7 +105,6 @@ function summary(over: Partial<PayrollHubSummary> = {}): PayrollHubSummary {
     },
     carryForward: { outstanding: 0 },
     settlements: { draft: 0, awaitingPayment: 0, openPayout: 0 },
-    wps: null,
     unscopedLegacyRuns: 0,
     ...over,
   };
@@ -135,7 +134,7 @@ describe('Payroll hub', () => {
       // The old hub pushed Settlements and Gratuity in conditionally, so the
       // row was four to six wide depending on a feature flag and the grid
       // changed shape underneath the reader.
-      resolve(summary({ readiness: null, settlements: null, wps: null }));
+      resolve(summary({ readiness: null, settlements: null }));
       render();
       await waitFor(() => expect(cards().length).toBe(5));
     });
@@ -506,35 +505,6 @@ describe('Payroll hub', () => {
         screen.getAllByText('No banking country configured, so nothing could be checked').length,
       ).toBeGreaterThan(0);
     });
-
-    it('says plainly that it is not the wage-file verdict', async () => {
-      resolve(summary());
-      render();
-      expect(
-        await screen.findByText(/wage-file screen stays the authority/i),
-      ).toBeTruthy();
-    });
-
-    it('mentions the last wage file only once one has ever been produced', async () => {
-      resolve(summary());
-      render();
-      await screen.findByText('Payment readiness');
-      expect(screen.queryByText('Last wage file')).toBeNull();
-
-      getHubSummary.mockReset();
-      resolve(
-        summary({
-          wps: {
-            lastFileAt: '2026-08-02T09:00:00.000Z',
-            lastFileStatus: 'SUBMITTED',
-            lastFileName: 'wps-aug.csv',
-            rejected: 0,
-          },
-        }),
-      );
-      render();
-      expect(await screen.findByText('Last wage file')).toBeTruthy();
-    });
   });
 
   describe('the money composition', () => {
@@ -620,11 +590,11 @@ describe('Payroll hub', () => {
       expect(card?.textContent).toContain('In an open run');
     });
 
-    it('carries no loan book — that is the Finance hub', async () => {
+    it('carries no budget variance — that is the Finance hub', async () => {
       resolve(summary());
       render();
       await waitFor(() => expect(cards().length).toBe(5));
-      expect(kpiLabels().some((l) => /Outstanding|Overdue|EMI|Claims/i.test(l))).toBe(false);
+      expect(kpiLabels().some((l) => /Budget|Utilization|Planned/i.test(l))).toBe(false);
     });
   });
 });

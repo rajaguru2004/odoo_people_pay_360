@@ -207,8 +207,8 @@ function ManagePayrollPageContent() {
 
   // DRAFT -> submit -> PENDING_APPROVAL -> (approvals screen) -> APPROVED -> lock.
   // This row used to offer a single padlock on DRAFT that jumped straight to
-  // LOCKED, skipping approval and skipping the reimbursement / advance-loan
-  // settlement that only locking performs.
+  // LOCKED, skipping approval and skipping the settlement that only locking
+  // performs.
   const handleSubmitForApproval = async (
     id: string,
     month: number,

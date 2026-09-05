@@ -44,8 +44,8 @@ an employee's active fixed-amount `SalaryComponent` rows. `GradeSalaryComponent`
 carry `valueType: FIXED | PERCENT_OF_BASIC`, but it is a **dead template** — its own
 schema comment says "A TEMPLATE, never an input to payroll", and the only code that
 reads it is `grades.service.ts`'s own CRUD. Most of HRM's bulk is the feature set
-excluded here: WPS, gratuity, loans, garnishments, reimbursements, encashment,
-carry-forward, run versioning, unlock/relock, batches, run types.
+excluded here: gratuity, garnishments, encashment, carry-forward, run versioning,
+unlock/relock, batches, run types.
 
 **Outcome:** a payroll officer opens the Payroll hub, starts a run for a period, sees
 a pre-flight that names every employee the run cannot safely pay, generates payslips
@@ -94,12 +94,11 @@ calculator; the plan does not include it. Say so at approval if it should.
 calculation, pre-flight, approval, hub, reports) · `payslips/` · the frontend for all
 of it · seed data · unit, component, API and Playwright tests · the two docs.
 
-**Do not build — record as a seam in `docs/interconnections-payroll.md`:** WPS wage
-files, gratuity / end-of-service, advances and loans, garnishments, reimbursements,
-leave encashment, carry-forward, run versioning and unlock, payroll batches, payroll
-calendar periods and cut-off enforcement, off-cycle / bonus / final-settlement run
-types, statutory tax and social-insurance calculators, bank transfer files,
-notifications, the approval engine, audit logging.
+**Do not build — record as a seam in `docs/interconnections-payroll.md`:** gratuity /
+end-of-service, garnishments, leave encashment, carry-forward, run versioning and
+unlock, payroll batches, payroll calendar periods and cut-off enforcement, off-cycle
+/ bonus / final-settlement run types, statutory tax and social-insurance calculators,
+bank transfer files, notifications, the approval engine, audit logging.
 
 **Other developers' modules — read, never edit:** `attendances/`, `holidays/`,
 `contracts/`, `employees/`, `branches/`, `departments/`, `teams/`, `work-schedules/`,
@@ -560,10 +559,10 @@ assertion may depend on a whole-table count.
 
 Payroll is complete as a base system but not fully live until other modules land:
 paid-leave classification and overtime tiers (Leave & Overtime), statutory tax and
-social-insurance calculators, gratuity and end-of-service, loans and advances,
-garnishments, reimbursements, WPS wage files, bank payment files, multi-tier approval,
-and notification fan-out. Each is named in `docs/interconnections-payroll.md` with its
-contract, so the counterpart module has something to build against.
+social-insurance calculators, gratuity and end-of-service, garnishments, bank
+payment files, multi-tier approval, and notification fan-out. Each is named in
+`docs/interconnections-payroll.md` with its contract, so the counterpart module has
+something to build against.
 
 **No git push, pull, fetch or PR at any point.** When the work is done it is reported
 and stops there.

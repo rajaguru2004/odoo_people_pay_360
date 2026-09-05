@@ -35,7 +35,6 @@ describe('payslip item lines', () => {
       // If a caller could declare PF an EARNING, it could invert a payslip.
       for (const b of [
         'deduction',
-        'advanceLoanDeduction',
         'garnishment',
         'otherRecovery',
         'insurance',
@@ -43,12 +42,6 @@ describe('payslip item lines', () => {
       ] as const) {
         expect(BUCKET_CATEGORY[b]).toBe('DEDUCTION');
       }
-    });
-
-    it('keeps reimbursement an earning even though it sits outside gross', () => {
-      // It is added post-tax by the engine, which makes it easy to mistake for
-      // something other than money the employee receives.
-      expect(BUCKET_CATEGORY.reimbursement).toBe('EARNING');
     });
 
     it('names every bucket exactly once', () => {
@@ -263,13 +256,13 @@ describe('payslip item lines', () => {
     it('does NOT let one bucket cover for another', () => {
       // The reason `bucket` exists. Category-level reconciliation would pass
       // here: total deductions are 300 either way, but the payslip would be
-      // claiming a 300 loan instalment the employee never had.
-      const r = reconcileLines({ insurance: 300, advanceLoanDeduction: 0 }, [
-        line({ bucket: 'advanceLoanDeduction', amount: 300, category: 'DEDUCTION' }),
+      // claiming a 300 court-order deduction the employee never had.
+      const r = reconcileLines({ insurance: 300, garnishment: 0 }, [
+        line({ bucket: 'garnishment', amount: 300, category: 'DEDUCTION' }),
       ]);
       expect(r.ok).toBe(false);
       expect(r.mismatches.map((m) => m.bucket).sort()).toEqual([
-        'advanceLoanDeduction',
+        'garnishment',
         'insurance',
       ]);
     });
@@ -311,7 +304,7 @@ describe('payslip item lines', () => {
         bonus: 50,
         overtimePay: 75.5,
         deduction: 100,
-        advanceLoanDeduction: 150,
+        garnishment: 150,
         insurance: 127.5,
         tax: 290,
       };
@@ -325,7 +318,7 @@ describe('payslip item lines', () => {
           bonus: [{ code: 'REWARD', label: 'Reward', amount: 50, sourceType: 'REWARD' }],
           overtimePay: [{ code: 'OVERTIME', label: 'Overtime', amount: 75.5, sourceType: 'OVERTIME' }],
           deduction: [{ code: 'LOP', label: 'Loss of pay', amount: 100, sourceType: 'LOP' }],
-          advanceLoanDeduction: [{ code: 'LOAN_EMI', label: 'Loan instalment', amount: 150, sourceType: 'LOAN' }],
+          garnishment: [{ code: 'GARNISHMENT', label: 'Court order', amount: 150, sourceType: 'GARNISHMENT' }],
           insurance: [
             { code: 'PF', label: 'Provident Fund', amount: 120, sourceType: 'STATUTORY' },
             { code: 'ESI', label: 'ESI', amount: 7.5, sourceType: 'STATUTORY' },

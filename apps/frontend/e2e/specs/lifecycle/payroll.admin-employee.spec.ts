@@ -6,8 +6,9 @@ import { PayrollManagePage } from '../../pages';
  *
  * Step 10 of `apps/backend/test/live/full-lifecycle.live-e2e.ts`, through the
  * browser. This is the money path, and `lock` is the step that matters: it is
- * the ONLY transition that settles reimbursements and loan recoveries, and a
- * LOCKED run cannot be edited or re-locked — the only way back is a revision.
+ * the ONLY transition that settles a run's money — leave encashment, gratuity
+ * accrual and garnishment collections — and a LOCKED run cannot be edited or
+ * re-locked, the only way back being a revision.
  *
  * A UI that appears to lock while the record stays APPROVED is therefore an
  * expensive kind of wrong, and it is exactly the failure a per-screen test
@@ -210,8 +211,7 @@ test.describe('a payroll run reaches LOCKED', () => {
     test.skip(current.status !== 'LOCKED', 'the run never reached LOCKED');
 
     // The immutability that makes LOCKED meaningful. Without it, "locked"
-    // would be a label rather than a state — which is what it used to be
-    // before the WPS phase-0 work.
+    // would be a label rather than a state.
     await expect(api.post(`/payrolls/${payroll!.id}/lock`, {})).rejects.toThrow();
   });
 });

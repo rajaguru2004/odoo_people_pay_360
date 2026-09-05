@@ -13,11 +13,10 @@ import { bearer } from './utils/payroll-fixtures';
  * `schema.prisma` says so outright ("This is not an F&F module"), and
  * `docs/PAYROLL-GAP-REPORT.md` §1 records the whole absent section.
  *
- * `PayrollRunType.FINAL_SETTLEMENT` is a run type whose only real effect is on
- * loan recovery — it lifts the take-home floor via
- * `loan_final_settlement_ignores_min_net`. These cases assert that it
- * round-trips and behaves like an ordinary run otherwise, and cover the
- * employment BOUNDARIES, which do exist and which G31 was found in.
+ * `PayrollRunType.FINAL_SETTLEMENT` is a run type that pays a leaver what they
+ * are owed on the way out. These cases assert that it round-trips and behaves
+ * like an ordinary run otherwise, and cover the employment BOUNDARIES, which do
+ * exist and which G31 was found in.
  */
 describe('Payroll edge — joiners, leavers, settlement (PE-EOSB)', () => {
   let ctx: E2EContext;

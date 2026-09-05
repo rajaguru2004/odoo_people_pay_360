@@ -18,7 +18,7 @@ export class GenerateDocumentDto {
   @IsUUID()
   employeeId?: string;
 
-  @ApiPropertyOptional({ description: 'The record it describes: a payroll item, a loan, a settlement.' })
+  @ApiPropertyOptional({ description: 'The record it describes: a payroll item, a settlement.' })
   @IsOptional()
   @IsUUID()
   subjectId?: string;

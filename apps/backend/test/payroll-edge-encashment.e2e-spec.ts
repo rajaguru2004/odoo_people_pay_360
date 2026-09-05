@@ -9,10 +9,8 @@ import { withSettings } from './utils/settings';
 /**
  * `PE-IN-40..` — leave encashment, and the year-end carry-forward.
  *
- * `RECOVER_FROM_LEAVE_ENCASHMENT` has been a loan-settlement action since the
- * loans work landed, recovering against a figure nothing produced;
  * `leave_type_balances.carried_over` has been a real column no endpoint wrote.
- * These cases are what makes both of those true statements false.
+ * These cases are what makes that true statement false.
  *
  * `PE-IN-46` is deliberately NOT claimed here: it belongs to the leave-cancel
  * case that is still blocked by NO_LOGIN, and taking the id would hide that.
@@ -169,8 +167,8 @@ describe('Payroll edge — leave encashment (PE-IN)', () => {
     }, 60_000);
 
     it('PE-IN-45: HR can file on an employee’s behalf', async () => {
-      // The thing the reimbursement DTO cannot do, and the reason encashment
-      // carries an explicit employeeId: HR files for a leaver every day.
+      // The reason encashment carries an explicit employeeId rather than
+      // inferring the caller: HR files for a leaver every day.
       await withSettings(ctx, ON, async () => {
         await setBalance(fx.leaverEmpId, YEAR, 20, 0);
         const res = await request(fx.leaverEmpId, 4);
@@ -232,8 +230,8 @@ describe('Payroll edge — leave encashment (PE-IN)', () => {
     }, 120_000);
 
     it('PE-IN-48: a second run does not pay the same request again', async () => {
-      // `payrollItemId: null` is the double-inclusion guard, exactly as it is
-      // for reimbursements.
+      // `payrollItemId: null` is the double-inclusion guard: a request already
+      // attached to an item is invisible to the next run.
       await withSettings(ctx, ON, async () => {
         await setBalance(fx.fullMonthEmpId, YEAR, 30, 0);
         const created = await request(fx.fullMonthEmpId, 3);

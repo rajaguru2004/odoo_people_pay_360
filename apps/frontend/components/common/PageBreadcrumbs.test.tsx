@@ -116,7 +116,7 @@ describe('declared breadcrumbs', () => {
     // Guarded on pathname: the outgoing page's cleanup can run after the
     // incoming page's effect, and a stale trail is worse than none. The
     // derived trail for the route we are actually on wins.
-    navigationState.pathname = '/dashboard/reimbursements';
+    navigationState.pathname = '/dashboard/travel';
     usePageHeaderStore.setState({
       entry: {
         pathname: '/dashboard/payroll/manage',
@@ -126,7 +126,7 @@ describe('declared breadcrumbs', () => {
     });
     renderWithProviders(<PageBreadcrumbs />, { role: 'ADMIN' });
 
-    expect(crumbs()).toEqual(['Finance', 'Reimbursements']);
+    expect(crumbs()).toEqual(['Finance', 'Travel']);
   });
 });
 
@@ -150,13 +150,13 @@ describe('payroll — a module hub that sits beside its own routes', () => {
   });
 
   it('names the module on a route deeper than any nav entry', () => {
-    navigationState.pathname = '/dashboard/payroll/run-123/wps';
+    navigationState.pathname = '/dashboard/payroll/run-123/items';
     usePageHeaderStore.setState({
-      entry: { pathname: '/dashboard/payroll/run-123/wps', title: 'WPS file' },
+      entry: { pathname: '/dashboard/payroll/run-123/items', title: 'Payslip lines' },
     });
     renderWithProviders(<PageBreadcrumbs />, { role: 'ADMIN' });
 
-    expect(crumbs()).toEqual(['Payroll', 'WPS file']);
+    expect(crumbs()).toEqual(['Payroll', 'Payslip lines']);
   });
 
   it('keeps the section crumb on a settlement detail', () => {

@@ -1,11 +1,10 @@
 /**
  * A delivery channel that a notification can be teed into.
  *
- * Introduced when Discord became the second channel. With one channel a direct
- * optional injection was fine; with two, branching per channel inside
- * NotificationsService would mean every future channel edits the same method —
- * and that method runs inside business transactions all over the codebase, so
- * it is the last place that should keep changing.
+ * Branching per channel inside NotificationsService would mean every future
+ * channel edits the same method — and that method runs inside business
+ * transactions all over the codebase, so it is the last place that should keep
+ * changing.
  *
  * Channels register themselves under NOTIFICATION_CHANNELS. NotificationsService
  * fans out to whatever is registered and knows nothing about any of them.
@@ -34,20 +33,12 @@ export interface NotificationSinkInput {
   message: string;
   type?: string;
   link?: string;
-  /**
-   * Explicit template key from the shared registry. Named `waTemplate` on the
-   * DTO for historical reasons; the registry itself is channel-agnostic.
-   */
-  waTemplate?: string;
-  waData?: Record<string, unknown>;
-  /** Caller-supplied idempotency key; each channel namespaces it. */
-  dedupeKey?: string;
   /** Present when the recipient is being asked to approve or reject. */
   decision?: NotificationDecision;
 }
 
 export interface NotificationChannelSink {
-  /** For logs and diagnostics, e.g. 'whatsapp' | 'discord'. */
+  /** For logs and diagnostics, e.g. 'in-app'. */
   readonly channelName: string;
 
   /**

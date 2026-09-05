@@ -38,12 +38,13 @@ export interface GarnishmentInputs {
  * The rung the recovery ladder was missing. `PayrollItem.garnishment` and
  * `CycleContext.garnishment` both existed, payroll passed a hard-coded `0`, and
  * there was nowhere to record that an order existed at all — so the documented
- * order (statutory > garnishment > protected net > advance > loan) could not be
+ * order (statutory > garnishment > protected net > recovery) could not be
  * exercised even in principle.
  *
- * A garnishment outranks every loan by construction: payroll subtracts it from
- * the pool BEFORE the loan allocator sees the money, which is why the ladder is
- * enforced structurally here rather than by sorting.
+ * A garnishment outranks every voluntary recovery by construction: payroll
+ * subtracts it from the pool BEFORE the recovery allocator sees the money,
+ * which is why the ladder is enforced structurally here rather than by
+ * sorting.
  */
 @Injectable()
 export class GarnishmentsService {
@@ -237,7 +238,7 @@ export class GarnishmentsService {
   /**
    * Every order in force for these employees in this cycle.
    *
-   * Loaded ONCE before the payroll loop, the way loan candidates are: a
+   * Loaded ONCE before the payroll loop: a
    * per-employee query inside a 300-person run is the N+1 this module has
    * already been bitten by. The arithmetic is separate (`takeFor`) because a
    * percentage order needs the employee's net, which is only known after the
@@ -326,8 +327,7 @@ export class GarnishmentsService {
    * The unique `(orderId, month, year)` is the idempotency: an unlock followed
    * by a re-lock tries to write the same cycle again, loses on the index, and
    * the counter is left alone. Without it a corrected payroll would collect
-   * twice against the same order — the mirror of the double-recovery bug the
-   * loan ledger already guards against.
+   * twice against the same order.
    */
   async recordCollected(
     taken: Array<{ id: string; take: number; payrollItemId?: string | null }>,
@@ -435,9 +435,8 @@ export class GarnishmentsService {
    * An employee leaving does NOT clear what they owe.
    *
    * An unrecovered balance survives the exit as a RECEIVABLE — a debt on
-   * record, the way the loan module already treats an unpaid loan — instead of
-   * being written off silently. `waive()` remains the only path that erases
-   * one, and it demands a reason.
+   * record — instead of being written off silently. `waive()` remains the only
+   * path that erases one, and it demands a reason.
    */
   async markOutstandingAsReceivable(
     employeeId: string,

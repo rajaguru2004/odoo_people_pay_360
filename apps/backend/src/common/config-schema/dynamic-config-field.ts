@@ -6,15 +6,13 @@
  * declares the settings it needs as data, the settings form is generated from
  * that declaration, and adding the second adapter costs zero frontend work.
  *
- * Shared, not duplicated: the attendance-integrations framework introduced this
- * shape for external attendance providers, and the WPS wage-file formats need
- * exactly the same contract for their employer-registration and per-run fields.
- * One type means one frontend renderer for both.
+ * Shared, not duplicated: any adapter that needs registration or per-run
+ * fields declares them with this one contract, so a single frontend renderer
+ * serves all of them.
  *
  * Nothing here is specific to any feature. Where a value is STORED is the
- * consuming module's business — see e.g. TOP_LEVEL_CONFIG_FIELDS in
- * attendance-integrations, which routes some names to columns and the rest to a
- * JSON blob.
+ * consuming module's business — a module is free to route some names to
+ * columns and the rest to a JSON blob.
  */
 export type DynamicConfigFieldType =
   | 'text'

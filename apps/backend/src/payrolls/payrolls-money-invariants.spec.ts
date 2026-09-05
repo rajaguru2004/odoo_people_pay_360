@@ -10,8 +10,6 @@ import { SalaryComponentsService } from '../salary-components/salary-components.
 import { SystemSettingsService } from '../system-settings/system-settings.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationDispatcher } from '../notifications/notification-dispatcher.service';
-import { LoanPolicyService, DEFAULT_LOAN_POLICY } from '../advance-loans/loan-policy.service';
-import { LoanRecoveryService } from '../advance-loans/loan-recovery.service';
 import { AuditService } from '../audit/audit.service';
 import { GarnishmentsService } from '../garnishments/garnishments.service';
 import { GratuityService } from '../gratuity/gratuity.service';
@@ -22,27 +20,23 @@ import {
   PayrollFeaturesService,
 } from './payroll-features.service';
 import { PayrollItemLinesService } from './payroll-item-lines.service';
-import { LoanNotificationService } from '../advance-loans/loan-notification.service';
-import { LoanScheduleService } from '../advance-loans/loan-schedule.service';
 
 /**
- * Money invariants a wage file depends on. Each test here locks down a bug that
- * was live before the WPS work:
+ * Money invariants a payslip depends on. Each test here locks down a bug that
+ * was live once:
  *
  *   1. baseSalary, bonus and foodAllowance were returned UNROUNDED and left for
  *      Postgres to round on write, so the STORED components did not sum to the
- *      STORED net. A wage-file validator re-derives the header total from the
- *      detail rows, so a row that disagrees with itself is a rejected file.
+ *      STORED net — a row that disagrees with itself.
  *   2. updateItem() had no zero floor (unlike create()), so an HR edit raising
- *      `deduction` above gross persisted a NEGATIVE netSalary. In a fixed-width
- *      wage file the minus sign shifts every subsequent field on the row.
+ *      `deduction` above gross persisted a NEGATIVE netSalary.
  *   3. payrolls.total_amount was accumulated with `+=` on a JS float, so the run
  *      total could disagree with the sum of its own items.
  *
- * The reconciliation identity asserted throughout is the one the file relies on:
+ * The reconciliation identity asserted throughout:
  *
  *   baseSalary + allowances + bonus + overtimePay + foodAllowance
- *     - deduction - insurance - tax + reimbursement - advanceLoanDeduction
+ *     - deduction - insurance - tax
  *   == netSalary                                        (unless floored at 0)
  *
  * Prisma and collaborators are mocked; the real calculation engine runs.
@@ -111,7 +105,7 @@ describe('PayrollsService — money invariants', () => {
     leaveRequests: [],
   });
 
-  /** The identity the wage file relies on, computed off a persisted row. */
+  /** The identity a payslip relies on, computed off a persisted row. */
   const reconcile = (row: any) =>
     Number(row.baseSalary) +
     Number(row.allowances) +
@@ -120,9 +114,7 @@ describe('PayrollsService — money invariants', () => {
     Number(row.foodAllowance) -
     Number(row.deduction) -
     Number(row.insurance) -
-    Number(row.tax) +
-    Number(row.reimbursement) -
-    Number(row.advanceLoanDeduction);
+    Number(row.tax);
 
   /** True when `n` needs no more than 2 decimal places. */
   const isAtStoredPrecision = (n: unknown) =>
@@ -163,19 +155,6 @@ describe('PayrollsService — money invariants', () => {
       employee: { findMany: jest.fn() },
       salaryComponent: { findMany: jest.fn().mockResolvedValue([]) },
       overtimeRequest: { findMany: jest.fn().mockResolvedValue([]) },
-      reimbursement: {
-        findMany: jest.fn().mockResolvedValue([]),
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-      },
-      advanceLoanRequest: {
-        findMany: jest.fn().mockResolvedValue([]),
-        update: jest.fn().mockResolvedValue({}),
-      },
-      advanceLoanDeduction: {
-        findMany: jest.fn().mockResolvedValue([]),
-        createMany: jest.fn().mockResolvedValue({}),
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-      },
       attendance: {
         groupBy: jest.fn().mockImplementation(async (args: any) =>
           (args?.where?.employeeId?.in ?? []).map((employeeId: string) => ({
@@ -270,29 +249,6 @@ describe('PayrollsService — money invariants', () => {
             deleteForItem: jest.fn(),
           },
         },
-        // Loan recovery is planned inside create(). The policy is stubbed to the
-        // hardcoded defaults (v2 kill-switch OFF) so these suites assert the
-        // LEGACY recovery behaviour, unchanged.
-        {
-          provide: LoanPolicyService,
-          useValue: { resolve: jest.fn().mockResolvedValue(DEFAULT_LOAN_POLICY) },
-        },
-        { provide: LoanRecoveryService, useValue: new LoanRecoveryService(prisma as any) },
-        // The loan notification log. Payroll only tells a borrower their loan
-        // is fully repaid, and does it once per cycle through this.
-        {
-          provide: LoanNotificationService,
-          useValue: { notifyOnce: jest.fn().mockResolvedValue(true) },
-        },
-        // Court orders. No employee in these fixtures has one, so the rung is
-        // empty and the loan arithmetic below is unchanged — which is the
-        // point: adding the rung must not move money where there is no order.
-        {
-          // Only reached when deferralMode is EXTEND_TENURE, which these
-          // fixtures leave at the CARRY_FORWARD default.
-          provide: LoanScheduleService,
-          useValue: { regenerate: jest.fn().mockResolvedValue(undefined) },
-        },
         { provide: PrismaService, useValue: prisma },
         {
           provide: HolidaysService,
@@ -373,8 +329,6 @@ describe('PayrollsService — money invariants', () => {
         'deduction',
         'overtimePay',
         'foodAllowance',
-        'reimbursement',
-        'advanceLoanDeduction',
         'insurance',
         'tax',
         'netSalary',
@@ -448,8 +402,6 @@ describe('PayrollsService — money invariants', () => {
         overtimeHours: 0,
         overtimePay: 0,
         foodAllowance: 0,
-        reimbursement: 0,
-        advanceLoanDeduction: 0,
         employee: { id: 'emp-1', baseSalary: 47333.33 },
         ...overrides,
       });
@@ -479,8 +431,6 @@ describe('PayrollsService — money invariants', () => {
       // come from the stored row it read.
       const row = {
         baseSalary: 47333.33,
-        reimbursement: 0,
-        advanceLoanDeduction: 0,
         ...data,
       };
       expect(Number(reconcile(row).toFixed(2))).toBe(

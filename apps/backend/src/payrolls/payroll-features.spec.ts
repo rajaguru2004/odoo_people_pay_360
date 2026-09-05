@@ -93,11 +93,6 @@ describe('payroll feature resolution', () => {
   describe('enumerations fall back rather than throw', () => {
     it.each([
       ['payroll_cutoff_enforcement', 'cutOffEnforcement', 'WARN'],
-      [
-        'payroll_recovery_ladder_position',
-        'recoveryLadderPosition',
-        'AFTER_LOAN',
-      ],
       ['payroll_transfer_pay_basis', 'transferPayBasis', 'PERIOD_END'],
       [
         'payroll_eosb_unknown_nationality_policy',

@@ -41,10 +41,9 @@ const round2 = (n: number): number =>
 /**
  * Resolve the policy for a leave type in a branch.
  *
- * Branch first, then the company-wide row, then nothing. The same
- * direct-or-global chain `LoanPolicyService.resolve` uses, and for the same
- * reason: a company-wide default has to stay visible from every branch, and a
- * plain `branchId = x` filter never matches NULL.
+ * Branch first, then the company-wide row, then nothing: a company-wide
+ * default has to stay visible from every branch, and a plain `branchId = x`
+ * filter never matches NULL.
  */
 export function resolvePolicy(
   policies: LeaveTypePolicyLike[],

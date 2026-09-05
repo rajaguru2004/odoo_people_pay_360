@@ -25,8 +25,8 @@ import {
  *
  * The question this hub owns: **what is the current payroll processing position,
  * what has been processed, what is waiting for action, and is payroll ready for
- * payment?** It carries no headcount card (People's), no loan book (Finance's)
- * and no attendance rate (Time & Attendance's).
+ * payment?** It carries no headcount card (People's) and no attendance rate
+ * (Time & Attendance's).
  *
  * Two rules the rest of this file is built on:
  *
@@ -34,10 +34,10 @@ import {
  *    `status: 'LOCKED'` and is right to: a DRAFT total is money that has not
  *    moved. The same rule applies here so the hub cannot disagree with the
  *    Reports screen.
- *  - **`null` means unknown.** A section that cannot be computed — no wage-file
- *    configuration, the pre-flight switch off, a branch with no banking country
- *    — returns `null`, never zeros. The client renders an em dash for it and is
- *    forbidden from printing an all-clear over it.
+ *  - **`null` means unknown.** A section that cannot be computed — nothing
+ *    locked in the period, a branch with no banking country — returns `null`,
+ *    never zeros. The client renders an em dash for it and is forbidden from
+ *    printing an all-clear over it.
  *
  * Everything reads through the Prisma client (`count` / `aggregate` / `groupBy` /
  * `findMany`), all of which are in `BRANCH_READ_ACTIONS`, so branch scoping comes
@@ -54,7 +54,7 @@ const OPEN_SETTLEMENT_STATUSES = ['DRAFT', 'APPROVED'] as const;
 /**
  * The earning columns, in payslip order.
  *
- * `PayrollReportsService.grossOf()` sums only the first five. The other three
+ * `PayrollReportsService.grossOf()` sums only the first five. The other two
  * are real money on a real payslip that no gross formula in the codebase
  * includes — see `residual` below, which is where that surfaces rather than
  * being quietly absorbed.
@@ -66,16 +66,14 @@ const EARNING_COLUMNS = [
   'overtimePay',
   'foodAllowance',
   'siteAllowance',
-  'reimbursement',
   'leaveEncashment',
 ] as const;
 
-/** The deduction columns. The first six are `register`'s definition verbatim. */
+/** The deduction columns. The five are `register`'s definition verbatim. */
 const DEDUCTION_COLUMNS = [
   'deduction',
   'insurance',
   'tax',
-  'advanceLoanDeduction',
   'garnishment',
   'otherRecovery',
 ] as const;
@@ -94,12 +92,10 @@ const MONEY_SUM_SELECT = {
   overtimePay: true,
   foodAllowance: true,
   siteAllowance: true,
-  reimbursement: true,
   leaveEncashment: true,
   deduction: true,
   insurance: true,
   tax: true,
-  advanceLoanDeduction: true,
   garnishment: true,
   otherRecovery: true,
   netSalary: true,
@@ -241,12 +237,6 @@ export interface PayrollHubSummary {
   };
   carryForward: { outstanding: number };
   settlements: { draft: number; awaitingPayment: number; openPayout: number } | null;
-  wps: {
-    lastFileAt: string | null;
-    lastFileStatus: string | null;
-    lastFileName: string | null;
-    rejected: number;
-  } | null;
   /**
    * Legacy company-wide runs (`branchId = null`). `Payroll` is `'direct'` in
    * BRANCH_SCOPE, not `'direct-or-global'`, so these are invisible to every
@@ -386,8 +376,6 @@ export class PayrollHubService {
       carryForward,
       settlementStatus,
       settlementPayout,
-      lastWpsFile,
-      wpsRejected,
     ] = await Promise.all([
       // Every run in the window, for the pipeline donut and the trend's run counts.
       this.prisma.payroll.findMany({
@@ -452,7 +440,7 @@ export class PayrollHubService {
           payrollId: true,
           employeeId: true,
           netSalary: true,
-          // The statutory series, and the eight columns `grossOf` adds up.
+          // The statutory series, and the seven columns the gross card adds up.
           insurance: true,
           baseSalary: true,
           allowances: true,
@@ -460,7 +448,6 @@ export class PayrollHubService {
           overtimePay: true,
           foodAllowance: true,
           siteAllowance: true,
-          reimbursement: true,
           leaveEncashment: true,
         },
       }),
@@ -487,11 +474,6 @@ export class PayrollHubService {
         where: { status: { in: [...OPEN_SETTLEMENT_STATUSES] } },
         _sum: { netPayable: true },
       }),
-      this.prisma.wpsFile.findFirst({
-        orderBy: { generatedAt: 'desc' },
-        select: { generatedAt: true, status: true, fileName: true },
-      }),
-      this.prisma.wpsFile.aggregate({ _sum: { rejectedCount: true } }),
     ]);
 
     // ── Runs ─────────────────────────────────────────────────────────────
@@ -535,7 +517,7 @@ export class PayrollHubService {
         perMonth.set(key, entry);
       }
       entry.net += num(item.netSalary);
-      // Same eight columns as `composition.grossReported`, so the sparkline on
+      // Same seven columns as `composition.grossReported`, so the sparkline on
       // the gross card cannot disagree with the card's own figure.
       entry.gross +=
         num(item.baseSalary) +
@@ -544,7 +526,6 @@ export class PayrollHubService {
         num(item.overtimePay) +
         num(item.foodAllowance) +
         num(item.siteAllowance) +
-        num(item.reimbursement) +
         num(item.leaveEncashment);
       entry.statutory += num(item.insurance);
       entry.employees.add(item.employeeId);
@@ -612,8 +593,6 @@ export class PayrollHubService {
     const settlementCounts = Object.fromEntries(
       settlementStatus.map((r) => [r.status, r._count._all]),
     ) as Record<string, number>;
-
-    const rejectedTotal = num(wpsRejected._sum.rejectedCount);
 
     return {
       months,
@@ -694,14 +673,6 @@ export class PayrollHubService {
         awaitingPayment: settlementCounts['APPROVED'] ?? 0,
         openPayout: round2(num(settlementPayout._sum.netPayable)),
       },
-      wps: lastWpsFile
-        ? {
-            lastFileAt: lastWpsFile.generatedAt.toISOString(),
-            lastFileStatus: lastWpsFile.status,
-            lastFileName: lastWpsFile.fileName,
-            rejected: rejectedTotal,
-          }
-        : null,
       unscopedLegacyRuns,
     };
   }
@@ -709,17 +680,11 @@ export class PayrollHubService {
   /**
    * Can the people in this run actually be paid?
    *
-   * Nothing in the product answered this before. The two existing pre-flights
-   * each miss half of it: `PayrollValidationService` checks no banking at all,
-   * and `WpsPreflightService` checks it exhaustively but needs an
-   * already-locked payroll AND a wage-file configuration, throwing without
-   * either — so it can never be the universal source.
+   * Nothing in the product answered this before: `PayrollValidationService`
+   * checks no banking at all.
    *
-   * This reuses the same validator the bank-details screens and the wage-file
-   * builder use, rather than writing a second opinion about what a valid bank
-   * record is. It stops short of the WPS identifier checks (LABOUR_CARD,
-   * CIVIL_ID), which live inside the wage-file builder and are format-specific,
-   * so **this is not the WPS verdict** and the panel says so.
+   * This reuses the same validator the bank-details screens use, rather than
+   * writing a second opinion about what a valid bank record is.
    *
    * The honesty trap: a branch with no banking country has no required fields,
    * so every employee under it would validate as ready. Those are counted as

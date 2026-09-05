@@ -7,12 +7,6 @@ import { bootMcpHarness, McpHarness } from './utils/mcp-harness';
  */
 
 const ALL_TOOLS = [
-  // ── Advance & Loan ────────────────────────────────────────────────────
-  'loan_list', 'loan_get', 'loan_my_requests', 'loan_schedule', 'loan_payoff_quote',
-  'loan_eligibility_check', 'loan_statement', 'loan_report_outstanding',
-  'loan_report_emi_due', 'loan_report_overdue', 'loan_pending_approvals',
-  'loan_approve', 'loan_reject', 'loan_prepay', 'loan_hold', 'loan_resume',
-  'loan_close', 'loan_write_off',
   'attendance_correction_approve', 'attendance_correction_pending_list', 'attendance_correction_reject',
   'attendance_employee_history', 'attendance_manual_create', 'attendance_monthly_report',
   'calendar_overview_get', 'department_assign_manager', 'department_create', 'department_delete',
@@ -28,7 +22,7 @@ const ALL_TOOLS = [
   'shift_create', 'shift_delete',
   // Appraisal analytics (date-range summaries)
   'attendance_employee_summary', 'conduct_records_get', 'leave_employee_summary',
-  'overtime_employee_summary', 'reimbursement_employee_summary',
+  'overtime_employee_summary',
   'team_membership_get', 'timesheet_employee_summary',
   // Visa lifecycle
   'visa_cancel', 'visa_create', 'visa_expiring_summary', 'visa_get', 'visa_list', 'visa_renew',
@@ -47,10 +41,10 @@ const ALL_TOOLS = [
   // Asset register + offboarding clearance
   'asset_list', 'asset_get', 'asset_summary', 'asset_my_assets', 'asset_create',
   'asset_assign', 'asset_return', 'asset_clearance_check', 'asset_outstanding_report',
-  // Travel — an extension of reimbursements (claims land on `reimbursements`)
+  // Travel
   'travel_list', 'travel_get', 'travel_my_requests', 'travel_on_trip',
   'travel_create', 'travel_approve', 'travel_reject', 'travel_cancel',
-  // Training — also a reimbursement extension; needs derived from the AI appraisal engine
+  // Training — needs derived from the AI appraisal engine
   'course_list', 'course_create', 'training_session_list', 'training_session_create',
   'training_nomination_list', 'training_my_trainings', 'training_needs_from_appraisal',
   'training_nominate', 'training_nomination_decide', 'training_record_attendance',
@@ -68,28 +62,9 @@ const ALL_TOOLS = [
   'overtime_pending_approvals', 'overtime_approve', 'overtime_reject',
   'payslip_list', 'payslip_ytd',
   'asset_acknowledge',
-  // Expense claims. reimbursement_approve / _reject deliberately do NOT exist:
-  // deciding somebody else's money belongs in the portal, and both names are
-  // already on the WhatsApp denylist so adding them later cannot quietly make
-  // them chat-reachable.
-  'reimbursement_my_requests', 'reimbursement_create',
 ];
 
-/**
- * Tools an ADMIN does NOT get.
- *
- * The mirror image of ADMIN_ONLY, and it exists for exactly one reason:
- * ReimbursementTools excludes ADMIN on purpose, following the controller —
- * admins administer expenses, they do not submit them, and an admin with no
- * employee record has nothing to return.
- */
-const NOT_FOR_ADMIN = ['reimbursement_my_requests', 'reimbursement_create'];
-
 const EMPLOYEE_TOOLS = [
-  // Self-service loan reads. Every one is either self-scoped or ACL-checked
-  // inside the service.
-  'loan_get', 'loan_my_requests', 'loan_schedule', 'loan_payoff_quote',
-  'loan_eligibility_check', 'loan_statement',
   'attendance_employee_history', 'department_list', 'employee_calendar_get', 'employee_directory',
   'holiday_list', 'leave_balance_get', 'leave_request_cancel', 'leave_request_create', 'payslip_get',
   'visa_list',
@@ -117,12 +92,9 @@ const EMPLOYEE_TOOLS = [
   'overtime_my_requests', 'overtime_request_create', 'overtime_request_cancel',
   'payslip_list', 'payslip_ytd',
   'asset_acknowledge',
-  'reimbursement_my_requests', 'reimbursement_create',
 ];
 
 const ADMIN_ONLY = [
-  // Writing off a loan permanently forgives company money.
-  'loan_write_off',
   'department_delete', 'employee_delete', 'payroll_approve', 'payroll_reject', 'approval_workflow_set',
   'overtime_policy_create', 'overtime_policy_update', 'overtime_policy_set_default', 'overtime_policy_delete',
   // Bank/banking master data is ADMIN-only to write; HR can only decide change requests.
@@ -157,10 +129,8 @@ describe('MCP catalog & reads (e2e)', () => {
   const names = async (c: Client) => (await c.listTools()).tools.map((t) => t.name).sort();
 
   describe('tools/list visibility per role', () => {
-    it('ADMIN sees every registered tool except the ones admins do not submit', async () => {
-      expect(await names(admin)).toEqual(
-        ALL_TOOLS.filter((t) => !NOT_FOR_ADMIN.includes(t)).sort(),
-      );
+    it('ADMIN sees every registered tool', async () => {
+      expect(await names(admin)).toEqual([...ALL_TOOLS].sort());
     });
 
     it('HR_MANAGER sees all but the ADMIN-only tools', async () => {

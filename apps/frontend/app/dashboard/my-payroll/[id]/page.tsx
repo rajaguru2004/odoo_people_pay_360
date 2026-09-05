@@ -130,8 +130,6 @@ export default function MyPayslipDetailPage({ params }: { params: Promise<{ id: 
     const bonus = Number(payslip.bonus) || 0;
     const overtimePay = Number(payslip.overtimePay) || 0;
     const foodAllowance = Number(payslip.foodAllowance) || 0;
-    const reimbursement = Number(payslip.reimbursement) || 0;
-    const advanceLoanDeduction = Number(payslip.advanceLoanDeduction) || 0;
     const deduction = Number(payslip.deduction) || 0;
     const insurance = Number(payslip.insurance) || 0;
     const tax = Number(payslip.tax) || 0;
@@ -145,7 +143,7 @@ export default function MyPayslipDetailPage({ params }: { params: Promise<{ id: 
     const dayRate = daily ? impliedDailyRate(baseSalary, payslip.actualWorkDays) : null;
 
     const totalIncome = baseSalary + allowances + bonus + overtimePay + foodAllowance;
-    const totalDeductions = insurance + tax + deduction + advanceLoanDeduction;
+    const totalDeductions = insurance + tax + deduction;
 
     // The rows of the two sections. Totals above are deliberately NOT derived
     // from these: the twelve stored columns stay the authoritative money, so
@@ -326,25 +324,6 @@ export default function MyPayslipDetailPage({ params }: { params: Promise<{ id: 
                             </div>
                         </div>
                     </div>
-
-                    {/* Reimbursement Section (non-taxable, added after deductions) */}
-                    {reimbursement > 0 && (
-                        <div className="mt-6">
-                            <h4 className="font-semibold text-brand-primary mb-3 flex items-center gap-2">
-                                <div className="w-1 h-5 bg-brand-primary rounded"></div>
-                                Reimbursement
-                            </h4>
-                            <div className="space-y-2">
-                                <div className="flex justify-between py-2 border-b border-surface-border-light">
-                                    <span className="text-text-body">Approved expense reimbursements (non-taxable)</span>
-                                    <span className="font-semibold text-brand-primary">+{formatCurrency(reimbursement)}</span>
-                                </div>
-                                <p className="text-xs text-text-muted">
-                                    Net = Total income − Total deduction + Reimbursement
-                                </p>
-                            </div>
-                        </div>
-                    )}
                 </div>
 
                 {/* Info Box */}

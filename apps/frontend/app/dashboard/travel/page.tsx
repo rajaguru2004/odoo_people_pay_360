@@ -104,7 +104,7 @@ function TravelPageInner() {
   // The one heading for this route, rendered by TopHeader.
   usePageHeader(
     'Travel',
-    'Trip requests, per-diem and advances.',
+    'Trip requests, per-diem rates and cash advances.',
   );
 
   const load = useCallback(async () => {
@@ -171,7 +171,7 @@ function TravelPageInner() {
     setBusyId(row.id);
     try {
       await travelService.approve(row.id);
-      toast.success('Approved — per-diem claim and any advance have been raised');
+      toast.success('Approved — the estimated cost is committed against the budget');
       await load();
     } catch (e: any) {
       toast.error(apiErrorMessage(e, 'Failed to approve'));
@@ -331,7 +331,7 @@ function TravelPageInner() {
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-500">
-              Cash advance (optional) — recovered via the loans ledger
+              Cash advance (optional)
               <input
                 data-testid="travel-advance"
                 type="number"
@@ -348,8 +348,8 @@ function TravelPageInner() {
             </label>
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            On approval the per-diem for this destination becomes an ordinary
-            expense claim, paid through the normal payroll run.
+            On approval the estimated cost is committed against the traveller&apos;s
+            department budget, so Remaining moves before the trip is taken.
           </p>
           <div className="mt-4 flex justify-end">
             <button
@@ -437,10 +437,9 @@ function TravelPageInner() {
                           {row.perDiemDays} day(s)
                         </span>
                       )}
-                      {row.advanceLoanId && (
+                      {row.advanceAmount != null && (
                         <span className="inline-flex items-center gap-1 text-amber-700">
-                          <Wallet size={11} /> Advance {money(row.advanceAmount)} in
-                          loans ledger
+                          <Wallet size={11} /> Advance {money(row.advanceAmount)}
                         </span>
                       )}
                     </div>

@@ -190,10 +190,9 @@ verification · my calendar · my leaves · my overtime · my payslips · my
 documents · my letters · my assets · my training · my grievances · my profile ·
 settings, plus the role-aware dashboard.
 
-**Excluded by instruction**: reimbursements, advances and loans, travel,
-end-of-service, projects. Also excluded because nothing in the employee screens
-reaches them: appraisals, the messaging integrations, and the document ENGINE
-(the small vault behind My Documents IS in scope).
+**Excluded by instruction**: travel, end-of-service, projects. Also excluded
+because nothing in the employee screens reaches them: appraisals and the
+document ENGINE (the small vault behind My Documents IS in scope).
 
 ## 8. Open items ⚠️
 

@@ -18,7 +18,7 @@ class TravelService {
     return axiosInstance.get('/travel-requests/my-requests');
   }
 
-  /** Trip detail, including every reimbursement claim the trip spawned. */
+  /** Trip detail, including its itinerary legs. */
   async getById(id: string): Promise<ApiResponse<TravelRequest>> {
     return axiosInstance.get(`/travel-requests/${id}`);
   }
@@ -29,8 +29,8 @@ class TravelService {
   }
 
   /**
-   * Raise a trip. On final approval the server spawns the per-diem claim, the
-   * advance, and the visa alert — the client does not orchestrate any of that.
+   * Raise a trip. On final approval the server raises the visa alert — the
+   * client does not orchestrate any of that.
    */
   async create(
     data: CreateTravelRequestData,

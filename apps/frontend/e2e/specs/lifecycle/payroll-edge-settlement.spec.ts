@@ -48,10 +48,9 @@ import {
  * A run type, and nothing more: there is no EOSB calculation, no gratuity
  * accrual, no service-years arithmetic and no settlement statement
  * (`docs/PAYROLL-GAP-REPORT.md` §1 — the schema says outright *"This is not an
- * F&F module"*). What it does is lift the loan take-home floor via
- * `loan_final_settlement_ignores_min_net`. So this file asserts that the run type
- * round-trips and behaves like an ordinary run otherwise, and does not pretend to
- * cover a final settlement the product does not compute.
+ * F&F module"*). So this file asserts that the run type round-trips and behaves
+ * like an ordinary run otherwise, and does not pretend to cover a final
+ * settlement the product does not compute.
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -249,8 +248,7 @@ test.describe('joiners, leavers and settlement runs', () => {
 
       // What it is NOT: there is no gratuity, no service-years figure and no
       // settlement statement — `PayrollItem` has no column that could carry one.
-      // See `docs/PAYROLL-GAP-REPORT.md` §1. The run type's only real effect is on
-      // loan recovery, which `finance-loan-payroll-recovery.spec.ts` owns.
+      // See `docs/PAYROLL-GAP-REPORT.md` §1.
       const item = (await itemsOf(admin, run.id)).find((i) => i.employeeId === subject.id)!;
       expect(item.netSalary, 'the employee is simply paid, as in any other run').toBeGreaterThan(0);
     });

@@ -107,9 +107,10 @@ describe('Payroll edge — the audit trail (PE-AUD)', () => {
   });
 
   it('PE-AUD-05: the LOCK survives the reversal in the run history', async () => {
-    // Locking settles reimbursements and writes the loan ledger. `unlockPayroll`
-    // used to null `lockedAt`, and `getApprovalHistory()` derives its LOCKED step
-    // from that column — so a reversal erased the evidence that money had moved.
+    // Locking is what moves the money and writes the recovery ledger.
+    // `unlockPayroll` used to null `lockedAt`, and `getApprovalHistory()` derives
+    // its LOCKED step from that column — so a reversal erased the evidence that
+    // money had moved.
     const res = await api()
       .get(`/payrolls/${payrollId}/history`)
       .set(admin())

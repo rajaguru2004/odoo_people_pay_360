@@ -100,11 +100,8 @@ const MODULE_BY_SEGMENT: Record<string, string> = {
   banks: 'payroll',
   garnishments: 'payroll',
   // Finance
-  reimbursements: 'finance',
   travel: 'finance',
-  'advance-loans': 'finance',
   budgets: 'finance',
-  accounting: 'finance',
   finance: 'finance',
   // Talent
   appraisal: 'talent',
@@ -159,7 +156,7 @@ export interface ScreenDescriptor {
   path: string;
   /** Nav-group bucket, e.g. `payroll`. */
   module: string;
-  /** Stable screen key, e.g. `dashboard.payroll.:id.wps`. */
+  /** Stable screen key, e.g. `dashboard.payroll.:id`. */
   screen: string;
 }
 
@@ -196,8 +193,6 @@ const NAMED_ACTIONS: Array<{ method: string; path: RegExp; action: string }> = [
   { method: 'POST', path: /^\/payrolls\/:id\/(approve|reject)$/, action: 'payroll_run_decided' },
   { method: 'POST', path: /^\/employees$/, action: 'employee_created' },
   { method: 'POST', path: /^\/employees\/import\/confirm$/, action: 'employee_import_confirmed' },
-  { method: 'POST', path: /^\/reimbursements$/, action: 'reimbursement_submitted' },
-  { method: 'POST', path: /^\/advance-loans$/, action: 'advance_loan_requested' },
   { method: 'POST', path: /^\/travel-requests$/, action: 'travel_request_submitted' },
   { method: 'POST', path: /^\/grievances$/, action: 'grievance_submitted' },
 ];
@@ -217,8 +212,8 @@ export function namedActionFor(method: string, sanitizedEndpoint: string): strin
 const MODULE_BY_ENDPOINT: Array<[RegExp, string]> = [
   [/^\/(attendances|attendance-corrections|face-recognition|timesheets)\b/, 'attendance'],
   [/^\/(leave-requests|leave-balances|leave-types|overtime)\b/, 'leave'],
-  [/^\/(payrolls|payroll|salary|banks|garnishments|wps)\b/, 'payroll'],
-  [/^\/(reimbursements|travel-requests|advance-loans|budgets|accounting)\b/, 'finance'],
+  [/^\/(payrolls|payroll|salary|banks|garnishments)\b/, 'payroll'],
+  [/^\/(travel-requests|budgets)\b/, 'finance'],
   [/^\/(employees|contracts|termination|supervisor|teams|visa)\b/, 'people'],
   [/^\/(departments|branches|organization)\b/, 'organization'],
   [/^\/(appraisals?|training|rewards|disciplines|grievances)\b/, 'talent'],

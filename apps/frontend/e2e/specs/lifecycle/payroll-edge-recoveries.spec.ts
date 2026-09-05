@@ -18,9 +18,6 @@ import {
  *
  * ## Scope, and what owns the rest
  *
- * The LOAN rungs of the recovery ladder — affordability, PARTIAL/SKIP/DEFER,
- * multi-loan priority, the take-home floor — are owned by
- * `finance-loan-payroll-recovery.spec.ts` (44 cases) and are not rebuilt here.
  * The GARNISHMENT rung is owned by `payroll-edge-garnishment.e2e-spec.ts`
  * (`PE-GARN`) on the backend, where a court order can be recorded, priced and
  * carried. When this file was written that rung could not be driven at all —
@@ -54,12 +51,12 @@ const MARK = marker(MARKER_PREFIX);
 
 /** Everything the item adds, before anything is taken off. */
 function grossOf(i: PayrollItemRow): number {
-  return i.baseSalary + i.allowances + i.bonus + i.overtimePay + i.foodAllowance + i.reimbursement;
+  return i.baseSalary + i.allowances + i.bonus + i.overtimePay + i.foodAllowance;
 }
 
 /** Everything the item takes off. */
 function deductionsOf(i: PayrollItemRow): number {
-  return i.deduction + i.insurance + i.tax + i.advanceLoanDeduction + i.garnishment;
+  return i.deduction + i.insurance + i.tax + i.garnishment;
 }
 
 test.describe('recoveries against payroll', () => {

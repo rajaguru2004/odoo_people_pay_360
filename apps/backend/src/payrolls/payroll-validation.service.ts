@@ -16,11 +16,8 @@ import type {
 } from './types/payroll-finding';
 
 /**
- * "Is this run safe to generate?", answered BEFORE the run exists.
- *
- * The WPS pre-flight answers the same shape of question about a wage file, but
- * only once a payroll has been generated and locked — by which point the
- * expensive mistakes have already been made. This runs first.
+ * "Is this run safe to generate?", answered BEFORE the run exists — by which
+ * point, otherwise, the expensive mistakes have already been made.
  *
  * Every check here is derived from the same pure functions `create()` uses, so
  * a "ready" verdict cannot be followed by a refusal. Where a check has no
@@ -329,7 +326,7 @@ export class PayrollValidationService {
       total: byEmployee.length,
       blockedEmployees,
       warningEmployees,
-      // All-or-nothing, exactly as the WPS pre-flight is.
+      // All-or-nothing.
       canGenerate: !runBlocking && blockedEmployees === 0,
       runFindings,
       byEmployee,

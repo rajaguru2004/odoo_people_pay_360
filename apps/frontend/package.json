@@ -28,7 +28,7 @@
     "test:e2e:approval-chain": "E2E_ALLOW_FLAG_FLIP=1 playwright test --config e2e/playwright.config.ts approval-chain",
     "test:e2e:attendance": "playwright test --config e2e/playwright.config.ts attendance-",
     "test:component:leave-ot": "vitest run --project component app/dashboard/leaves app/dashboard/overtime app/dashboard/my-leaves app/dashboard/my-overtime app/dashboard/my-department app/dashboard/approvals",
-    "test:e2e:payroll": "playwright test --config e2e/playwright.config.ts \"(payroll|bank-|wps)\"",
+    "test:e2e:payroll": "playwright test --config e2e/playwright.config.ts \"(payroll|bank-)\"",
     "test:e2e:payroll-edge": "playwright test --config e2e/playwright.config.ts \"payroll-edge\""
   },
   "dependencies": {

@@ -23,8 +23,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   /**
    * The principal query lives in AuthService.buildPrincipal so non-HTTP entry
-   * points (the WhatsApp channel) get an identical `req.user` — a tool call must
-   * not have weaker scope because it arrived over a different transport.
+   * points get an identical `req.user` — a tool call must not have weaker
+   * scope because it arrived over a different transport.
    */
   async validate(payload: any) {
     return this.auth.buildPrincipal(payload.sub, payload.departmentId);

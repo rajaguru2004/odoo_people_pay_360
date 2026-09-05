@@ -19,9 +19,9 @@ import PageActionRow from '@/components/common/PageActionRow';
 /**
  * Court orders against earnings.
  *
- * These are recovered ahead of every advance and loan — payroll subtracts them
- * from the pool before the loan allocator sees the money — so the screen says
- * that out loud rather than leaving it to be discovered from a payslip.
+ * These are recovered ahead of every other deduction — payroll subtracts them
+ * from the pool first — so the screen says that out loud rather than leaving it
+ * to be discovered from a payslip.
  *
  * Two rules the form enforces before the round trip, because they are the two
  * an administrator gets wrong:
@@ -51,7 +51,7 @@ export default function GarnishmentsPage() {
   // permission early return so the hook runs on every render.
   usePageHeader(
     'Court orders',
-    'Recovered ahead of every advance and loan.',
+    'Recovered ahead of every other deduction.',
   );
 
   const load = useCallback(async () => {
@@ -184,8 +184,8 @@ export default function GarnishmentsPage() {
           Court orders are handled by HR
         </p>
         <p className="mt-1 text-sm text-text-muted">
-          An order takes money out of somebody&apos;s pay ahead of every loan they
-          hold, so it is limited to HR and administrators.
+          An order takes money out of somebody&apos;s pay ahead of every other
+          deduction, so it is limited to HR and administrators.
         </p>
       </div>
     );

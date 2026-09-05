@@ -27,7 +27,8 @@ import {
  * Court-ordered attachments of earnings.
  *
  * ADMIN and HR only, and audited: an order takes money out of somebody's pay
- * ahead of every loan they hold, and the employee cannot see or dispute it here.
+ * ahead of every voluntary deduction, and the employee cannot see or dispute it
+ * here.
  */
 @ApiTags('Payroll')
 @ApiBearerAuth()
@@ -102,8 +103,8 @@ export class GarnishmentsController {
   @ApiOperation({
     summary: 'Record a court order against an employee’s earnings',
     description:
-      'Recovered ahead of every advance and loan, because payroll subtracts it ' +
-      'from the pool before the loan allocator sees the money.',
+      'Recovered ahead of every voluntary deduction, because payroll subtracts ' +
+      'it from the pool before the recovery allocator sees the money.',
   })
   create(@Body() dto: CreateGarnishmentDto) {
     return this.service.create(dto);

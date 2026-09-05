@@ -58,8 +58,6 @@ const PINNED_SETTINGS: Record<string, string> = {
   document_visual_editor_enabled: 'false',
   // The overtime journey needs the module present.
   overtime_enabled: 'true',
-  reimbursement_enabled: 'true',
-  advance_loan_enabled: 'true',
   // Legacy single-approver path, which is what most specs assume.
   supervisor_approval_enabled: 'false',
   // ── Finance ───────────────────────────────────────────────────────────────
@@ -67,26 +65,7 @@ const PINNED_SETTINGS: Record<string, string> = {
   // these CSV role lists read from the database at request time. A suite that
   // leaves them unpinned is not testing a permission model, it is reporting
   // whatever the last person to open Settings happened to leave behind.
-  //
-  // Who may approve a loan. The screen derives its tabs from this, not RBAC.
-  advance_loan_approver_roles: 'ADMIN,HR_MANAGER',
-  reimbursement_approver_roles: 'HR_MANAGER,ADMIN',
   travel_approver_roles: 'HR_MANAGER,ADMIN',
-  // Write-off forgives company money permanently and is deliberately NARROWER
-  // than the decorator that guards its route — ADMIN only, where the route
-  // admits HR_MANAGER too. Waiver is the wider of the pair. Pinning both is
-  // what lets a case prove which gate refused.
-  advance_loan_writeoff_roles: 'ADMIN',
-  loan_waiver_roles: 'ADMIN,HR_MANAGER',
-  // The claim types the reimbursement form offers. `ReimbursementsPage.fill()`
-  // throws outright when this is empty, so an unpinned value is a red suite
-  // with a misleading cause.
-  reimbursement_types: 'Travel,Per Diem,Training,Medical,Food,Office Supplies,Other',
-  // Interest and the v2 policy engine both default OFF in production. Left
-  // unpinned, a loan spec reads whatever the database holds and its arithmetic
-  // silently changes shape between runs.
-  loan_interest_enabled: 'false',
-  loan_module_v2_enabled: 'false',
   // The classic dashboard, not the v2 experiment.
   dashboard_layout: 'v1',
   // Keeps the hard-delete path reachable in the employee journey.
@@ -132,7 +111,6 @@ const PINNED_SETTINGS: Record<string, string> = {
   // ones where offboarding is REFUSED. Defaults are already 'true', so this
   // pins what is already true rather than changing it.
   clearance_blocking_enabled: 'true',
-  loan_clearance_blocking_enabled: 'true',
   //
   // ── Workplace ─────────────────────────────────────────────────────────────
   // Letters render a real PDF, and `workplace-letters.e2e-spec.ts` turns this
@@ -405,18 +383,12 @@ async function backdateFoundingEmployees(): Promise<void> {
 /**
  * Give the loggable accounts a salary.
  *
- * `docs/LOAN-ADVANCES-GAP-REPORT.md` §24.8: every login-capable seeded account
- * carried `baseSalary: 0`, and TWO production rules are guarded on a positive
- * pay figure —
+ * Every login-capable seeded account carried `baseSalary: 0`, and any rule
+ * guarded on a positive pay figure was therefore vacuously satisfied for
+ * exactly the accounts a browser test can log in as. A test written against
+ * them proved nothing about the rules it appeared to exercise.
  *
- *   `NET_PAY_AFTER_EMI` (eligibility)      — guarded on `monthlyNet > 0`
- *   `advance_max_percent_of_salary` (approval) — guarded on `proxy > 0`
- *
- * — so an advance of ANY size cleared every affordability rule for exactly the
- * accounts a browser test can log in as. A test written against them proved
- * nothing about the rules it appeared to exercise.
- *
- * The figure is deliberately generous (50,000) so the rules are LIVE without
+ * The figure is deliberately generous (50,000) so those rules are LIVE without
  * being tripped by the ordinary journeys: a suite that now refuses its own
  * happy path would be a different kind of wrong.
  */
@@ -994,7 +966,7 @@ async function seedWorkplaceBaseline(): Promise<void> {
     });
   }
 
-  // Put the two HELD assets out on loan. The partial unique index
+  // Put the two HELD assets out to their holders. The partial unique index
   // `asset_assignments_one_open_per_asset` means a second open row is
   // impossible, so this is guarded on "is one already open?" rather than upsert.
   const heldPairs: Array<{

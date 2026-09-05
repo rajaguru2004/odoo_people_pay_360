@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Download, Lock, Edit, Save, X, Info, SendHorizontal, ArrowLeftRight, GitBranch } from 'lucide-react';
+import { Download, Lock, Edit, Save, X, Info, SendHorizontal, GitBranch } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import payrollService from '@/services/payrollService';
 import { Payroll, PayrollItem } from '@/types/payroll';
@@ -119,10 +119,10 @@ function PayrollDetailPageContent({ params }: { params: Promise<{ id: string }> 
   };
 
   // The lifecycle is DRAFT -> submit -> PENDING_APPROVAL -> approve -> APPROVED
-  // -> lock -> LOCKED. Only `lock` settles reimbursements and advance/loan
-  // installments, so skipping straight to it (as the old single "finalize" button
-  // did from DRAFT) produced a payroll that read as final but had paid nothing
-  // out. Approval happens on the Payroll approvals screen.
+  // -> lock -> LOCKED. Only `lock` settles a run, so skipping straight to it (as
+  // the old single "finalize" button did from DRAFT) produced a payroll that read
+  // as final but had paid nothing out. Approval happens on the Payroll approvals
+  // screen.
   const handleSubmit = async () => {
     const ok = await confirm({
       title: t('submitConfirmMessage'),
@@ -259,16 +259,6 @@ function PayrollDetailPageContent({ params }: { params: Promise<{ id: string }> 
                 >
                   <Lock size={18} />
                   {t('lockBtn')}
-                </button>
-              )}
-              {/* Only a locked run can produce a wage file, so this appears there. */}
-              {isHR && payroll.status === 'LOCKED' && (
-                <button
-                  onClick={() => router.push(`/dashboard/payroll/${id}/wps`)}
-                  className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-text-on-brand rounded-[--radius-button] font-semibold hover:shadow-lg transition-all"
-                >
-                  <ArrowLeftRight size={18} />
-                  {t('wpsBtn')}
                 </button>
               )}
               {/* The only way to correct a LOCKED run — and the only escape for one

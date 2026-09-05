@@ -15,7 +15,7 @@ describe('sanitizePath', () => {
   it('masks every id shape the portal puts in a URL', () => {
     expect(sanitizePath('/dashboard/employees/3f9a1c2e-1b44-4d0a-9e77-2b6f9c1d5a10/payroll'))
       .toBe('/dashboard/employees/:id/payroll');
-    expect(sanitizePath('/dashboard/payroll/1421/wps')).toBe('/dashboard/payroll/:id/wps');
+    expect(sanitizePath('/dashboard/payroll/1421/items')).toBe('/dashboard/payroll/:id/items');
     expect(sanitizePath('/dashboard/leaves/ckv8x2p9q0001abcd1234efgh')).toBe('/dashboard/leaves/:id');
     expect(sanitizePath('/dashboard/payroll/calendar/2026-08')).toBe('/dashboard/payroll/calendar/:id');
   });
@@ -48,9 +48,9 @@ describe('moduleForPath', () => {
     ['/dashboard/attendance/corrections', 'attendance'],
     ['/dashboard/leaves/pending', 'leave'],
     ['/dashboard/overtime/new', 'leave'],
-    ['/dashboard/payroll/:id/wps', 'payroll'],
+    ['/dashboard/payroll/:id', 'payroll'],
     ['/dashboard/banks/migrate', 'payroll'],
-    ['/dashboard/advance-loans/reports', 'finance'],
+    ['/dashboard/travel', 'finance'],
     ['/dashboard/appraisal', 'talent'],
     ['/dashboard/assets', 'workplace'],
     ['/dashboard/settings', 'system'],
@@ -70,10 +70,10 @@ describe('moduleForPath', () => {
 
 describe('describeScreen', () => {
   it('returns a sanitised path, its module and a flat screen key', () => {
-    expect(describeScreen('/dashboard/payroll/8813/wps?tab=summary')).toEqual({
-      path: '/dashboard/payroll/:id/wps',
+    expect(describeScreen('/dashboard/payroll/8813?tab=summary')).toEqual({
+      path: '/dashboard/payroll/:id',
       module: 'payroll',
-      screen: 'dashboard.payroll.:id.wps',
+      screen: 'dashboard.payroll.:id',
     });
   });
 });

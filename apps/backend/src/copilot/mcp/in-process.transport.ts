@@ -12,10 +12,10 @@ import { AuthForwardContext, CopilotTool, CopilotToolTransport } from './tool-tr
  * still run — they live inside ToolExecutorService, which runs within the same
  * /copilot request's AsyncLocalStorage branch context.
  *
- * The call pipeline itself now lives in ToolCallerService so the WhatsApp
- * channel can reuse it without importing CopilotModule (and with it, the LLM
- * client). This class keeps the CopilotToolTransport contract and the per-role
- * tool-list cache.
+ * The call pipeline itself now lives in ToolCallerService so a non-LLM caller
+ * can reuse it without importing CopilotModule (and with it, the LLM client).
+ * This class keeps the CopilotToolTransport contract and the per-role tool-list
+ * cache.
  */
 @Injectable()
 export class InProcessToolTransport implements CopilotToolTransport {

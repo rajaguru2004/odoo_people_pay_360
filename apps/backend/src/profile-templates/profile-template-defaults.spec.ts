@@ -125,8 +125,8 @@ describe('profile template presets', () => {
     // phoneCountryCode is the one deliberate widening. It did not exist when
     // the controller list was written; it only qualifies `phone`, which was
     // always self-editable, and an employee able to change their number but not
-    // its country can leave a number the WhatsApp outbox cannot dial. It
-    // carries no payroll, regulatory or access-control meaning.
+    // its country can leave a number that cannot be normalised. It carries no
+    // payroll, regulatory or access-control meaning.
     const selfEditableBound = BASELINE_FIELDS.filter(
       (f) => f.selfEditable && BOUND_BY_KEY.get(f.fieldKey)?.table === 'employee',
     ).map((f) => f.fieldKey);
@@ -179,7 +179,7 @@ describe('phoneCountryCode in the shipped baseline', () => {
 
   it('is self-editable, like the phone it qualifies', () => {
     // An employee who may correct their number but not its country can produce
-    // a number the WhatsApp outbox cannot dial.
+    // a number that cannot be normalised.
     expect(field()!.selfEditable).toBe(true);
   });
 

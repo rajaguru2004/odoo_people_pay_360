@@ -87,10 +87,9 @@ function ibanWithCheckDigits(country: string, bban: string): string {
 /**
  * The 19-digit Omani BBAN: the bank's 3-digit CBO code, then 16 account digits.
  *
- * Both halves matter to the wage file. `IBAN_COUNTRY_RULES.OM` requires 23
- * characters overall, and the WPS pre-flight cross-checks the code at [4,7)
- * against the selected `Bank.bankCode` — an IBAN that is merely checksum-valid
- * still blocks the file when it points at a different bank.
+ * Both halves matter. `IBAN_COUNTRY_RULES.OM` requires 23 characters overall,
+ * and the code at [4,7) has to match the selected `Bank.bankCode` — an IBAN
+ * that is merely checksum-valid still points at the wrong bank.
  */
 function omanBban(bankCode: string, accountDigits: string): string {
   return `${bankCode}${accountDigits}`.padEnd(19, '0').slice(0, 19);
@@ -240,7 +239,6 @@ async function main(db: Db): Promise<void> {
     where: { name: 'SMP-Oman Standard OT' },
     select: { id: true },
   });
-  const loanType = await db.loanType.findFirst({ where: { code: 'SALARY_ADVANCE' } });
   const muscatSessions = await db.trainingSession.findMany({
     where: { branchId: branch.id },
     select: { id: true, status: true },
@@ -407,10 +405,9 @@ async function main(db: Db): Promise<void> {
     });
 
     // `data` is the source of truth for every payment field; the scalar columns
-    // below are back-compat only. Writing the scalars alone is what made the WPS
-    // pre-flight report "Account Holder Name is required, IBAN is required" for
-    // every one of these employees — it validates `data` against the country's
-    // live field schema and never reads the columns.
+    // below are back-compat only. Anything that validates `data` against the
+    // country's live field schema never reads the columns, so writing the
+    // scalars alone leaves those checks reporting a missing IBAN.
     const accountDigits = `1${p.code.slice(-3)}`.padEnd(16, '0');
     const iban = ibanWithCheckDigits('OM', omanBban(bank.bankCode ?? '018', accountDigits));
     await db.employeeBankDetail.create({
@@ -585,29 +582,6 @@ async function main(db: Db): Promise<void> {
       });
     }
 
-    // ── Expense claims ──
-    for (const r of [
-      { t: 'Travel', a: 85, d: -35, s: 'PAID' },
-      { t: 'Medical', a: 42, d: -14, s: 'APPROVED' },
-      { t: 'Office Supplies', a: 23, d: -4, s: 'PENDING' },
-    ]) {
-      await db.reimbursement.create({
-        data: {
-          employeeId: id,
-          type: r.t,
-          amount: dec(r.a),
-          expenseDate: day(r.d),
-          description: `${r.t} expense — Muscat branch.`,
-          status: r.s,
-          budgetCategory: r.t,
-          approverId: r.s === 'PENDING' ? null : hrUserId,
-          approvedAt: r.s === 'PENDING' ? null : day(r.d + 3),
-          paidAt: r.s === 'PAID' ? day(r.d + 8) : null,
-          createdAt: day(r.d + 1),
-        },
-      });
-    }
-
     // ── Documents and visa ──
     for (const doc of ['Passport', 'National ID', 'Employment Contract']) {
       const slug = doc.replace(/\s+/g, '-').toLowerCase();
@@ -732,7 +706,7 @@ async function main(db: Db): Promise<void> {
         employeeId: id,
         templateKey: 'SALARY_CERTIFICATE',
         locale: 'en',
-        purpose: 'Bank loan application',
+        purpose: 'Bank account opening',
         addressedTo: 'Bank Muscat',
         status: 'ISSUED',
         serialNumber: `${NX}LTR-${p.code.slice(-3)}-01`,
@@ -843,77 +817,12 @@ async function main(db: Db): Promise<void> {
     },
   });
 
-  // ── 5. A live salary advance with its repayment schedule ────────────────
-  if (loanType) {
-    const principal = 900;
-    const installments = 6;
-    const emi = principal / installments;
-    const loan = await db.advanceLoanRequest.create({
-      data: {
-        employeeId: empId['employee'],
-        loanTypeId: loanType.id,
-        type: 'ADVANCE',
-        amount: dec(principal),
-        reason: 'Advance against salary for school fees.',
-        status: 'ACTIVE',
-        currency: 'OMR',
-        employeeCodeSnapshot: `${NX}EMP-005`,
-        employeeNameSnapshot: 'Yaqoob Al Saadi',
-        referenceNo: `${NX}ADV-0001`,
-        installments,
-        installmentAmount: dec(emi),
-        interestMethod: 'NONE',
-        interestRate: dec(0),
-        deductionFrequency: 'MONTHLY',
-        approverId: hrUserId,
-        approvedAt: day(-70),
-        effectiveDate: day(-68),
-        disbursementDate: day(-66),
-        disbursedAmount: dec(principal),
-        firstDeductionDate: dU(2026, 7, 1),
-        amountRepaid: dec(emi * 2),
-        outstandingPrincipal: dec(principal - emi * 2),
-        totalPayable: dec(principal),
-        scheduleVersion: 1,
-        createdAt: day(-75),
-      },
-      select: { id: true },
-    });
-    for (let n = 1; n <= installments; n++) {
-      const raw = 6 + n; // first instalment falls in Jul 2026
-      const y = 2026 + Math.floor((raw - 1) / 12);
-      const m = ((raw - 1) % 12) + 1;
-      const paid = n <= 2;
-      await db.loanSchedule.create({
-        data: {
-          requestId: loan.id,
-          version: 1,
-          installmentNo: n,
-          dueDate: dU(y, m, 1),
-          dueCycleKey: y * 100 + m,
-          dueMonth: m,
-          dueYear: y,
-          openingBalance: dec(principal - emi * (n - 1)),
-          principalComponent: dec(emi),
-          emiAmount: dec(emi),
-          closingBalance: dec(principal - emi * n),
-          status: paid ? 'PAID' : 'SCHEDULED',
-          paidAmount: dec(paid ? emi : 0),
-          paidPrincipal: dec(paid ? emi : 0),
-          settledAt: paid ? dU(y, m, 28) : null,
-        },
-      });
-    }
-    console.log('  - Salary advance + 6-instalment schedule for the employee login');
-  }
-
-  // ── 6. Payslips in the existing Muscat runs ─────────────────────────────
+  // ── 5. Payslips in the existing Muscat runs ─────────────────────────────
   for (const run of payrolls) {
     for (const p of PEOPLE) {
       const allowances = p.salary * 0.4;
       const otPay = Math.round(rng() * 30 * 100) / 100;
-      const loanDeduction = p.key === 'employee' ? 150 : 0;
-      const net = p.salary + allowances + otPay - loanDeduction;
+      const net = p.salary + allowances + otPay;
       await db.payrollItem.create({
         data: {
           payrollId: run.id,
@@ -924,7 +833,6 @@ async function main(db: Db): Promise<void> {
           allowances: dec(allowances),
           overtimeHours: dec(2),
           overtimePay: dec(otPay),
-          advanceLoanDeduction: dec(loanDeduction),
           netSalary: dec(net.toFixed(2)),
           notes: 'Seeded payslip (seed-nexura-logins).',
         },
@@ -976,7 +884,7 @@ async function main(db: Db): Promise<void> {
     console.log('  - Gratuity accruals written');
   }
 
-  // ── 7. Notifications ────────────────────────────────────────────────────
+  // ── 6. Notifications ────────────────────────────────────────────────────
   for (const key of Object.keys(userId)) {
     await db.notification.createMany({
       data: [
@@ -1036,8 +944,6 @@ async function clearPreviousRun(db: Db): Promise<void> {
   console.log(`  - Clearing ${ids.length} employee(s) from a previous run…`);
 
   await db.leaveApproval.deleteMany({ where: { leaveRequest: { employeeId: { in: ids } } } });
-  await db.loanSchedule.deleteMany({ where: { request: of } });
-  await db.advanceLoanRequest.deleteMany({ where: of });
   await db.gratuityAccrual.deleteMany({ where: of });
   await db.payrollItem.deleteMany({ where: of });
   await db.assetAssignment.deleteMany({ where: of });
@@ -1052,7 +958,6 @@ async function clearPreviousRun(db: Db): Promise<void> {
   await db.leaveTypeBalance.deleteMany({ where: of });
   await db.leaveBalance.deleteMany({ where: of });
   await db.overtimeRequest.deleteMany({ where: of });
-  await db.reimbursement.deleteMany({ where: of });
   await db.employeeDocument.deleteMany({ where: of });
   await db.employeeLegalDocument.deleteMany({ where: of });
   await db.travelRequest.deleteMany({ where: of });

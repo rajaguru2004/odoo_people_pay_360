@@ -3,7 +3,6 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -12,7 +11,6 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SystemSettingsService } from '../system-settings/system-settings.service';
 import { ApprovalEngineService } from '../approvals/approval-engine.service';
-import { ReimbursementsService } from '../reimbursements/reimbursements.service';
 import { BudgetCommitmentService } from '../budgets/budget-commitment.service';
 import { assertInBranch } from '../common/branch/branch-scope.util';
 import { getBranchContext } from '../common/branch/branch-context';
@@ -23,20 +21,16 @@ import { NominateDto } from './dto/nominate.dto';
 import { DecideNominationDto } from './dto/decide-nomination.dto';
 import { RecordAttendanceDto } from './dto/record-attendance.dto';
 
-const TRAINING_EXPENSE_TYPE = 'Training';
 const TRAINING_BUDGET_CATEGORY = 'Training';
 
 @Injectable()
 export class TrainingService {
-  private readonly logger = new Logger(TrainingService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly settings: SystemSettingsService,
     private readonly engine: ApprovalEngineService,
-    private readonly reimbursements: ReimbursementsService,
     private readonly budget: BudgetCommitmentService,
   ) {}
 
@@ -366,11 +360,9 @@ export class TrainingService {
   /**
    * Approved nomination side-effects.
    *
-   * Who pays decides whether a claim is spawned. `training_paid_by = COMPANY`
-   * (the default) means the company settles with the provider directly and
-   * there is nothing to reimburse — the cost is still recorded on the
-   * nomination so budgeting can see it. `EMPLOYEE` means the employee paid and
-   * gets it back through the ordinary reimbursement path.
+   * `training_paid_by` records who settled with the provider — the company (the
+   * default) or the employee — and is stamped on the audit entry. Either way the
+   * cost is committed against the training budget, so budgeting sees it.
    */
   private async applyApproved(id: string, approverUserId: string, remarks?: string) {
     const nomination = await this.getNominationOrThrow(id);
@@ -386,29 +378,9 @@ export class TrainingService {
     });
 
     const paidBy = await this.settings.getSetting('training_paid_by', 'COMPANY');
-    if (paidBy === 'EMPLOYEE' && nomination.cost && Number(nomination.cost) > 0) {
-      try {
-        await this.reimbursements.createFromSource({
-          employeeId: nomination.employeeId,
-          type: TRAINING_EXPENSE_TYPE,
-          amount: nomination.cost,
-          expenseDate: nomination.session.startDate,
-          description: `Training — ${nomination.session.course.title}`,
-          sourceType: 'TRAINING',
-          sourceId: nomination.id,
-          budgetCategory: TRAINING_BUDGET_CATEGORY,
-          status: 'APPROVED',
-          approverId: approverUserId,
-        });
-      } catch (e: any) {
-        this.logger.error(
-          `Training claim for nomination ${id} failed: ${e?.message ?? e}`,
-        );
-      }
-    }
 
-    // Commit regardless of who pays: a company-settled course still consumes
-    // the training budget, it just never becomes a reimbursement.
+    // Commit regardless of who pays: a course settled by the employee still
+    // consumes the training budget.
     if (nomination.cost && Number(nomination.cost) > 0) {
       await this.budget.commit({
         sourceType: 'TRAINING',
@@ -438,13 +410,6 @@ export class TrainingService {
           message: `You are confirmed for ${nomination.session.course.title}, starting ${nomination.session.startDate.toDateString()}.`,
           type: 'SUCCESS' as any,
           link: '/dashboard/my-training',
-          waTemplate: 'training_nomination',
-          waData: {
-            courseName: nomination.session.course.title,
-            sessionDate: nomination.session.startDate.toISOString(),
-            status: 'APPROVED',
-          },
-          waDedupeKey: `training:${id}:approved`,
         })
         .catch(() => undefined);
     }
@@ -484,9 +449,6 @@ export class TrainingService {
           message: `Your nomination for ${nomination.session.course.title} was rejected.${reason ? ` Reason: ${reason}` : ''}`,
           type: 'ERROR' as any,
           link: '/dashboard/my-training',
-          waTemplate: 'training_nomination',
-          waData: { courseName: nomination.session.course.title, status: 'REJECTED' },
-          waDedupeKey: `training:${id}:rejected`,
         })
         .catch(() => undefined);
     }
@@ -507,7 +469,6 @@ export class TrainingService {
     }
 
     await this.engine.abandon('TRAINING', id);
-    const cancelledClaims = await this.reimbursements.cancelBySource('TRAINING', id);
 
     const updated = await this.prisma.trainingNomination.update({
       where: { id },
@@ -522,7 +483,6 @@ export class TrainingService {
       action: 'TRAINING_CANCELLED',
       resourceType: 'TrainingNomination',
       resourceId: id,
-      newData: { cancelledClaims },
       branchId: getBranchContext()?.effectiveBranchId ?? null,
     });
 

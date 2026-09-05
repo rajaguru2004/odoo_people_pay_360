@@ -116,7 +116,7 @@ test.describe('itemised payslips', () => {
       // The invariant the whole design rests on. Checked per BUCKET, not per
       // category: `deduction`, `insurance` and `tax` are three separate
       // deduction columns, so a category-level check would let a PF line
-      // reconcile against a loan instalment and still balance.
+      // reconcile against a garnishment and still balance.
       const pair = await twinPair(admin, { marker: nextMark(), branchId });
       await addComponent(admin, pair.subject.id, 'BASIC', 1000);
       await addComponent(admin, pair.subject.id, 'HOUSING', 200);

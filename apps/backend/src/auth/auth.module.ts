@@ -8,17 +8,12 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { MailModule } from '../mail/mail.module';
-import { TelegramModule } from '../telegram/telegram.module';
 import { requireSecret } from '../common/config/require-secret';
 
 @Module({
   imports: [
     PassportModule,
     MailModule,
-    // For LoginAlertService only. Safe in this direction because TelegramModule
-    // imports nothing but PrismaModule and AuditModule — its controllers use
-    // JwtAuthGuard as a class, not as a module dependency.
-    TelegramModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({

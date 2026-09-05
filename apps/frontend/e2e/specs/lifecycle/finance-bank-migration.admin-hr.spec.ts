@@ -325,7 +325,7 @@ test.describe('a legacy bank record is verified and migrated', () => {
     // The claim: the server's per-field `errors` map survives the trip. This
     // page renders `Object.values(errors)`, not `message` — a shape change
     // there degrades a precise sentence into "Failed to migrate", which is the
-    // exact production incident recorded in docs/LOAN-ADVANCES-TEST-CASES.md.
+    // exact production incident this suite was written after.
     const text = await toasts.waitFor('error');
     expect(text, 'the refusal did not name the checksum').toMatch(/check digit/i);
 

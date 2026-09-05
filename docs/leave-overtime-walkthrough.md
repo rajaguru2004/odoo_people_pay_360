@@ -481,7 +481,7 @@ Every deviation, with the reason.
 | `dayType`/`otType` as VarChar | `OvertimeDayType` / `OvertimeType` enums | Same reason. |
 | `Decimal(10,2)` / `Decimal(12,2)` money | `Decimal(18, 3)` | House rule: OMR/KWD/BHD are thousandths. |
 | Thirteen `LibraryType` values | Two | The other eleven belong to modules that do not exist here; a value nothing reads is a trap. |
-| `LibraryItem.payBasis`, `perDiemRate`, `loanDeductionPolicy` | dropped | Payroll, travel and loans are not in this repository. |
+| `LibraryItem.payBasis`, `perDiemRate` | dropped | Payroll and travel are not in this repository. |
 | `LeaveApproval` (multi-tier trail) | dropped | Single approver — see below. |
 | No `@@unique` on `OvertimeRequest` | `@@unique([employeeId, date])` | The service already refused a second request per date; the constraint makes it true under concurrency and makes the seed idempotent. |
 | `Employee.fullName`, `email`, `baseSalary`, `salaryType` | `firstName`/`lastName`, `workEmail`, no salary on the employee | The target's shape. The approver's hourly-rate preview is dropped with `baseSalary` — see §9. |
@@ -491,7 +491,7 @@ Every deviation, with the reason.
 | HRM used | Here | Why |
 | --- | --- | --- |
 | `ApprovalEngineService` (multi-tier chains) | `@Roles` + `assertMayDecide` | No approvals module in this repository. The single-approver model is `Employee.supervisorId`, which is already documented as "who signs their leave". |
-| `NotificationsService`, `MailService`, WhatsApp | nothing | No notification or mail module. The seam is documented in the interconnection doc. |
+| `NotificationsService`, `MailService` | nothing | No notification or mail module. The seam is documented in the interconnection doc. |
 | `AuditService` | nothing | No audit module wired for writes; `AuditLog` exists but nothing populates it. |
 | `StorageService` (MinIO) | caller-supplied `fileUrl` | No storage module; `multer` is an unused dependency. See §9. |
 | `assertInBranch` / branch middleware | nothing | The target has no branch-scoping middleware. `Principal.branchId` exists but no other module narrows by it, and inventing a rule here would make this module behave unlike every other one. |

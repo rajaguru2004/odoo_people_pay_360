@@ -36,7 +36,6 @@ import { HolidaysModule } from './holidays/holidays.module';
 import { LeaveBalancesModule } from './leave-balances/leave-balances.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { AttendanceCorrectionsModule } from './attendance-corrections/attendance-corrections.module';
-import { AttendanceIntegrationsModule } from './attendance-integrations/attendance-integrations.module';
 import { OvertimeModule } from './overtime/overtime.module';
 import { OvertimePolicyModule } from './overtime-policy/overtime-policy.module';
 import { MailModule } from './mail/mail.module';
@@ -62,27 +61,17 @@ import { TimesheetsModule } from './timesheets/timesheets.module';
 import { AuditModule } from './audit/audit.module';
 import { AuditInterceptor } from './audit/audit.interceptor';
 import { LeaveAttachmentsModule } from './leave-attachments/leave-attachments.module';
-import { ReimbursementsModule } from './reimbursements/reimbursements.module';
 import { ApprovalsModule } from './approvals/approvals.module';
 import { SupervisorsModule } from './supervisors/supervisors.module';
 import { BankDetailsModule } from './bank-details/bank-details.module';
 import { ProfileTemplatesModule } from './profile-templates/profile-templates.module';
-import { WpsModule } from './wps/wps.module';
-import { AdvanceLoansModule } from './advance-loans/advance-loans.module';
 import { GarnishmentsModule } from './garnishments/garnishments.module';
-import { AccountingModule } from './accounting/accounting.module';
 import { SampleDataModule } from './sample-data/sample-data.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { McpModule } from './mcp/mcp.module';
 import { CopilotModule } from './copilot/copilot.module';
 import { CopilotSettingsModule } from './copilot-settings/copilot-settings.module';
 import { DevModeModule } from './dev-mode/dev-mode.module';
-import { WhatsAppModule } from './whatsapp/whatsapp.module';
-import { WhatsAppInboundModule } from './whatsapp/whatsapp-inbound.module';
-import { DiscordModule } from './discord/discord.module';
-import { DiscordInboundModule } from './discord/discord-inbound.module';
-import { TelegramModule } from './telegram/telegram.module';
-import { TelegramInboundModule } from './telegram/telegram-inbound.module';
 import { ChannelVerificationInboundModule } from './common/verification/channel-verification-inbound.module';
 import { AppraisalModule } from './appraisal/appraisal.module';
 import { EmployeeTransfersModule } from './employee-transfers/employee-transfers.module';
@@ -129,12 +118,9 @@ import { PayrollReportsModule } from './payroll-reports/payroll-reports.module';
     AttendancesModule,
     LeaveRequestsModule,
     LeaveAttachmentsModule,
-    ReimbursementsModule,
-    AdvanceLoansModule,
     // Before PayrollsModule: `payrolls/reports/...` must be matched before
     // `payrolls/:id`, or every report name is read as a payroll id.
     PayrollReportsModule,
-    AccountingModule,
     PayrollsModule,
     PayrollBatchesModule,
     GarnishmentsModule,
@@ -151,7 +137,6 @@ import { PayrollReportsModule } from './payroll-reports/payroll-reports.module';
     LeaveBalancesModule,
     DashboardModule,
     AttendanceCorrectionsModule,
-    AttendanceIntegrationsModule,
     OvertimeModule,
     OvertimePolicyModule,
     UploadModule,
@@ -164,20 +149,12 @@ import { PayrollReportsModule } from './payroll-reports/payroll-reports.module';
     SystemSettingsModule,
     SampleDataModule,
     CopilotSettingsModule,
-    WhatsAppModule,
-    DiscordModule,
-    TelegramModule,
     // Imported explicitly even though McpModule already pulls it in: the
     // analytics HTTP routes must not depend on the MCP surface staying
     // registered. Nest dedupes the module either way.
     AnalyticsModule,
     McpModule,
-    // Inbound is registered AFTER McpModule: it is a leaf that depends on the
-    // tool registry, and nothing depends on it.
-    WhatsAppInboundModule,
-    DiscordInboundModule,
-    TelegramInboundModule,
-    // Leaf, after every channel: it serves the browser page they hand out.
+    // Leaf: it serves the browser page the verification links hand out.
     ChannelVerificationInboundModule,
     CopilotModule,
     AppraisalModule,
@@ -190,7 +167,6 @@ import { PayrollReportsModule } from './payroll-reports/payroll-reports.module';
     SupervisorsModule,
     BankDetailsModule,
     ProfileTemplatesModule,
-    WpsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -23,17 +23,16 @@
 /**
  * Where the `payroll-edge-*` specs live, and why it is somewhere nobody else is.
  *
- * A payroll run is generated for a whole BRANCH, and the loan recovery planner
- * selects `dueCycleKey <= cycleKey` — so a run in a far-future period claims
- * EVERY live loan in its branch, including one another spec created seconds
- * earlier. Once claimed, `assertNoRunInFlight` refuses every operation on that
- * loan, tidy-up included. `docs/TEST-PLAN-FINANCE.md` §7.7 (F35) records the
- * collision; it is the single most expensive failure mode in this suite.
+ * A payroll run is generated for a whole BRANCH, so a run in a far-future period
+ * sweeps up EVERY employee in its branch, including ones another spec created
+ * seconds earlier. Once a run is in flight, `assertNoRunInFlight` refuses every
+ * operation those employees are party to, tidy-up included; it is the single
+ * most expensive failure mode in this suite.
  *
  * The branches are therefore carved up, and this is the register:
  *
- *   HO         → `payroll.admin-employee`, `payroll-depth`, `wps.admin`
- *   E2E-BR2    → `finance-loan-payroll-recovery`, periods ~8–10 years out
+ *   HO         → `payroll.admin-employee`, `payroll-depth`
+ *   E2E-BR2    → the finance journeys, periods ~8–10 years out
  *   E2E-PAY    → the `payroll-edge-*` family, periods 2044–2046  ← this constant
  *
  * If you add a phase, take a branch and a year band, and add a line here. The
@@ -46,10 +45,9 @@ export const PAYROLL_EDGE_BRANCH_NAME = 'Payroll Edge Cases (Oman)';
  * The branch's country, and the country it banks in.
  *
  * Oman, because that is the market this catalogue is written for and because the
- * seeded Bank Master, the `CountryBankingField` IBAN schema and both WPS formats
- * are Omani. A branch left at `country: null` — which is what `POST /branches`
- * produces — refuses every bank detail and makes WPS pre-flight report
- * `NO_ACTIVE_BANK_DETAIL` for the whole run.
+ * seeded Bank Master and the `CountryBankingField` IBAN schema are Omani. A
+ * branch left at `country: null` — which is what `POST /branches` produces —
+ * refuses every bank detail for the whole run.
  */
 export const PAYROLL_EDGE_BRANCH_COUNTRY = 'OM';
 
@@ -58,12 +56,12 @@ export const PAYROLL_EDGE_BRANCH_COUNTRY = 'OM';
  * period of its own.
  *
  * Widened twice, both times because `edgePeriod` REFUSED an index rather than
- * wrapping: first at index 40 (`payroll-edge-attendance`), then at 73
- * (`payroll-edge-banking`). Each refusal cost one run and a one-line change. The
+ * wrapping: first at index 40 (`payroll-edge-attendance`), then at 73. Each
+ * refusal cost one run and a one-line change. The
  * alternative it prevents is silent wrapping into 2047, 2054 … and eventually
- * into the years `finance-loan-payroll-recovery` owns, where a run claims that
- * suite's loans and wedges a file nobody touched — a failure that would appear in
- * a different spec, on a different day, with no connection to the change that
+ * into the years the finance journeys own, where a run claims that suite's
+ * employees and wedges a file nobody touched — a failure that would appear in a
+ * different spec, on a different day, with no connection to the change that
  * caused it. Widen here and record it; never wrap.
  *
  * Allocate a decade per file and leave gaps: the cost of a sparse register is
@@ -79,7 +77,7 @@ export const PAYROLL_EDGE_BRANCH_COUNTRY = 'OM';
  *   40–49  `payroll-edge-attendance`
  *   50–59  `payroll-edge-recoveries`
  *   60–69  `payroll-edge-salary-change`
- *   70–79  `payroll-edge-banking`
+ *   70–79  unallocated
  *   80–89  `payroll-edge-garnishment`
  *   90–99   `payroll-edge-eosb`
  *   100–109 `payroll-edge-itemization`
@@ -98,7 +96,7 @@ export const PAYROLL_EDGE_BRANCH_COUNTRY = 'OM';
  * Widened a third time, to 2059, for the gap-closure phase: nine new files each
  * need a decade and only three were left. Widening UPWARD is the safe direction
  * and both halves of that are checked — the lane this register exists to avoid
- * is `finance-loan-payroll-recovery` on `E2E-BR2`, which sits around 2034–2036,
+ * is the finance journeys on `E2E-BR2`, which sit around 2034–2036,
  * BELOW this band; and nothing in `payroll-period.test.ts` hardcodes the last
  * year, because every case derives `span` from these constants. The years the
  * leap-day cases name (2044, 2045, 2046) are date facts, not band facts.
@@ -134,8 +132,8 @@ export interface Period {
 
 /**
  * A period as one comparable integer, the same way the server does it
- * (`LoanSchedule.dueCycleKey` is `dueYear * 12 + dueMonth`). Sorting teardown by
- * this is what makes "newest period first" expressible.
+ * (`year * 12 + month`). Sorting teardown by this is what makes "newest period
+ * first" expressible.
  */
 export function periodKey(p: Period): number {
   return p.year * 12 + p.month;

@@ -3,8 +3,6 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
 import { StorageModule } from '../storage/storage.module';
 import { LettersModule } from '../letters/letters.module';
-import { WpsModule } from '../wps/wps.module';
-import { WpsFileDownloadResolver } from '../wps/wps-download.resolver';
 import { SecureDownloadController } from '../storage/secure-download.controller';
 import { DocumentsModule } from '../documents/documents.module';
 import { DocumentAssetDownloadResolver } from '../documents/document-asset-download.resolver';
@@ -22,10 +20,10 @@ import {
  * a vault table would be a fifth copy of data that already has an owner.
  *
  * Also owns the secure-download resolver array, so StorageModule stays free of any
- * knowledge about letters, employee documents or wage files. Nest has no
- * `multi: true`, and SecureDownloadController is declared here, so every
- * downloadable kind must be injected into the one factory below — a second module
- * providing the same token would not merge.
+ * knowledge about letters or employee documents. Nest has no `multi: true`, and
+ * SecureDownloadController is declared here, so every downloadable kind must be
+ * injected into the one factory below — a second module providing the same token
+ * would not merge.
  */
 @Module({
   imports: [
@@ -33,7 +31,6 @@ import {
     AuditModule,
     StorageModule,
     LettersModule,
-    WpsModule,
     // Every PDF the document engine produces is downloaded through this same
     // door, so it gets the audit row and the no-store headers for free.
     DocumentsModule,
@@ -51,7 +48,6 @@ import {
       inject: [
         LetterDownloadResolver,
         EmployeeDocumentDownloadResolver,
-        WpsFileDownloadResolver,
         GeneratedDocumentDownloadResolver,
         DocumentAssetDownloadResolver,
       ],

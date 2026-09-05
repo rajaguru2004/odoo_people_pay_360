@@ -11,8 +11,8 @@ import type { runTotals } from './PayrollRunTable';
  *
  * The old four were `General staff / Total income / Total deduction / Net
  * Salary`, and two of them were wrong rather than merely thin: "total income"
- * summed five of the nine earning columns and "total deduction" three of the
- * six, so site allowance, leave encashment, gratuity paid through the run,
+ * summed five of the eight earning columns and "total deduction" three of the
+ * five, so site allowance, leave encashment, gratuity paid through the run,
  * court orders and post-tax recoveries were all silently missing — and the
  * three cards could not be reconciled against the fourth, which came from the
  * run's own stored total.
@@ -39,7 +39,7 @@ export default function RunSummaryCards({
    * The run's stored total against the sum of its own payslips.
    *
    * These are two different numbers from two different places, and nothing in
-   * the product ever compared them. When they disagree the wage file and the
+   * the product ever compared them. When they disagree the payslips and the
    * dashboard will report different amounts for the same run.
    */
   const drift = totals.net - storedTotal;
@@ -77,7 +77,6 @@ export default function RunSummaryCards({
       sub: t('cardDeductionsHint', {
         tax: labels.tax,
         amount: formatCurrency(totals.tax),
-        loan: formatCurrency(totals.loanRecovery),
       }),
       subTone: 'text-text-muted',
       href: '/dashboard/payroll/recoveries',
@@ -143,11 +142,6 @@ export default function RunSummaryCards({
           {formatCurrency(totals.net)}
         </p>
         <div className="mt-auto pt-2 space-y-1">
-          {totals.reimbursement > 0 && (
-            <p className="text-[11px] text-text-on-brand/85 leading-snug">
-              {t('reimbursementsNote', { amount: formatCurrency(totals.reimbursement) })}
-            </p>
-          )}
           {Math.abs(drift) >= 0.01 && (
             <Link
               href={`/dashboard/payroll/${payrollId}`}
