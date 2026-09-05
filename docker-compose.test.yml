@@ -14,7 +14,11 @@ name: people-pay-360-e2e
 
 services:
   postgres-test:
-    image: postgres:16-alpine
+    # pgvector, not plain postgres:16 — schema.prisma declares
+    # `extensions = [vector]`, so `prisma db push` runs CREATE EXTENSION vector
+    # and dies with "extension \"vector\" is not available" on any image that
+    # does not ship it. Same image the demo stack uses, for the same reason.
+    image: pgvector/pgvector:pg16
     container_name: ppx_postgres_test
     environment:
       POSTGRES_USER: postgres
