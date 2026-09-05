@@ -1242,7 +1242,7 @@ model LeaveTypeBalance {
   leaveTypeKey String @map("leave_type_key") @db.VarChar(100)
   allocated    Int    @default(0)
   used         Int    @default(0)
-  carriedOver  Int    @default(0)
+  carriedOver  Int    @default(0) @map("carried_over")
 
   // ── Carry-forward, written by nothing in this module ──────────────────────
   // Shipped now, unused now. Year-end carry-forward and leave encashment are
