@@ -8,6 +8,7 @@ import TopHeader from './TopHeader';
 import MobileTabBar from './MobileTabBar';
 import ChatbotWidget from '../chatbot/ChatbotWidget';
 import PageBreadcrumbs from '@/components/common/PageBreadcrumbs';
+import PageTransition from '@/components/common/PageTransition';
 import { useAuthStore } from '@/store/authStore';
 import { useBrandingStore } from '@/store/brandingStore';
 import { useBranchStore } from '@/store/branchStore';
@@ -206,14 +207,10 @@ const DashboardLayout = memo(function DashboardLayout({ children, disableMainScr
               do not remove this key without adding branch to those deps first.
             */}
             <div className="max-w-7xl mx-auto" key={selectedBranchId ?? 'all'}>
-              {/*
-                One trail for every screen, rendered here rather than in each
-                page: the route already knows where it sits in the nav tree, so
-                a hundred pages do not each have to say so, and a route that
-                moves cannot leave a hand-written crumb behind.
-              */}
               <PageBreadcrumbs />
-              {children}
+              <PageTransition transitionKey={`${pathname}-${selectedBranchId ?? 'all'}`}>
+                {children}
+              </PageTransition>
             </div>
           </main>
         </div>

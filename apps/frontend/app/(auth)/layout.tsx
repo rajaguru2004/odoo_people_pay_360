@@ -5,10 +5,12 @@ export const metadata: Metadata = {
     description: "Log in to the Employee Self-Service Portal",
 };
 
+import PageTransition from "@/components/common/PageTransition";
+
 export default function AuthLayout({
     children,
 }: Readonly<{
     children: React.ReactNode;
 }>) {
-    return children;
+    return <PageTransition>{children}</PageTransition>;
 }
