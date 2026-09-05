@@ -79,6 +79,10 @@ async function bootstrap() {
     )
     .addTag('Holidays', 'Company-wide and branch-specific non-working days')
     .addTag('Face Enrolments', 'Face templates registered for recognition')
+    .addTag(
+      'Payroll',
+      'Salary components and structures, payroll runs, payslips, the payroll hub and its reports',
+    )
     .addTag('System Settings', 'Branding and platform configuration')
     .build();
 

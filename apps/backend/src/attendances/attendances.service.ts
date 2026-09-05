@@ -662,7 +662,9 @@ export class AttendancesService {
       const date = parseDayKey(dayKey) as DateTime;
       const restEverywhere =
         branchesInPlay.length > 0 &&
-        branchesInPlay.every((config) => isWeeklyOff(date, config.weeklyOffDays));
+        branchesInPlay.every((config) =>
+          isWeeklyOff(date, config.weeklyOffDays),
+        );
       const holiday = this.calendar.holidayOn(
         holidayIndex,
         dayKey,
@@ -702,7 +704,8 @@ export class AttendancesService {
         // A day is settled once its shift has closed. Until then a missing
         // punch is somebody still on their way, not an absence.
         const settled =
-          this.calendar.officeEndInstant(dayKey, day).toMillis() <= now.toMillis();
+          this.calendar.officeEndInstant(dayKey, day).toMillis() <=
+          now.toMillis();
         const isFuture = dayKey > employeeToday;
 
         // The verdict, and NULL where there is not one yet.

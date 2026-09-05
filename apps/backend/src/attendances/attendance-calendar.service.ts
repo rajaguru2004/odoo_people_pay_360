@@ -353,7 +353,8 @@ export class AttendanceCalendarService {
     );
 
     if (schedule) {
-      const officeStart = schedule.startTime?.trim() || branchConfig.officeStart;
+      const officeStart =
+        schedule.startTime?.trim() || branchConfig.officeStart;
       const officeEnd = schedule.endTime?.trim() || branchConfig.officeEnd;
       return {
         date: dayKey,
