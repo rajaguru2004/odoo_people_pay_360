@@ -146,6 +146,30 @@ describe('Time & attendance hub', () => {
     expect(screen.getByTestId('hub-period-label')).toHaveTextContent('August 2026');
   });
 
+  it('keeps the stepper dim until there is a window to step from', async () => {
+    // Both arrows page by anchors that arrive WITH the summary, so before the
+    // first one lands there is nowhere to step. Left live over that gap the
+    // press is simply swallowed and the label never moves, which reads as a
+    // dead button rather than a slow one — and on a loaded server the gap is
+    // long enough for a reader, or a browser test, to land inside it.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    hubSummary.mockImplementationOnce(async (_period, anchor) => {
+      await held;
+      return { success: true, data: summary(anchor) };
+    });
+
+    renderWithProviders(<TimeAttendanceHubPage />);
+
+    const previous = await screen.findByRole('button', { name: /previous period/i });
+    expect(previous).toBeDisabled();
+
+    release();
+    await waitFor(() => expect(previous).toBeEnabled());
+  });
+
   it('prints an em dash for a rate nobody could compute, never 0%', async () => {
     // A rate is null when nothing was expected. 0% is a claim that everybody
     // failed to turn up, which on a closed office is simply false.

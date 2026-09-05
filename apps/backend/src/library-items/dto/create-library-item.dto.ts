@@ -68,6 +68,19 @@ export class CreateLibraryItemDto {
   affectsBalance?: boolean;
 
   @ApiPropertyOptional({
+    enum: ['MONTHLY', 'DAILY'],
+    nullable: true,
+    description:
+      'EMPLOYMENT_TYPE only: the pay basis this type forces on anyone assigned ' +
+      "it. null leaves the choice with the employee's own record.",
+  })
+  @IsOptional()
+  // As with genderRestriction, null is an explicit "clear it".
+  @ValidateIf((_o, value) => value !== null)
+  @IsIn(['MONTHLY', 'DAILY'])
+  payBasis?: 'MONTHLY' | 'DAILY' | null;
+
+  @ApiPropertyOptional({
     enum: ['MALE', 'FEMALE'],
     nullable: true,
     description: 'null means the type is available to everybody.',

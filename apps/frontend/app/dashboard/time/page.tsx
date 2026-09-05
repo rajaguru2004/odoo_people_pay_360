@@ -63,6 +63,7 @@ function TimeHubContent() {
     goPrevious,
     goNext,
     goToday,
+    canGoPrevious,
     canGoNext,
     isCurrent,
     loading,
@@ -233,6 +234,9 @@ function TimeHubContent() {
         label={periodLabel}
         onPrev={goPrevious}
         onNext={goNext}
+        // Both arrows page by anchors the summary carries, so neither is live
+        // until the first one arrives.
+        canGoPrev={canGoPrevious}
         // False in the current period. The stepper must not walk into a window
         // that has not happened — the figures behind it would all be zero, and a
         // page of zeros is indistinguishable from a page that failed.
@@ -242,7 +246,7 @@ function TimeHubContent() {
         busy={fetching}
       />
     ),
-    [periodLabel, goPrevious, goNext, canGoNext, isCurrent, goToday, fetching],
+    [periodLabel, goPrevious, goNext, canGoPrevious, canGoNext, isCurrent, goToday, fetching],
   );
 
   return (

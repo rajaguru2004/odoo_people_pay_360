@@ -19,6 +19,10 @@
  *      query.
  */
 import {
+  ApprovalMode,
+  ApprovalRequestType,
+  ApproverType,
+  AssetStatus,
   AttendanceSource,
   AttendanceStatus,
   ContractStatus,
@@ -52,6 +56,7 @@ import {
 import { eachDayKey, periodFor } from '../src/payroll/payroll-period.util';
 import { resolvePaidDays } from '../src/payroll/payroll-attendance.util';
 import { DateTime } from 'luxon';
+import { LETTER_TEMPLATE_DEFAULTS } from '../src/letters/letter-defaults';
 
 const prisma = new PrismaClient();
 
@@ -93,6 +98,7 @@ const SETTINGS: Record<string, string> = {
   attendance_day_end: '20:00',
   attendance_geofence_default_radius_m: '150',
   face_recognition_min_quality: '0.6',
+  face_recognition_match_threshold: '0.6',
 
   // Leave and overtime. Written as rows rather than left to the module's own
   // in-code defaults so the settings screen shows an administrator every value
@@ -175,27 +181,112 @@ const DEPARTMENTS: Array<{
   branch: string;
   parent?: string;
 }> = [
-  { code: 'EXEC', name: 'Executive', description: 'Board and executive office', branch: 'HQ' },
-  { code: 'ADMIN', name: 'Administration', description: 'Facilities, reception and general administration', branch: 'HQ', parent: 'EXEC' },
-  { code: 'HR', name: 'Human Resources', description: 'Hiring, employee relations and payroll operations', branch: 'HQ', parent: 'EXEC' },
-  { code: 'FIN', name: 'Finance', description: 'Accounting, treasury and reporting', branch: 'HQ', parent: 'EXEC' },
-  { code: 'IT', name: 'Information Technology', description: 'Platforms, support and information security', branch: 'HQ', parent: 'EXEC' },
-  { code: 'OPS', name: 'Operations', description: 'Production and plant operations', branch: 'SOH', parent: 'EXEC' },
-  { code: 'MAINT', name: 'Maintenance', description: 'Mechanical and electrical maintenance', branch: 'SOH', parent: 'OPS' },
+  {
+    code: 'EXEC',
+    name: 'Executive',
+    description: 'Board and executive office',
+    branch: 'HQ',
+  },
+  {
+    code: 'ADMIN',
+    name: 'Administration',
+    description: 'Facilities, reception and general administration',
+    branch: 'HQ',
+    parent: 'EXEC',
+  },
+  {
+    code: 'HR',
+    name: 'Human Resources',
+    description: 'Hiring, employee relations and payroll operations',
+    branch: 'HQ',
+    parent: 'EXEC',
+  },
+  {
+    code: 'FIN',
+    name: 'Finance',
+    description: 'Accounting, treasury and reporting',
+    branch: 'HQ',
+    parent: 'EXEC',
+  },
+  {
+    code: 'IT',
+    name: 'Information Technology',
+    description: 'Platforms, support and information security',
+    branch: 'HQ',
+    parent: 'EXEC',
+  },
+  {
+    code: 'OPS',
+    name: 'Operations',
+    description: 'Production and plant operations',
+    branch: 'SOH',
+    parent: 'EXEC',
+  },
+  {
+    code: 'MAINT',
+    name: 'Maintenance',
+    description: 'Mechanical and electrical maintenance',
+    branch: 'SOH',
+    parent: 'OPS',
+  },
 ];
 
 const SALARY_COMPONENTS = [
-  { code: 'BASIC', name: 'Basic Salary', type: SalaryComponentType.EARNING, isGratuityBase: true, sequence: 10 },
-  { code: 'HRA', name: 'Housing Allowance', type: SalaryComponentType.EARNING, isGratuityBase: false, sequence: 20 },
-  { code: 'TRANSPORT', name: 'Transport Allowance', type: SalaryComponentType.EARNING, isGratuityBase: false, sequence: 30 },
-  { code: 'OTHER_ALLOW', name: 'Other Allowances', type: SalaryComponentType.EARNING, isGratuityBase: false, sequence: 40 },
-  { code: 'SOCIAL_SEC_EE', name: 'Social Security (Employee)', type: SalaryComponentType.DEDUCTION, isGratuityBase: false, sequence: 110 },
-  { code: 'LOAN_REPAY', name: 'Loan Repayment', type: SalaryComponentType.DEDUCTION, isGratuityBase: false, sequence: 120 },
-  { code: 'SOCIAL_SEC_ER', name: 'Social Security (Employer)', type: SalaryComponentType.EMPLOYER_CONTRIBUTION, isGratuityBase: false, sequence: 210 },
+  {
+    code: 'BASIC',
+    name: 'Basic Salary',
+    type: SalaryComponentType.EARNING,
+    isGratuityBase: true,
+    sequence: 10,
+  },
+  {
+    code: 'HRA',
+    name: 'Housing Allowance',
+    type: SalaryComponentType.EARNING,
+    isGratuityBase: false,
+    sequence: 20,
+  },
+  {
+    code: 'TRANSPORT',
+    name: 'Transport Allowance',
+    type: SalaryComponentType.EARNING,
+    isGratuityBase: false,
+    sequence: 30,
+  },
+  {
+    code: 'OTHER_ALLOW',
+    name: 'Other Allowances',
+    type: SalaryComponentType.EARNING,
+    isGratuityBase: false,
+    sequence: 40,
+  },
+  {
+    code: 'SOCIAL_SEC_EE',
+    name: 'Social Security (Employee)',
+    type: SalaryComponentType.DEDUCTION,
+    isGratuityBase: false,
+    sequence: 110,
+  },
+  {
+    code: 'LOAN_REPAY',
+    name: 'Loan Repayment',
+    type: SalaryComponentType.DEDUCTION,
+    isGratuityBase: false,
+    sequence: 120,
+  },
+  {
+    code: 'SOCIAL_SEC_ER',
+    name: 'Social Security (Employer)',
+    type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
+    isGratuityBase: false,
+    sequence: 210,
+  },
 ];
 
 async function seedCompanyAndBranches() {
-  const existing = await prisma.company.findFirst({ orderBy: { createdAt: 'asc' } });
+  const existing = await prisma.company.findFirst({
+    orderBy: { createdAt: 'asc' },
+  });
   const company =
     existing ??
     (await prisma.company.create({
@@ -230,8 +321,17 @@ async function seedDepartments(branches: Record<string, string>) {
   for (const d of DEPARTMENTS) {
     const row = await prisma.department.upsert({
       where: { code: d.code },
-      update: { name: d.name, description: d.description, branchId: branches[d.branch] },
-      create: { code: d.code, name: d.name, description: d.description, branchId: branches[d.branch] },
+      update: {
+        name: d.name,
+        description: d.description,
+        branchId: branches[d.branch],
+      },
+      create: {
+        code: d.code,
+        name: d.name,
+        description: d.description,
+        branchId: branches[d.branch],
+      },
     });
     ids[d.code] = row.id;
   }
@@ -251,7 +351,12 @@ async function seedSalaryComponents() {
   for (const c of SALARY_COMPONENTS) {
     await prisma.salaryComponent.upsert({
       where: { code: c.code },
-      update: { name: c.name, type: c.type, isGratuityBase: c.isGratuityBase, sequence: c.sequence },
+      update: {
+        name: c.name,
+        type: c.type,
+        isGratuityBase: c.isGratuityBase,
+        sequence: c.sequence,
+      },
       create: c,
     });
   }
@@ -286,6 +391,12 @@ interface SeedPerson {
   contractEndOffsetDays?: number;
   /** Days from today probation ends. */
   probationOffsetDays?: number;
+  /**
+   * An EMPLOYMENT_TYPE library label. It is the MIDDLE tier of the overtime
+   * policy chain, so leaving it unset is not "no overtime" — it falls through
+   * to the company default.
+   */
+  employmentType?: string;
   /** Employee code of their line manager, resolved on a second pass. */
   manager?: string;
   supervisor?: string;
@@ -297,27 +408,347 @@ interface SeedPerson {
 }
 
 const PEOPLE: SeedPerson[] = [
-  { code: 'EMP-0001', firstName: 'Aisha', lastName: 'Al Balushi', position: 'Chief Executive Officer', department: 'EXEC', branch: 'HQ', hireDate: '2019-01-06', nationality: 'OM', gender: 'Female', dateOfBirth: '1981-04-12', salary: 4200, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0002', firstName: 'Khalid', lastName: 'Al Harthy', position: 'HR Director', department: 'HR', branch: 'HQ', hireDate: '2019-03-01', nationality: 'OM', gender: 'Male', dateOfBirth: '1984-09-22', manager: 'EMP-0001', salary: 2800, contractType: ContractType.PERMANENT, account: { email: 'hr@peoplepay360.com', role: UserRole.HR_MANAGER } },
-  { code: 'EMP-0003', firstName: 'Maryam', lastName: 'Al Zadjali', position: 'Finance Manager', department: 'FIN', branch: 'HQ', hireDate: '2020-02-17', nationality: 'OM', gender: 'Female', dateOfBirth: '1987-11-03', manager: 'EMP-0001', salary: 2600, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0004', firstName: 'Rahul', lastName: 'Menon', position: 'Payroll Officer', department: 'FIN', branch: 'HQ', hireDate: '2021-06-14', nationality: 'IN', gender: 'Male', dateOfBirth: '1990-07-19', manager: 'EMP-0003', supervisor: 'EMP-0003', salary: 1200, contractType: ContractType.PERMANENT, account: { email: 'payroll@peoplepay360.com', role: UserRole.PAYROLL_OFFICER } },
-  { code: 'EMP-0005', firstName: 'Fatma', lastName: 'Al Rashdi', position: 'HR Officer', department: 'HR', branch: 'HQ', hireDate: '2022-01-10', nationality: 'OM', gender: 'Female', dateOfBirth: '1994-02-28', manager: 'EMP-0002', supervisor: 'EMP-0002', salary: 950, contractType: ContractType.PERMANENT, account: { email: 'employee@peoplepay360.com', role: UserRole.EMPLOYEE } },
-  { code: 'EMP-0006', firstName: 'Salim', lastName: 'Al Kindi', position: 'IT Manager', department: 'IT', branch: 'HQ', hireDate: '2020-09-01', nationality: 'OM', gender: 'Male', dateOfBirth: '1986-05-30', manager: 'EMP-0001', salary: 2400, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0007', firstName: 'Priya', lastName: 'Nair', position: 'Systems Engineer', department: 'IT', branch: 'HQ', hireDate: '2023-04-03', nationality: 'IN', gender: 'Female', dateOfBirth: '1995-12-08', manager: 'EMP-0006', supervisor: 'EMP-0006', salary: 1100, contractType: ContractType.FIXED_TERM, contractEndOffsetDays: 21 },
-  { code: 'EMP-0008', firstName: 'Yusuf', lastName: 'Al Amri', position: 'Support Analyst', department: 'IT', branch: 'HQ', hireOffsetDays: -74, nationality: 'OM', gender: 'Male', dateOfBirth: '1998-03-16', manager: 'EMP-0006', supervisor: 'EMP-0006', salary: 780, contractType: ContractType.PROBATION, probationOffsetDays: 16 },
-  { code: 'EMP-0009', firstName: 'Noora', lastName: 'Al Siyabi', position: 'Office Administrator', department: 'ADMIN', branch: 'HQ', hireDate: '2022-11-07', nationality: 'OM', gender: 'Female', dateOfBirth: '1993-06-21', manager: 'EMP-0002', salary: 720, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0010', firstName: 'Ahmed', lastName: 'Al Farsi', position: 'Operations Manager', department: 'OPS', branch: 'SOH', hireDate: '2019-08-12', nationality: 'OM', gender: 'Male', dateOfBirth: '1983-10-04', manager: 'EMP-0001', salary: 2700, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0011', firstName: 'Ravi', lastName: 'Kumar', position: 'Shift Supervisor', department: 'OPS', branch: 'SOH', hireDate: '2021-02-01', nationality: 'IN', gender: 'Male', dateOfBirth: '1989-01-25', manager: 'EMP-0010', supervisor: 'EMP-0010', salary: 980, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0012', firstName: 'Hassan', lastName: 'Al Hinai', position: 'Plant Operator', department: 'OPS', branch: 'SOH', hireDate: '2022-05-23', nationality: 'OM', gender: 'Male', dateOfBirth: '1996-08-11', manager: 'EMP-0011', supervisor: 'EMP-0011', salary: 640, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0013', firstName: 'Anil', lastName: 'Verma', position: 'Plant Operator', department: 'OPS', branch: 'SOH', hireDate: '2023-01-16', nationality: 'IN', gender: 'Male', dateOfBirth: '1997-04-09', manager: 'EMP-0011', supervisor: 'EMP-0011', salary: 620, contractType: ContractType.FIXED_TERM, contractEndOffsetDays: 52 },
-  { code: 'EMP-0014', firstName: 'Said', lastName: 'Al Mahrouqi', position: 'Maintenance Lead', department: 'MAINT', branch: 'SOH', hireDate: '2020-11-30', nationality: 'OM', gender: 'Male', dateOfBirth: '1988-12-14', manager: 'EMP-0010', supervisor: 'EMP-0010', salary: 1050, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0015', firstName: 'Imran', lastName: 'Sheikh', position: 'Electrical Technician', department: 'MAINT', branch: 'SOH', hireDate: '2024-03-11', nationality: 'PK', gender: 'Male', dateOfBirth: '1999-09-02', manager: 'EMP-0014', supervisor: 'EMP-0014', salary: 600, contractType: ContractType.FIXED_TERM },
-  { code: 'EMP-0016', firstName: 'Laila', lastName: 'Al Busaidi', position: 'Recruitment Specialist', department: 'HR', branch: 'HQ', hireOffsetDays: -11, nationality: 'OM', gender: 'Female', dateOfBirth: '1996-01-17', manager: 'EMP-0002', supervisor: 'EMP-0002', salary: 840, contractType: ContractType.PROBATION, probationOffsetDays: 79 },
-  { code: 'EMP-0017', firstName: 'Omar', lastName: 'Al Lawati', position: 'Accountant', department: 'FIN', branch: 'HQ', hireDate: '2023-07-24', nationality: 'OM', gender: 'Male', dateOfBirth: '1994-05-06', manager: 'EMP-0003', supervisor: 'EMP-0003', salary: 890, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0018', firstName: 'Zainab', lastName: 'Al Habsi', position: 'Storekeeper', department: 'OPS', branch: 'SOH', hireDate: '2021-09-05', nationality: 'OM', gender: 'Female', dateOfBirth: '1992-02-19', manager: 'EMP-0010', salary: 610, contractType: ContractType.PERMANENT, status: EmployeeStatus.ON_LEAVE },
-  { code: 'EMP-0021', firstName: 'Reem', lastName: 'Al Saadi', position: 'Financial Analyst', department: 'FIN', branch: 'HQ', hireOffsetDays: 12, nationality: 'OM', gender: 'Female', dateOfBirth: '1997-03-05', manager: 'EMP-0003', supervisor: 'EMP-0003', salary: 900, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0019', firstName: 'Deepak', lastName: 'Rao', position: 'Mechanical Technician', department: 'MAINT', branch: 'SOH', hireDate: '2022-03-14', nationality: 'IN', gender: 'Male', dateOfBirth: '1991-10-27', manager: 'EMP-0014', supervisor: 'EMP-0014', salary: 660, contractType: ContractType.PERMANENT },
-  { code: 'EMP-0020', firstName: 'Huda', lastName: 'Al Riyami', position: 'Receptionist', department: 'ADMIN', branch: 'HQ', hireDate: '2020-06-08', nationality: 'OM', gender: 'Female', dateOfBirth: '1995-07-30', manager: 'EMP-0009', salary: 520, contractType: ContractType.PERMANENT, status: EmployeeStatus.TERMINATED },
+  {
+    code: 'EMP-0001',
+    firstName: 'Aisha',
+    lastName: 'Al Balushi',
+    position: 'Chief Executive Officer',
+    department: 'EXEC',
+    branch: 'HQ',
+    hireDate: '2019-01-06',
+    nationality: 'OM',
+    gender: 'Female',
+    dateOfBirth: '1981-04-12',
+    salary: 4200,
+    contractType: ContractType.PERMANENT,
+  },
+  {
+    code: 'EMP-0002',
+    firstName: 'Khalid',
+    lastName: 'Al Harthy',
+    position: 'HR Director',
+    department: 'HR',
+    branch: 'HQ',
+    hireDate: '2019-03-01',
+    nationality: 'OM',
+    gender: 'Male',
+    dateOfBirth: '1984-09-22',
+    manager: 'EMP-0001',
+    salary: 2800,
+    contractType: ContractType.PERMANENT,
+    account: { email: 'hr@peoplepay360.com', role: UserRole.HR_MANAGER },
+  },
+  {
+    code: 'EMP-0003',
+    firstName: 'Maryam',
+    lastName: 'Al Zadjali',
+    position: 'Finance Manager',
+    department: 'FIN',
+    branch: 'HQ',
+    hireDate: '2020-02-17',
+    nationality: 'OM',
+    gender: 'Female',
+    dateOfBirth: '1987-11-03',
+    manager: 'EMP-0001',
+    salary: 2600,
+    contractType: ContractType.PERMANENT,
+  },
+  {
+    code: 'EMP-0004',
+    firstName: 'Rahul',
+    lastName: 'Menon',
+    position: 'Payroll Officer',
+    department: 'FIN',
+    branch: 'HQ',
+    hireDate: '2021-06-14',
+    nationality: 'IN',
+    gender: 'Male',
+    dateOfBirth: '1990-07-19',
+    manager: 'EMP-0003',
+    supervisor: 'EMP-0003',
+    salary: 1200,
+    contractType: ContractType.PERMANENT,
+    account: {
+      email: 'payroll@peoplepay360.com',
+      role: UserRole.PAYROLL_OFFICER,
+    },
+  },
+  {
+    code: 'EMP-0005',
+    firstName: 'Fatma',
+    lastName: 'Al Rashdi',
+    position: 'HR Officer',
+    department: 'HR',
+    branch: 'HQ',
+    hireDate: '2022-01-10',
+    nationality: 'OM',
+    gender: 'Female',
+    dateOfBirth: '1994-02-28',
+    manager: 'EMP-0002',
+    supervisor: 'EMP-0002',
+    salary: 950,
+    contractType: ContractType.PERMANENT,
+    account: { email: 'employee@peoplepay360.com', role: UserRole.EMPLOYEE },
+  },
+  {
+    code: 'EMP-0006',
+    firstName: 'Salim',
+    lastName: 'Al Kindi',
+    position: 'IT Manager',
+    department: 'IT',
+    branch: 'HQ',
+    hireDate: '2020-09-01',
+    nationality: 'OM',
+    gender: 'Male',
+    dateOfBirth: '1986-05-30',
+    manager: 'EMP-0001',
+    salary: 2400,
+    contractType: ContractType.PERMANENT,
+  },
+  {
+    code: 'EMP-0007',
+    firstName: 'Priya',
+    lastName: 'Nair',
+    position: 'Systems Engineer',
+    department: 'IT',
+    branch: 'HQ',
+    hireDate: '2023-04-03',
+    nationality: 'IN',
+    gender: 'Female',
+    dateOfBirth: '1995-12-08',
+    manager: 'EMP-0006',
+    supervisor: 'EMP-0006',
+    salary: 1100,
+    contractType: ContractType.FIXED_TERM,
+    contractEndOffsetDays: 21,
+  },
+  {
+    code: 'EMP-0008',
+    firstName: 'Yusuf',
+    lastName: 'Al Amri',
+    position: 'Support Analyst',
+    department: 'IT',
+    branch: 'HQ',
+    hireOffsetDays: -74,
+    nationality: 'OM',
+    gender: 'Male',
+    dateOfBirth: '1998-03-16',
+    manager: 'EMP-0006',
+    supervisor: 'EMP-0006',
+    salary: 780,
+    contractType: ContractType.PROBATION,
+    probationOffsetDays: 16,
+  },
+  {
+    code: 'EMP-0009',
+    firstName: 'Noora',
+    lastName: 'Al Siyabi',
+    position: 'Office Administrator',
+    department: 'ADMIN',
+    branch: 'HQ',
+    hireDate: '2022-11-07',
+    nationality: 'OM',
+    gender: 'Female',
+    dateOfBirth: '1993-06-21',
+    manager: 'EMP-0002',
+    salary: 720,
+    contractType: ContractType.PERMANENT,
+  },
+  {
+    code: 'EMP-0010',
+    firstName: 'Ahmed',
+    lastName: 'Al Farsi',
+    position: 'Operations Manager',
+    department: 'OPS',
+    branch: 'SOH',
+    hireDate: '2019-08-12',
+    nationality: 'OM',
+    gender: 'Male',
+    dateOfBirth: '1983-10-04',
+    manager: 'EMP-0001',
+    salary: 2700,
+    contractType: ContractType.PERMANENT,
+  },
+  {
+    code: 'EMP-0011',
+    firstName: 'Ravi',
+    lastName: 'Kumar',
+    position: 'Shift Supervisor',
+    department: 'OPS',
+    branch: 'SOH',
+    hireDate: '2021-02-01',
+    nationality: 'IN',
+    gender: 'Male',
+    dateOfBirth: '1989-01-25',
+    manager: 'EMP-0010',
+    supervisor: 'EMP-0010',
+    salary: 980,
+    contractType: ContractType.PERMANENT,
+  },
+  {
+    code: 'EMP-0012',
+    firstName: 'Hassan',
+    lastName: 'Al Hinai',
+    position: 'Plant Operator',
+    department: 'OPS',
+    branch: 'SOH',
+    hireDate: '2022-05-23',
+    nationality: 'OM',
+    gender: 'Male',
+    dateOfBirth: '1996-08-11',
+    manager: 'EMP-0011',
+    supervisor: 'EMP-0011',
+    employmentType: 'Daily Wage',
+    salary: 640,
+    contractType: ContractType.PERMANENT,
+  },
+  {
+    code: 'EMP-0013',
+    firstName: 'Anil',
+    lastName: 'Verma',
+    position: 'Plant Operator',
+    department: 'OPS',
+    branch: 'SOH',
+    hireDate: '2023-01-16',
+    nationality: 'IN',
+    gender: 'Male',
+    dateOfBirth: '1997-04-09',
+    manager: 'EMP-0011',
+    supervisor: 'EMP-0011',
+    employmentType: 'Daily Wage',
+    salary: 620,
+    contractType: ContractType.FIXED_TERM,
+    contractEndOffsetDays: 52,
+  },
+  {
+    code: 'EMP-0014',
+    firstName: 'Said',
+    lastName: 'Al Mahrouqi',
+    position: 'Maintenance Lead',
+    department: 'MAINT',
+    branch: 'SOH',
+    hireDate: '2020-11-30',
+    nationality: 'OM',
+    gender: 'Male',
+    dateOfBirth: '1988-12-14',
+    manager: 'EMP-0010',
+    supervisor: 'EMP-0010',
+    salary: 1050,
+    contractType: ContractType.PERMANENT,
+  },
+  {
+    code: 'EMP-0015',
+    firstName: 'Imran',
+    lastName: 'Sheikh',
+    position: 'Electrical Technician',
+    department: 'MAINT',
+    branch: 'SOH',
+    hireDate: '2024-03-11',
+    nationality: 'PK',
+    gender: 'Male',
+    dateOfBirth: '1999-09-02',
+    manager: 'EMP-0014',
+    supervisor: 'EMP-0014',
+    salary: 600,
+    contractType: ContractType.FIXED_TERM,
+  },
+  {
+    code: 'EMP-0016',
+    firstName: 'Laila',
+    lastName: 'Al Busaidi',
+    position: 'Recruitment Specialist',
+    department: 'HR',
+    branch: 'HQ',
+    hireOffsetDays: -11,
+    nationality: 'OM',
+    gender: 'Female',
+    dateOfBirth: '1996-01-17',
+    manager: 'EMP-0002',
+    supervisor: 'EMP-0002',
+    salary: 840,
+    contractType: ContractType.PROBATION,
+    probationOffsetDays: 79,
+  },
+  {
+    code: 'EMP-0017',
+    firstName: 'Omar',
+    lastName: 'Al Lawati',
+    position: 'Accountant',
+    department: 'FIN',
+    branch: 'HQ',
+    hireDate: '2023-07-24',
+    nationality: 'OM',
+    gender: 'Male',
+    dateOfBirth: '1994-05-06',
+    manager: 'EMP-0003',
+    supervisor: 'EMP-0003',
+    salary: 890,
+    contractType: ContractType.PERMANENT,
+  },
+  {
+    code: 'EMP-0018',
+    firstName: 'Zainab',
+    lastName: 'Al Habsi',
+    position: 'Storekeeper',
+    department: 'OPS',
+    branch: 'SOH',
+    hireDate: '2021-09-05',
+    nationality: 'OM',
+    gender: 'Female',
+    dateOfBirth: '1992-02-19',
+    manager: 'EMP-0010',
+    salary: 610,
+    contractType: ContractType.PERMANENT,
+    status: EmployeeStatus.ON_LEAVE,
+  },
+  {
+    code: 'EMP-0021',
+    firstName: 'Reem',
+    lastName: 'Al Saadi',
+    position: 'Financial Analyst',
+    department: 'FIN',
+    branch: 'HQ',
+    hireOffsetDays: 12,
+    nationality: 'OM',
+    gender: 'Female',
+    dateOfBirth: '1997-03-05',
+    manager: 'EMP-0003',
+    supervisor: 'EMP-0003',
+    salary: 900,
+    contractType: ContractType.PERMANENT,
+  },
+  {
+    code: 'EMP-0019',
+    firstName: 'Deepak',
+    lastName: 'Rao',
+    position: 'Mechanical Technician',
+    department: 'MAINT',
+    branch: 'SOH',
+    hireDate: '2022-03-14',
+    nationality: 'IN',
+    gender: 'Male',
+    dateOfBirth: '1991-10-27',
+    manager: 'EMP-0014',
+    supervisor: 'EMP-0014',
+    salary: 660,
+    contractType: ContractType.PERMANENT,
+  },
+  {
+    code: 'EMP-0020',
+    firstName: 'Huda',
+    lastName: 'Al Riyami',
+    position: 'Receptionist',
+    department: 'ADMIN',
+    branch: 'HQ',
+    hireDate: '2020-06-08',
+    nationality: 'OM',
+    gender: 'Female',
+    dateOfBirth: '1995-07-30',
+    manager: 'EMP-0009',
+    salary: 520,
+    contractType: ContractType.PERMANENT,
+    status: EmployeeStatus.TERMINATED,
+  },
 ];
 
 /** Department code → the employee code of its head. */
@@ -362,7 +793,11 @@ const COMPANY_ZONE = 'Asia/Muscat';
  * but a fixed `-4` would be silently wrong the moment this seed is pointed at a
  * zone that does.
  */
-function wallClockInstant(date: Date, minutesFromMidnight: number, zone: string): Date {
+function wallClockInstant(
+  date: Date,
+  minutesFromMidnight: number,
+  zone: string,
+): Date {
   return DateTime.fromISO(toDayKey(date), { zone })
     .plus({ minutes: minutesFromMidnight })
     .toJSDate();
@@ -380,7 +815,11 @@ function isoDate(value: string | Date): Date {
 /** N days from today, at midnight UTC — the shape every DATE column wants. */
 function daysFromToday(days: number): Date {
   const now = new Date();
-  const utc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const utc = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  );
   return new Date(utc + days * 86_400_000);
 }
 
@@ -409,21 +848,38 @@ async function seedEmployees(
         employeeCode: p.code,
         firstName: p.firstName,
         lastName: p.lastName,
-        workEmail: `${p.firstName}.${p.lastName}`.toLowerCase().replace(/\s+/g, '') + '@peoplepay360.com',
+        workEmail:
+          `${p.firstName}.${p.lastName}`.toLowerCase().replace(/\s+/g, '') +
+          '@peoplepay360.com',
         phone: `+9689${String(1000000 + PEOPLE.indexOf(p)).slice(-7)}`,
         position: p.position,
         status: p.status ?? EmployeeStatus.ACTIVE,
         hireDate: hireDateOf(p),
-        exitDate: p.status === EmployeeStatus.TERMINATED ? daysFromToday(-45) : null,
+        exitDate:
+          p.status === EmployeeStatus.TERMINATED ? daysFromToday(-45) : null,
         dateOfBirth: isoDate(p.dateOfBirth),
         gender: p.gender,
         nationality: p.nationality,
         nationalId: `ID-${p.code.replace('EMP-', '')}`,
         departmentId: departments[p.department],
         branchId: branches[p.branch],
+        employmentType: p.employmentType ?? null,
       },
     });
     ids[p.code] = row.id;
+  }
+
+  // Deliberately NOT in the `update` branch above: employment type decides
+  // which overtime policy governs someone's pay, and this seed runs on every
+  // container start. Filling it only where it is still unset leaves an
+  // administrator's choice alone, while a database bootstrapped before the
+  // column existed still ends up with a value.
+  for (const p of PEOPLE) {
+    if (!p.employmentType) continue;
+    await prisma.employee.updateMany({
+      where: { employeeCode: p.code, employmentType: null },
+      data: { employmentType: p.employmentType },
+    });
   }
 
   // Pass 2: reporting lines, department heads and branch managers.
@@ -449,12 +905,16 @@ async function seedEmployees(
     });
   }
 
-  console.log(`  ✔ ${PEOPLE.length} employees, reporting lines and department heads`);
+  console.log(
+    `  ✔ ${PEOPLE.length} employees, reporting lines and department heads`,
+  );
   return ids;
 }
 
 async function seedAccounts(employeeIds: Record<string, string>) {
-  const adminEmail = (process.env.SEED_ADMIN_EMAIL || 'admin@peoplepay360.com').toLowerCase();
+  const adminEmail = (
+    process.env.SEED_ADMIN_EMAIL || 'admin@peoplepay360.com'
+  ).toLowerCase();
   const passwordHash = await bcrypt.hash(SEED_PASSWORD, 12);
 
   // The administrator has no employee record on purpose: they are an operator of
@@ -472,7 +932,11 @@ async function seedAccounts(employeeIds: Record<string, string>) {
     if (!p.account) continue;
     await prisma.user.upsert({
       where: { email: p.account.email },
-      update: { role: p.account.role, isActive: true, employeeId: employeeIds[p.code] },
+      update: {
+        role: p.account.role,
+        isActive: true,
+        employeeId: employeeIds[p.code],
+      },
       create: {
         email: p.account.email,
         passwordHash,
@@ -492,22 +956,63 @@ async function seedTeams(
   employees: Record<string, string>,
 ) {
   const TEAMS = [
-    { code: 'TEAM-PAYROLL', name: 'Payroll Operations', department: 'FIN', lead: 'EMP-0004', type: TeamType.PERMANENT, members: ['EMP-0004', 'EMP-0017', 'EMP-0003'] },
-    { code: 'TEAM-PLATFORM', name: 'Platform Engineering', department: 'IT', lead: 'EMP-0007', type: TeamType.PERMANENT, members: ['EMP-0007', 'EMP-0008', 'EMP-0006'] },
-    { code: 'TEAM-SHIFT-A', name: 'Shift A', department: 'OPS', lead: 'EMP-0011', type: TeamType.PERMANENT, members: ['EMP-0011', 'EMP-0012', 'EMP-0013'] },
-    { code: 'TEAM-ONBOARD', name: 'Onboarding Programme', department: 'HR', lead: 'EMP-0005', type: TeamType.PROJECT, members: ['EMP-0005', 'EMP-0016', 'EMP-0002'] },
+    {
+      code: 'TEAM-PAYROLL',
+      name: 'Payroll Operations',
+      department: 'FIN',
+      lead: 'EMP-0004',
+      type: TeamType.PERMANENT,
+      members: ['EMP-0004', 'EMP-0017', 'EMP-0003'],
+    },
+    {
+      code: 'TEAM-PLATFORM',
+      name: 'Platform Engineering',
+      department: 'IT',
+      lead: 'EMP-0007',
+      type: TeamType.PERMANENT,
+      members: ['EMP-0007', 'EMP-0008', 'EMP-0006'],
+    },
+    {
+      code: 'TEAM-SHIFT-A',
+      name: 'Shift A',
+      department: 'OPS',
+      lead: 'EMP-0011',
+      type: TeamType.PERMANENT,
+      members: ['EMP-0011', 'EMP-0012', 'EMP-0013'],
+    },
+    {
+      code: 'TEAM-ONBOARD',
+      name: 'Onboarding Programme',
+      department: 'HR',
+      lead: 'EMP-0005',
+      type: TeamType.PROJECT,
+      members: ['EMP-0005', 'EMP-0016', 'EMP-0002'],
+    },
   ];
 
   for (const t of TEAMS) {
     const team = await prisma.team.upsert({
       where: { code: t.code },
-      update: { name: t.name, departmentId: departments[t.department], teamLeadId: employees[t.lead], type: t.type },
-      create: { code: t.code, name: t.name, departmentId: departments[t.department], teamLeadId: employees[t.lead], type: t.type },
+      update: {
+        name: t.name,
+        departmentId: departments[t.department],
+        teamLeadId: employees[t.lead],
+        type: t.type,
+      },
+      create: {
+        code: t.code,
+        name: t.name,
+        departmentId: departments[t.department],
+        teamLeadId: employees[t.lead],
+        type: t.type,
+      },
     });
 
     for (const code of t.members) {
       await prisma.teamMember.upsert({
-        where: { teamId_employeeId: { teamId: team.id, employeeId: employees[code] } },
+        where: {
+          teamId_employeeId: { teamId: team.id, employeeId: employees[code] },
+        },
         update: { isActive: true },
         create: {
           teamId: team.id,
@@ -559,14 +1064,20 @@ async function seedContracts(employees: Record<string, string>) {
         startDate: start,
         endDate,
         probationEndDate: probationEnd,
-        status: p.status === EmployeeStatus.TERMINATED ? ContractStatus.TERMINATED : ContractStatus.ACTIVE,
+        status:
+          p.status === EmployeeStatus.TERMINATED
+            ? ContractStatus.TERMINATED
+            : ContractStatus.ACTIVE,
       },
       create: {
         employeeId: employees[p.code],
         contractNumber: number,
         contractType: p.contractType,
         workType: WorkType.FULL_TIME,
-        status: p.status === EmployeeStatus.TERMINATED ? ContractStatus.TERMINATED : ContractStatus.ACTIVE,
+        status:
+          p.status === EmployeeStatus.TERMINATED
+            ? ContractStatus.TERMINATED
+            : ContractStatus.ACTIVE,
         startDate: start,
         endDate,
         probationEndDate: probationEnd,
@@ -588,14 +1099,20 @@ async function seedLegalDocuments(employees: Record<string, string>) {
   // Only the expatriate workforce carries a residence permit — a national does
   // not need one, and issuing every employee a visa would make the expiry
   // report meaningless.
-  const EXPATS = PEOPLE.filter((p) => p.nationality !== 'OM' && p.status !== EmployeeStatus.TERMINATED);
+  const EXPATS = PEOPLE.filter(
+    (p) => p.nationality !== 'OM' && p.status !== EmployeeStatus.TERMINATED,
+  );
   let created = 0;
   let refreshed = 0;
 
   for (const p of EXPATS) {
     const index = EXPATS.indexOf(p);
     const existing = await prisma.employeeLegalDocument.findFirst({
-      where: { employeeId: employees[p.code], category: LegalDocumentCategory.VISA, isCurrent: true },
+      where: {
+        employeeId: employees[p.code],
+        category: LegalDocumentCategory.VISA,
+        isCurrent: true,
+      },
     });
     if (existing) {
       // Re-position the expiry rather than skipping. Same reasoning as the
@@ -678,7 +1195,9 @@ async function seedAttendance(
   employees: Record<string, string>,
   branches: Record<string, string>,
 ) {
-  const workforce = PEOPLE.filter((p) => p.status !== EmployeeStatus.TERMINATED);
+  const workforce = PEOPLE.filter(
+    (p) => p.status !== EmployeeStatus.TERMINATED,
+  );
   const rows: Array<{
     employeeId: string;
     branchId: string;
@@ -707,11 +1226,31 @@ async function seedAttendance(
       const branchId = branches[p.branch];
 
       if (isWeekend) {
-        rows.push({ employeeId, branchId, date, checkIn: null, checkOut: null, status: AttendanceStatus.WEEKEND, isLate: false, lateMinutes: 0, workHours: null });
+        rows.push({
+          employeeId,
+          branchId,
+          date,
+          checkIn: null,
+          checkOut: null,
+          status: AttendanceStatus.WEEKEND,
+          isLate: false,
+          lateMinutes: 0,
+          workHours: null,
+        });
         continue;
       }
       if (p.status === EmployeeStatus.ON_LEAVE) {
-        rows.push({ employeeId, branchId, date, checkIn: null, checkOut: null, status: AttendanceStatus.ON_LEAVE, isLate: false, lateMinutes: 0, workHours: null });
+        rows.push({
+          employeeId,
+          branchId,
+          date,
+          checkIn: null,
+          checkOut: null,
+          status: AttendanceStatus.ON_LEAVE,
+          isLate: false,
+          lateMinutes: 0,
+          workHours: null,
+        });
         continue;
       }
 
@@ -719,12 +1258,26 @@ async function seedAttendance(
       const startHour = p.branch === 'SOH' ? 7 : 8;
 
       if (seed < 5) {
-        rows.push({ employeeId, branchId, date, checkIn: null, checkOut: null, status: AttendanceStatus.ABSENT, isLate: false, lateMinutes: 0, workHours: null });
+        rows.push({
+          employeeId,
+          branchId,
+          date,
+          checkIn: null,
+          checkOut: null,
+          status: AttendanceStatus.ABSENT,
+          isLate: false,
+          lateMinutes: 0,
+          workHours: null,
+        });
         continue;
       }
 
       const lateBy = seed < 20 ? 20 + (seed % 25) : 0;
-      const checkIn = wallClockInstant(date, startHour * 60 + lateBy, COMPANY_ZONE);
+      const checkIn = wallClockInstant(
+        date,
+        startHour * 60 + lateBy,
+        COMPANY_ZONE,
+      );
       const workedMinutes = seed < 10 ? 240 : 480 + (seed % 40);
       const checkOut = new Date(checkIn.getTime() + workedMinutes * 60_000);
 
@@ -772,9 +1325,23 @@ async function seedAttendance(
 
 async function seedCorrections(employees: Record<string, string>) {
   const REQUESTS = [
-    { employee: 'EMP-0008', daysBack: 4, reason: 'The office badge reader did not register my arrival; I was at my desk from 08:05.' },
-    { employee: 'EMP-0012', daysBack: 6, reason: 'I was called to the plant floor before clocking in and forgot to check in afterwards.' },
-    { employee: 'EMP-0016', daysBack: 2, reason: 'I left for an external interview panel and did not check out.' },
+    {
+      employee: 'EMP-0008',
+      daysBack: 4,
+      reason:
+        'The office badge reader did not register my arrival; I was at my desk from 08:05.',
+    },
+    {
+      employee: 'EMP-0012',
+      daysBack: 6,
+      reason:
+        'I was called to the plant floor before clocking in and forgot to check in afterwards.',
+    },
+    {
+      employee: 'EMP-0016',
+      daysBack: 2,
+      reason: 'I left for an external interview panel and did not check out.',
+    },
   ];
 
   for (const r of REQUESTS) {
@@ -846,18 +1413,62 @@ async function seedWorkSchedules(employees: Record<string, string>) {
 
   const PATTERNS: RosterPattern[] = [
     // The plant's night rotation — the case the whole table exists for.
-    { code: 'EMP-0012', shiftType: ShiftType.NIGHT, startTime: '20:00', endTime: '04:00', requiredHours: 8, notes: 'Night rotation' },
-    { code: 'EMP-0013', shiftType: ShiftType.NIGHT, startTime: '20:00', endTime: '04:00', requiredHours: 8, notes: 'Night rotation' },
+    {
+      code: 'EMP-0012',
+      shiftType: ShiftType.NIGHT,
+      startTime: '20:00',
+      endTime: '04:00',
+      requiredHours: 8,
+      notes: 'Night rotation',
+    },
+    {
+      code: 'EMP-0013',
+      shiftType: ShiftType.NIGHT,
+      startTime: '20:00',
+      endTime: '04:00',
+      requiredHours: 8,
+      notes: 'Night rotation',
+    },
     // Maintenance covers the plant in two halves, so the shift-mix panel has
     // more than one bar and the hourly curve has a shape rather than a block.
-    { code: 'EMP-0014', shiftType: ShiftType.MORNING, startTime: '06:00', endTime: '14:00', requiredHours: 8, notes: 'Maintenance early' },
-    { code: 'EMP-0019', shiftType: ShiftType.AFTERNOON, startTime: '14:00', endTime: '22:00', requiredHours: 8, notes: 'Maintenance late' },
+    {
+      code: 'EMP-0014',
+      shiftType: ShiftType.MORNING,
+      startTime: '06:00',
+      endTime: '14:00',
+      requiredHours: 8,
+      notes: 'Maintenance early',
+    },
+    {
+      code: 'EMP-0019',
+      shiftType: ShiftType.AFTERNOON,
+      startTime: '14:00',
+      endTime: '22:00',
+      requiredHours: 8,
+      notes: 'Maintenance late',
+    },
     // Four long days rather than five, which is why `weekdays` exists.
-    { code: 'EMP-0015', shiftType: ShiftType.MORNING, startTime: '06:00', endTime: '16:00', requiredHours: 10, notes: 'Compressed week', weekdays: [1, 2, 3, 4] },
+    {
+      code: 'EMP-0015',
+      shiftType: ShiftType.MORNING,
+      startTime: '06:00',
+      endTime: '16:00',
+      requiredHours: 10,
+      notes: 'Compressed week',
+      weekdays: [1, 2, 3, 4],
+    },
     // A flexible row has no window to place on an hour axis. One of them is
     // enough for the staffing curve to report what it is leaving out instead of
     // quietly under-drawing the morning.
-    { code: 'EMP-0007', shiftType: ShiftType.FLEXIBLE, startTime: null, endTime: null, requiredHours: 7, notes: 'Flexible hours', weekdays: [1, 2, 3, 4, 7] },
+    {
+      code: 'EMP-0007',
+      shiftType: ShiftType.FLEXIBLE,
+      startTime: null,
+      endTime: null,
+      requiredHours: 7,
+      notes: 'Flexible hours',
+      weekdays: [1, 2, 3, 4, 7],
+    },
   ];
 
   let created = 0;
@@ -979,7 +1590,6 @@ async function seedChangeRequests(
 
   console.log('  ✔ 2 pending department change requests');
 }
-
 
 /**
  * One termination awaiting a decision.
@@ -1813,6 +2423,880 @@ async function seedPayrollRuns(employees: Record<string, string>) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 4. PAY
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * How a contracted salary is split across components.
+ *
+ * Fractions of the whole rather than absolute figures, so one table works for a
+ * plant operator on 620 and a chief executive on 4,200. BASIC carries most of
+ * it because it is the gratuity and social-insurance base — a structure that
+ * hides the bulk of pay in allowances is the classic way to understate both,
+ * and a demo that showed it would be teaching the wrong shape.
+ */
+
+/** Oman's social-insurance split, applied to BASIC. */
+const SOCIAL_SECURITY_EMPLOYEE_RATE = 0.07;
+const SOCIAL_SECURITY_EMPLOYER_RATE = 0.115;
+/**
+ * The chains that govern each request type.
+ *
+ * Two steps rather than one, because a single step cannot show the thing the
+ * engine exists for: a request that has been approved once and is still not
+ * finished. `supervisor_approval_enabled` is written alongside them — the
+ * engine reads that switch before it looks for a workflow at all, so seeding
+ * chains without it produces a configuration that appears set up and governs
+ * nothing.
+ */
+const APPROVAL_CHAINS: Array<{
+  requestType: ApprovalRequestType;
+  name: string;
+  steps: ApproverType[];
+}> = [
+  {
+    requestType: ApprovalRequestType.LEAVE,
+    name: 'Leave — supervisor then HR',
+    steps: [ApproverType.SUPERVISOR, ApproverType.HR_MANAGER],
+  },
+  {
+    requestType: ApprovalRequestType.OVERTIME,
+    name: 'Overtime — supervisor then HR',
+    steps: [ApproverType.SUPERVISOR, ApproverType.HR_MANAGER],
+  },
+  {
+    requestType: ApprovalRequestType.TRAINING,
+    name: 'Training — department head then HR',
+    steps: [ApproverType.MANAGER, ApproverType.HR_MANAGER],
+  },
+];
+
+/**
+ * The asset register.
+ *
+ * One row is deliberately left OUT and unreturned. An open assignment is what
+ * blocks an offboarding, and a demo where every asset is on the shelf cannot
+ * show that the clearance gate works at all.
+ */
+const ASSETS: Array<{
+  assetTag: string;
+  category: string;
+  name: string;
+  serialNumber?: string;
+  branch: string;
+  status: AssetStatus;
+  purchaseCost?: number;
+  warrantyOffsetDays?: number;
+}> = [
+  {
+    assetTag: 'LT-0042',
+    category: 'Laptop',
+    name: 'Dell Latitude 5540',
+    serialNumber: 'DL5540-8891',
+    branch: 'HQ',
+    status: AssetStatus.AVAILABLE,
+    purchaseCost: 520.75,
+    warrantyOffsetDays: 400,
+  },
+  {
+    assetTag: 'LT-0043',
+    category: 'Laptop',
+    name: 'Dell Latitude 5540',
+    serialNumber: 'DL5540-8892',
+    branch: 'HQ',
+    status: AssetStatus.AVAILABLE,
+    purchaseCost: 520.75,
+    warrantyOffsetDays: 44,
+  },
+  {
+    assetTag: 'MB-0007',
+    category: 'Mobile Phone',
+    name: 'Samsung Galaxy A55',
+    serialNumber: 'SGA55-3310',
+    branch: 'HQ',
+    status: AssetStatus.AVAILABLE,
+    purchaseCost: 138.5,
+  },
+  {
+    assetTag: 'AC-0115',
+    category: 'Access Card',
+    name: 'HQ access card',
+    branch: 'HQ',
+    status: AssetStatus.AVAILABLE,
+    purchaseCost: 3.25,
+  },
+  {
+    assetTag: 'VH-0002',
+    category: 'Vehicle',
+    name: 'Toyota Hilux',
+    serialNumber: 'MROFR22G0P0123456',
+    branch: 'SOH',
+    status: AssetStatus.IN_REPAIR,
+    purchaseCost: 9850,
+  },
+  {
+    assetTag: 'TL-0031',
+    category: 'Tool',
+    name: 'Torque wrench set',
+    branch: 'SOH',
+    status: AssetStatus.AVAILABLE,
+    purchaseCost: 96.4,
+  },
+];
+
+/** Who is holding what. `returnedAt` null is an OPEN custody. */
+const ASSET_ASSIGNMENTS: Array<{
+  assetTag: string;
+  employee: string;
+  assignedOffsetDays: number;
+  conditionOut: string;
+  acknowledged: boolean;
+  returnedOffsetDays?: number;
+  conditionIn?: string;
+}> = [
+  // Still out, and acknowledged: the ordinary state of a working laptop.
+  {
+    assetTag: 'LT-0042',
+    employee: 'EMP-0005',
+    assignedOffsetDays: -212,
+    conditionOut: 'New',
+    acknowledged: true,
+  },
+  // Still out and NOT acknowledged, so the "awaiting your confirmation" banner
+  // on My Assets has something to draw.
+  {
+    assetTag: 'MB-0007',
+    employee: 'EMP-0005',
+    assignedOffsetDays: -9,
+    conditionOut: 'New',
+    acknowledged: false,
+  },
+  // Held by somebody else, so the register is not a one-person screen.
+  {
+    assetTag: 'AC-0115',
+    employee: 'EMP-0007',
+    assignedOffsetDays: -140,
+    conditionOut: 'New',
+    acknowledged: true,
+  },
+  // Closed: previously held, handed back. My Assets shows it under "previously
+  // held" and the register shows the asset back on the shelf.
+  {
+    assetTag: 'LT-0043',
+    employee: 'EMP-0005',
+    assignedOffsetDays: -520,
+    conditionOut: 'New',
+    acknowledged: true,
+    returnedOffsetDays: -215,
+    conditionIn: 'Good',
+  },
+];
+
+async function seedApprovalWorkflows() {
+  await prisma.systemSetting.upsert({
+    where: { key: 'supervisor_approval_enabled' },
+    update: {},
+    create: { key: 'supervisor_approval_enabled', value: 'true' },
+  });
+
+  for (const chain of APPROVAL_CHAINS) {
+    const existing = await prisma.approvalWorkflow.findFirst({
+      where: { requestType: chain.requestType, isActive: true },
+    });
+    if (existing) continue;
+
+    await prisma.approvalWorkflow.create({
+      data: {
+        requestType: chain.requestType,
+        name: chain.name,
+        mode: ApprovalMode.SEQUENTIAL,
+        isActive: true,
+        steps: {
+          create: chain.steps.map((approverType, index) => ({
+            stepOrder: index + 1,
+            approverType,
+          })),
+        },
+      },
+    });
+  }
+
+  console.log(`  ✔ ${APPROVAL_CHAINS.length} approval workflows`);
+}
+
+/**
+ * Materialise the trail for one seeded request, by the same rules the engine
+ * applies at runtime.
+ *
+ * A step whose approver cannot be resolved to a sign-in account is SKIPPED
+ * rather than left ACTIVE: an ACTIVE row nobody can act on is a request stuck
+ * for ever, and the seeded workforce deliberately has only a few accounts.
+ * The supervisor step also SNAPSHOTS whoever it resolved to, which is the whole
+ * point of the column — the person who owed the decision when it opened keeps
+ * owing it after a reporting line moves.
+ */
+async function materialiseApprovalTrail(
+  requestType: ApprovalRequestType,
+  requestId: string,
+  requesterEmployeeId: string,
+) {
+  const workflow = await prisma.approvalWorkflow.findFirst({
+    where: { requestType, isActive: true },
+    include: { steps: { orderBy: { stepOrder: 'asc' } } },
+  });
+  if (!workflow) return;
+
+  const requester = await prisma.employee.findUnique({
+    where: { id: requesterEmployeeId },
+    select: {
+      user: { select: { id: true } },
+      supervisor: { select: { user: { select: { id: true } } } },
+      department: {
+        select: { manager: { select: { user: { select: { id: true } } } } },
+      },
+    },
+  });
+  const requesterUserId = requester?.user?.id ?? null;
+
+  const approversFor = async (
+    approverType: ApproverType,
+  ): Promise<string[]> => {
+    if (approverType === ApproverType.SUPERVISOR) {
+      const id = requester?.supervisor?.user?.id;
+      return id ? [id] : [];
+    }
+    if (approverType === ApproverType.MANAGER) {
+      const id = requester?.department?.manager?.user?.id;
+      return id ? [id] : [];
+    }
+    const users = await prisma.user.findMany({
+      where: { role: approverType, isActive: true },
+      select: { id: true },
+    });
+    return users.map((u) => u.id);
+  };
+
+  let opened = false;
+  for (const step of workflow.steps) {
+    const approvers = (await approversFor(step.approverType)).filter(
+      (id) => id !== requesterUserId,
+    );
+
+    if (approvers.length === 0) {
+      await prisma.requestApproval.create({
+        data: {
+          requestType,
+          requestId,
+          stepOrder: step.stepOrder,
+          approverType: step.approverType,
+          status: 'SKIPPED',
+          decidedAt: new Date(),
+          comment: 'Auto-skipped: no eligible approver, or self-approval',
+        },
+      });
+      continue;
+    }
+
+    await prisma.requestApproval.create({
+      data: {
+        requestType,
+        requestId,
+        stepOrder: step.stepOrder,
+        approverType: step.approverType,
+        status: opened ? 'PENDING' : 'ACTIVE',
+        resolvedApproverId:
+          !opened && step.approverType === ApproverType.SUPERVISOR
+            ? approvers[0]
+            : null,
+      },
+    });
+    opened = true;
+  }
+}
+
+/**
+ * Materialise the approval trail for the leave and overtime rows the seeders
+ * above wrote. Runs against the persisted requests rather than being folded
+ * into those seeders, so the ESS approver inbox is populated no matter which
+ * module produced the request.
+ */
+async function seedApprovalTrails() {
+  const leaves = await prisma.leaveRequest.findMany({
+    where: { status: RequestStatus.PENDING },
+    select: { id: true, employeeId: true },
+  });
+  for (const l of leaves) {
+    await materialiseApprovalTrail(
+      ApprovalRequestType.LEAVE,
+      l.id,
+      l.employeeId,
+    );
+  }
+
+  const overtime = await prisma.overtimeRequest.findMany({
+    where: { status: RequestStatus.PENDING },
+    select: { id: true, employeeId: true },
+  });
+  for (const o of overtime) {
+    await materialiseApprovalTrail(
+      ApprovalRequestType.OVERTIME,
+      o.id,
+      o.employeeId,
+    );
+  }
+
+  console.log(
+    `  ↳ approval trails: ${leaves.length} leave, ${overtime.length} overtime`,
+  );
+}
+
+async function seedAssets(
+  branches: Record<string, string>,
+  employees: Record<string, string>,
+  adminEmail: string,
+) {
+  const admin = await prisma.user.findUnique({
+    where: { email: adminEmail },
+    select: { id: true },
+  });
+  if (!admin) return;
+
+  const assetIds: Record<string, string> = {};
+  for (const asset of ASSETS) {
+    const branchId = branches[asset.branch];
+    if (!branchId) continue;
+    const row = await prisma.assetItem.upsert({
+      where: { branchId_assetTag: { branchId, assetTag: asset.assetTag } },
+      update: {
+        category: asset.category,
+        name: asset.name,
+        serialNumber: asset.serialNumber ?? null,
+      },
+      create: {
+        assetTag: asset.assetTag,
+        category: asset.category,
+        name: asset.name,
+        serialNumber: asset.serialNumber ?? null,
+        branchId,
+        status: asset.status,
+        purchaseDate: daysFromToday(-600),
+        purchaseCost: asset.purchaseCost ?? null,
+        warrantyExpiry:
+          asset.warrantyOffsetDays === undefined
+            ? null
+            : daysFromToday(asset.warrantyOffsetDays),
+      },
+    });
+    assetIds[asset.assetTag] = row.id;
+  }
+
+  for (const assignment of ASSET_ASSIGNMENTS) {
+    const assetId = assetIds[assignment.assetTag];
+    const employeeId = employees[assignment.employee];
+    if (!assetId || !employeeId) continue;
+
+    // No natural unique key on a custody row — the same asset legitimately goes
+    // out to the same person twice — so the idempotency key is the pair plus
+    // the date it went out.
+    const assignedAt = daysFromToday(assignment.assignedOffsetDays);
+    const existing = await prisma.assetAssignment.findFirst({
+      where: { assetId, employeeId, assignedAt },
+      select: { id: true },
+    });
+    if (existing) continue;
+
+    await prisma.assetAssignment.create({
+      data: {
+        assetId,
+        employeeId,
+        assignedAt,
+        assignedById: admin.id,
+        conditionOut: assignment.conditionOut,
+        acknowledgedAt: assignment.acknowledged
+          ? daysFromToday(assignment.assignedOffsetDays + 1)
+          : null,
+        acknowledgedNote: assignment.acknowledged
+          ? 'Received in good order'
+          : null,
+        returnedAt:
+          assignment.returnedOffsetDays === undefined
+            ? null
+            : daysFromToday(assignment.returnedOffsetDays),
+        conditionIn: assignment.conditionIn ?? null,
+        returnReceivedById:
+          assignment.returnedOffsetDays === undefined ? null : admin.id,
+      },
+    });
+
+    // The status has to agree with the custody, or clearance and the register
+    // tell two different stories about the same laptop.
+    if (assignment.returnedOffsetDays === undefined) {
+      await prisma.assetItem.update({
+        where: { id: assetId },
+        data: { status: AssetStatus.ASSIGNED },
+      });
+    }
+  }
+
+  const held = await prisma.assetAssignment.count({
+    where: { returnedAt: null },
+  });
+  console.log(`  ✔ ${ASSETS.length} assets, ${held} currently out`);
+}
+
+/** One course, one scheduled session, and nominations at three stages. */
+async function seedTraining(
+  branches: Record<string, string>,
+  employees: Record<string, string>,
+  adminEmail: string,
+) {
+  const admin = await prisma.user.findUnique({
+    where: { email: adminEmail },
+    select: { id: true },
+  });
+  if (!admin) return;
+
+  const course = await prisma.course.upsert({
+    where: { code: 'SEC-101' },
+    update: {},
+    create: {
+      code: 'SEC-101',
+      title: 'Information Security Awareness',
+      category: 'Compliance',
+      provider: 'Muscat Training Institute',
+      description:
+        'The annual refresher every member of staff has to hold a current certificate for.',
+      durationHours: 6,
+      defaultCost: 45,
+      // Twelve months, so the certificate below expires inside the window My
+      // Training warns about rather than never.
+      certValidMonths: 12,
+    },
+  });
+
+  const startDate = daysFromToday(18);
+  const existingSession = await prisma.trainingSession.findFirst({
+    where: { courseId: course.id, startDate },
+    select: { id: true },
+  });
+  const session =
+    existingSession ??
+    (await prisma.trainingSession.create({
+      data: {
+        courseId: course.id,
+        branchId: branches['HQ'] ?? null,
+        startDate,
+        endDate: daysFromToday(19),
+        location: 'HQ training room',
+        trainer: 'Muscat Training Institute',
+        seats: 12,
+        costPerSeat: 45,
+        status: 'SCHEDULED',
+      },
+    }));
+
+  const nominations: Array<{
+    employee: string;
+    status: string;
+    justification: string;
+  }> = [
+    {
+      employee: 'EMP-0005',
+      status: 'PENDING',
+      justification: 'Annual refresher is due',
+    },
+    {
+      employee: 'EMP-0007',
+      status: 'APPROVED',
+      justification: 'Handles customer data daily',
+    },
+    {
+      employee: 'EMP-0004',
+      status: 'APPROVED',
+      justification: 'Payroll data access',
+    },
+  ];
+
+  for (const nomination of nominations) {
+    const employeeId = employees[nomination.employee];
+    if (!employeeId) continue;
+    await prisma.trainingNomination.upsert({
+      where: {
+        sessionId_employeeId: { sessionId: session.id, employeeId },
+      },
+      update: {},
+      create: {
+        sessionId: session.id,
+        employeeId,
+        nominatedById: admin.id,
+        justification: nomination.justification,
+        cost: 45,
+        status: nomination.status,
+        ...(nomination.status === 'APPROVED' && {
+          approverId: admin.id,
+          approvedAt: daysFromToday(-2),
+        }),
+      },
+    });
+  }
+
+  // A completed course from last year, so the vault has a certificate in it and
+  // My Training has an expiry to warn about.
+  const pastStart = daysFromToday(-300);
+  const pastSession =
+    (await prisma.trainingSession.findFirst({
+      where: { courseId: course.id, startDate: pastStart },
+      select: { id: true },
+    })) ??
+    (await prisma.trainingSession.create({
+      data: {
+        courseId: course.id,
+        branchId: branches['HQ'] ?? null,
+        startDate: pastStart,
+        endDate: daysFromToday(-299),
+        location: 'HQ training room',
+        trainer: 'Muscat Training Institute',
+        seats: 12,
+        costPerSeat: 40,
+        status: 'COMPLETED',
+      },
+    }));
+
+  const attendee = employees['EMP-0005'];
+  if (attendee) {
+    await prisma.trainingNomination.upsert({
+      where: {
+        sessionId_employeeId: {
+          sessionId: pastSession.id,
+          employeeId: attendee,
+        },
+      },
+      update: {},
+      create: {
+        sessionId: pastSession.id,
+        employeeId: attendee,
+        nominatedById: admin.id,
+        justification: 'Annual refresher',
+        cost: 40,
+        status: 'ATTENDED',
+        approverId: admin.id,
+        approvedAt: daysFromToday(-310),
+        attendedAt: daysFromToday(-299),
+        score: 88,
+        passed: true,
+        certificateUrl: '/uploads/certificates/sec-101-emp-0005.pdf',
+        // Inside 90 days, so the "expiring soon" banner has something true.
+        certificateExpiry: daysFromToday(65),
+      },
+    });
+  }
+
+  console.log('  ✔ 1 course, 2 sessions, 4 nominations');
+}
+
+/** One open grievance, with the trail that goes with it. */
+async function seedGrievances(employees: Record<string, string>) {
+  const complainant = employees['EMP-0012'];
+  const subject = employees['EMP-0011'];
+  if (!complainant) return;
+
+  const hrUser = await prisma.user.findFirst({
+    where: { role: UserRole.HR_MANAGER },
+    select: { id: true },
+  });
+
+  const subjectLine = 'Shift roster changed without notice';
+  const existing = await prisma.grievance.findFirst({
+    where: { employeeId: complainant, subject: subjectLine },
+    select: { id: true },
+  });
+  if (existing) return;
+
+  await prisma.grievance.create({
+    data: {
+      employeeId: complainant,
+      category: 'Working Conditions',
+      subject: subjectLine,
+      description:
+        'My shift was moved to nights three weeks running with a day’s notice each time. ' +
+        'I have asked twice for the roster to be published a week ahead.',
+      // Confidential AND about a named person, so the visibility rule has a row
+      // it actually applies to: the supervisor it names must never see it.
+      isConfidential: true,
+      againstEmployeeId: subject ?? null,
+      status: 'ACKNOWLEDGED',
+      assignedToId: hrUser?.id ?? null,
+      events: {
+        create: [
+          {
+            type: 'STATUS_CHANGE',
+            toStatus: 'OPEN',
+            note: 'Grievance raised',
+            createdAt: daysFromToday(-6),
+          },
+          {
+            type: 'STATUS_CHANGE',
+            fromStatus: 'OPEN',
+            toStatus: 'ACKNOWLEDGED',
+            note: 'Received. We will speak to you this week.',
+            actorUserId: hrUser?.id ?? null,
+            createdAt: daysFromToday(-4),
+          },
+          {
+            type: 'NOTE',
+            note: 'Pulled the last six weeks of roster changes for this shift.',
+            isInternal: true,
+            actorUserId: hrUser?.id ?? null,
+            createdAt: daysFromToday(-3),
+          },
+        ],
+      },
+    },
+  });
+
+  console.log('  ✔ 1 open grievance');
+}
+
+/**
+ * The letters an employee can ask for, and one request at each stage.
+ *
+ * The templates come from the same defaults the API seeds on boot, so a freshly
+ * seeded database has a usable "request a letter" form before anybody starts
+ * the backend.
+ */
+async function seedLetters(
+  employees: Record<string, string>,
+  adminEmail: string,
+) {
+  for (const template of LETTER_TEMPLATE_DEFAULTS) {
+    await prisma.letterTemplate.upsert({
+      where: { key_locale: { key: template.key, locale: template.locale } },
+      // Empty on purpose: re-seeding must not overwrite wording somebody edited.
+      update: {},
+      create: {
+        key: template.key,
+        name: template.name,
+        locale: template.locale,
+        bodyHtml: template.bodyHtml,
+        requiresApproval: template.requiresApproval,
+        isActive: true,
+      },
+    });
+  }
+
+  const requester = employees['EMP-0005'];
+  if (!requester) return;
+
+  const admin = await prisma.user.findUnique({
+    where: { email: adminEmail },
+    select: { id: true },
+  });
+
+  const pending = await prisma.letterRequest.findFirst({
+    where: { employeeId: requester, templateKey: 'SALARY_CERTIFICATE' },
+    select: { id: true },
+  });
+  if (!pending) {
+    await prisma.letterRequest.create({
+      data: {
+        employeeId: requester,
+        templateKey: 'SALARY_CERTIFICATE',
+        locale: 'en',
+        purpose: 'a personal loan application',
+        addressedTo: 'Bank Muscat',
+        status: 'PENDING',
+      },
+    });
+  }
+
+  const rejected = await prisma.letterRequest.findFirst({
+    where: { employeeId: requester, templateKey: 'EMBASSY' },
+    select: { id: true },
+  });
+  if (!rejected) {
+    await prisma.letterRequest.create({
+      data: {
+        employeeId: requester,
+        templateKey: 'EMBASSY',
+        locale: 'en',
+        purpose: 'a family holiday',
+        addressedTo: 'Embassy of France',
+        status: 'REJECTED',
+        rejectedReason:
+          'Please re-submit with the travel dates — the embassy will not accept an open letter.',
+        issuedById: admin?.id ?? null,
+      },
+    });
+  }
+
+  console.log(
+    `  ✔ ${LETTER_TEMPLATE_DEFAULTS.length} letter templates, 2 requests`,
+  );
+}
+
+/**
+ * A couple of documents in one employee's vault.
+ *
+ * Uploads, rather than anything system-generated: an issued letter writes its
+ * own vault entry, and inventing one here would leave a document in the vault
+ * that no letter request points at.
+ */
+const VAULT_DOCUMENTS: Array<{
+  employee: string;
+  documentType: string;
+  fileName: string;
+  fileUrl: string;
+  description: string;
+  issueOffsetDays: number;
+  expiryOffsetDays?: number;
+}> = [
+  {
+    employee: 'EMP-0005',
+    documentType: 'Resume/CV',
+    fileName: 'Fatma Al Rashdi — CV.pdf',
+    fileUrl: '/uploads/documents/emp-0005-cv.pdf',
+    description: 'Submitted at hire',
+    issueOffsetDays: -1300,
+  },
+  {
+    employee: 'EMP-0005',
+    documentType: 'Degree',
+    fileName: 'BSc Human Resource Management.pdf',
+    fileUrl: '/uploads/documents/emp-0005-degree.pdf',
+    description: 'Sultan Qaboos University',
+    issueOffsetDays: -2400,
+  },
+  {
+    employee: 'EMP-0007',
+    documentType: 'Certificate',
+    fileName: 'First aid at work.pdf',
+    fileUrl: '/uploads/documents/emp-0007-first-aid.pdf',
+    description: 'Renewal falls inside the vault’s 90-day warning window',
+    issueOffsetDays: -700,
+    expiryOffsetDays: 55,
+  },
+];
+
+/**
+ * A month of calendar for the self-service demo account.
+ *
+ * The roster in `seedWorkSchedules` deliberately covers the plant and the
+ * maintenance crew — the shift patterns the Schedules hub exists to show. None
+ * of them is the account somebody signs in as to look at My Calendar, so that
+ * screen opened on an empty grid and could not be told apart from a broken
+ * query. This gives EMP-0005 an ordinary office week plus one approved absence
+ * and one approved overtime, so all four lanes of the calendar draw something.
+ */
+async function seedEssCalendar(employees: Record<string, string>) {
+  const employeeId = employees['EMP-0005'];
+  if (!employeeId) return;
+
+  /** Weekdays only — the weekend is the branch calendar's job, not the roster's. */
+  const OFFICE_WEEKDAYS = [1, 2, 3, 4, 7];
+  const HORIZON = 21;
+
+  let shifts = 0;
+  for (let offset = -7; offset <= HORIZON; offset += 1) {
+    const date = daysFromToday(offset);
+    if (!OFFICE_WEEKDAYS.includes(isoWeekdayOf(date))) continue;
+
+    await prisma.workSchedule.upsert({
+      where: { employeeId_date: { employeeId, date } },
+      update: {},
+      create: {
+        employeeId,
+        date,
+        shiftType: ShiftType.FULL_DAY,
+        startTime: '08:00',
+        endTime: '17:00',
+        requiredHours: 8,
+        isWorkDay: true,
+        notes: 'Head office hours',
+      },
+    });
+    shifts += 1;
+  }
+
+  // One approved absence, so the leave lane is not permanently empty on a
+  // screen whose whole point is showing the four of them side by side. Guarded
+  // on the employee having none at all, so it never competes with the leave
+  // module's own seed.
+  const hasLeave = await prisma.leaveRequest.count({
+    where: { employeeId, status: 'APPROVED' },
+  });
+  if (hasLeave === 0) {
+    await prisma.leaveRequest.create({
+      data: {
+        employeeId,
+        leaveType: 'Annual Leave',
+        startDate: daysFromToday(9),
+        endDate: daysFromToday(11),
+        totalDays: 3,
+        reason: 'Family trip booked in advance',
+        status: 'APPROVED',
+        approvedAt: daysFromToday(-2),
+      },
+    });
+  }
+
+  // ...and one approved overtime, for the same reason.
+  const overtimeDate = daysFromToday(-3);
+  const hasOvertime = await prisma.overtimeRequest.count({
+    where: { employeeId, date: overtimeDate },
+  });
+  if (hasOvertime === 0) {
+    await prisma.overtimeRequest.create({
+      data: {
+        employeeId,
+        date: overtimeDate,
+        startTime: wallClockInstant(overtimeDate, 17 * 60, COMPANY_ZONE),
+        endTime: wallClockInstant(overtimeDate, 20 * 60, COMPANY_ZONE),
+        hours: 3,
+        regularHours: 3,
+        reason: 'Month-end payroll cut-off',
+        status: 'APPROVED',
+        approvedAt: daysFromToday(-2),
+      },
+    });
+  }
+
+  console.log(`  ✔ ${shifts} self-service shifts, 1 leave, 1 overtime`);
+}
+
+async function seedVaultDocuments(employees: Record<string, string>) {
+  for (const doc of VAULT_DOCUMENTS) {
+    const employeeId = employees[doc.employee];
+    if (!employeeId) continue;
+
+    // `EmployeeDocument` has no natural unique key — the same person may upload
+    // two files of the same type — so the file name stands in for one.
+    const existing = await prisma.employeeDocument.findFirst({
+      where: { employeeId, fileName: doc.fileName },
+      select: { id: true },
+    });
+    if (existing) continue;
+
+    await prisma.employeeDocument.create({
+      data: {
+        employeeId,
+        documentType: doc.documentType,
+        fileName: doc.fileName,
+        fileUrl: doc.fileUrl,
+        mimeType: 'application/pdf',
+        description: doc.description,
+        issueDate: daysFromToday(doc.issueOffsetDays),
+        expiryDate:
+          doc.expiryOffsetDays === undefined
+            ? null
+            : daysFromToday(doc.expiryOffsetDays),
+      },
+    });
+  }
+
+  console.log(`  ✔ ${VAULT_DOCUMENTS.length} vault documents`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log('🌱 Seeding People Pay 360...');
@@ -1847,6 +3331,17 @@ async function main() {
   // A structure follows a contract, and a run follows both.
   await seedSalaryStructures(employees);
   await seedPayrollRuns(employees);
+
+  // Employee self-service. After leave and overtime exist, so the approval
+  // trail materialises against real requests.
+  await seedApprovalWorkflows();
+  await seedApprovalTrails();
+  await seedAssets(branches, employees, adminEmail);
+  await seedTraining(branches, employees, adminEmail);
+  await seedGrievances(employees);
+  await seedLetters(employees, adminEmail);
+  await seedVaultDocuments(employees);
+  await seedEssCalendar(employees);
 
   console.log('✅ Seed complete.');
 }

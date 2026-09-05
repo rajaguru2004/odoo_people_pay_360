@@ -1,6 +1,7 @@
 'use client';
 
 import { Building2, Users, Wallet } from 'lucide-react';
+import EmployeeDashboard from '@/components/dashboard/EmployeeDashboard';
 import { useEmployees } from '@/hooks/useEmployees';
 import { useDepartments } from '@/hooks/useDepartments';
 import { usePageHeader } from '@/hooks/usePageHeader';
@@ -11,7 +12,8 @@ import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { formatCurrency, fullName } from '@/utils/formatters';
 import { hasPermission } from '@/utils/permissions';
 
-export default function DashboardPage() {
+/** The company's standing: headcount, structure, and the last payroll run. */
+function ManagementDashboard() {
   const user = useAuthStore((s) => s.user);
   const currency = useBrandingStore((s) => s.branding.default_currency);
 
@@ -25,12 +27,6 @@ export default function DashboardPage() {
 
   const headcount = employees.data?.meta?.total ?? 0;
   const departmentCount = departments.data?.data?.length ?? 0;
-
-  // The heading lives in Topbar; a second one here would give the screen two.
-  usePageHeader(
-    `Welcome${user?.employee ? `, ${fullName(user.employee)}` : ''}`,
-    'Here is where your organisation stands today.',
-  );
 
   return (
     <div className="space-y-6">
@@ -70,4 +66,28 @@ export default function DashboardPage() {
       </Card>
     </div>
   );
+}
+
+export default function DashboardPage() {
+  const user = useAuthStore((s) => s.user);
+  const isEmployee = user?.role === 'EMPLOYEE';
+
+  // The heading lives in Topbar; a second one here would give the screen two.
+  usePageHeader(
+    `Welcome${user?.employee ? `, ${fullName(user.employee)}` : ''}`,
+    isEmployee
+      ? 'Your day, your leave, and anything still waiting on a decision.'
+      : 'Here is where your organisation stands today.',
+  );
+
+  /**
+   * Two dashboards, not one with the awkward parts hidden.
+   *
+   * The management cards read company-wide endpoints an EMPLOYEE is refused, so
+   * projecting them for that role produces a screen of em dashes explaining
+   * what it cannot show — an admin dashboard apologising rather than the
+   * person's own. What somebody in that seat opens this page to find is their
+   * own day, which is a different set of questions and a different tree.
+   */
+  return isEmployee ? <EmployeeDashboard /> : <ManagementDashboard />;
 }
