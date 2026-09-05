@@ -32,6 +32,7 @@ import { DisciplinesModule } from './disciplines/disciplines.module';
 import { HolidaysModule } from './holidays/holidays.module';
 import { LeaveBalancesModule } from './leave-balances/leave-balances.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { PayrollAnalyticsModule } from './payroll-analytics/payroll-analytics.module';
 import { AttendanceCorrectionsModule } from './attendance-corrections/attendance-corrections.module';
 import { AttendanceIntegrationsModule } from './attendance-integrations/attendance-integrations.module';
 import { OvertimeModule } from './overtime/overtime.module';
@@ -128,6 +129,7 @@ import { AppraisalModule } from './appraisal/appraisal.module';
     HolidaysModule,
     LeaveBalancesModule,
     DashboardModule,
+    PayrollAnalyticsModule,
     AttendanceCorrectionsModule,
     AttendanceIntegrationsModule,
     OvertimeModule,

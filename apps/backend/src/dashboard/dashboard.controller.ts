@@ -8,6 +8,8 @@ import {
 } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { DashboardAlertService } from './dashboard-alert.service';
+import { DashboardAnalyticsService } from './dashboard-analytics.service';
+import { AnalyticsOverviewQueryDto } from './dto/analytics-overview-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -21,6 +23,7 @@ export class DashboardController {
   constructor(
     private readonly dashboardService: DashboardService,
     private readonly alertService: DashboardAlertService,
+    private readonly analyticsService: DashboardAnalyticsService,
   ) {}
 
   @Get('overview')
@@ -40,6 +43,32 @@ export class DashboardController {
     @Query('date') date?: string,
   ) {
     return this.dashboardService.getOverview(user, date);
+  }
+
+  /**
+   * The analytics dashboard's single aggregate.
+   *
+   * Deliberately a second route rather than a shape change to `overview` above:
+   * that one is read by the existing widgets and answers a different question.
+   * Every role may call this — the SERVICE decides which blocks come back, and
+   * says so in `sections`, because a block a caller may not see is absent
+   * rather than zeroed.
+   */
+  @Get('analytics-overview')
+  @Roles('ADMIN', 'HR_MANAGER', 'PAYROLL_OFFICER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({
+    summary: 'Get the analytics dashboard aggregate',
+    description:
+      'One role-aware payload for the whole dashboard: workforce, attendance, ' +
+      'payroll, approvals, compliance and the self block. Sections the caller ' +
+      'is not entitled to are omitted, and `sections` lists what arrived.',
+  })
+  @ApiResponse({ status: 200, description: 'Overview retrieved successfully' })
+  getAnalyticsOverview(
+    @CurrentUser() user: any,
+    @Query() query: AnalyticsOverviewQueryDto,
+  ) {
+    return this.analyticsService.overview(user, query.months ?? 6);
   }
 
   @Get('employee-stats')
