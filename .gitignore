@@ -1,0 +1,60 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Testing
+coverage
+*.lcov
+.nyc_output
+
+# Production
+dist
+build
+.next
+out
+
+# Misc
+.DS_Store
+*.pem
+.env
+.env*.local
+.env.production
+# The two env files that ARE tracked: they carry local-dev defaults only, never
+# secrets. Anything real goes in .env.example and is filled in per machine.
+!apps/backend/.env
+!apps/frontend/.env.local
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Turbo
+.turbo
+
+# IDEs
+.vscode/
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+
+# Prisma
+prisma/migrations/*_migration.sql
+
+# Logs
+logs
+*.log
+
+# MinIO & local data volumes
+backend/data/
+backend/data_local/
+backend/data_test/
+*.meta
+*.meta.bkp

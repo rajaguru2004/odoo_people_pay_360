@@ -1,0 +1,44 @@
+{
+  "name": "people-pay-360-monorepo",
+  "version": "1.0.0",
+  "author": "rajaguru2004",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --prefix apps/backend",
+    "dev:frontend": "npm run dev --prefix apps/frontend",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" --names \"BE,FE\" --prefix-colors \"blue,green\"",
+    "build:backend": "npm run build --prefix apps/backend",
+    "build:frontend": "npm run build --prefix apps/frontend",
+    "build": "npm run build:backend && npm run build:frontend",
+    "start:backend": "npm run start:prod --prefix apps/backend",
+    "start:frontend": "npm run start --prefix apps/frontend",
+
+    "typecheck": "npm run typecheck --prefix apps/frontend && npm run typecheck --prefix apps/backend",
+
+    "test": "npm run test:unit && npm run test:component",
+    "test:unit": "npm run test:unit --prefix apps/frontend && npm test --prefix apps/backend",
+    "test:component": "npm run test:component --prefix apps/frontend",
+    "test:e2e": "npm run test:e2e --prefix apps/frontend",
+    "test:e2e:ui": "npm run test:e2e:ui --prefix apps/frontend",
+
+    "e2e:db": "bash scripts/e2e-db.sh",
+    "e2e:up": "bash scripts/e2e-db.sh up",
+    "e2e:down": "bash scripts/e2e-db.sh down",
+
+    "db:push": "npm run prisma:push --prefix apps/backend",
+    "db:seed": "npm run prisma:seed --prefix apps/backend",
+    "db:studio": "npm run prisma:studio --prefix apps/backend",
+
+    "test:critical": "npm run test && npm run test:e2e",
+    "lint": "npm run lint --prefix apps/frontend && npm run lint --prefix apps/backend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "axios": "^1.13.6"
+  }
+}

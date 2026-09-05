@@ -1,0 +1,47 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+.pnpm-debug.log*
+
+# env files — .env.local is TRACKED here (local-dev defaults only, no secrets).
+.env
+.env.*.local
+!.env.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Test artifacts. Paths are relative to apps/frontend, which is where this
+# .gitignore lives — the per-role sessions in .auth/ are real access tokens.
+e2e/.auth/
+e2e/.results/
+e2e/.report/
+
+# Secondary NEXT_DIST_DIR builds. Separate from .next so a dev server and a
+# preview build in this checkout cannot fight over the same output directory.
+.next-*/

@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# People Pay 360 — e2e stack
+#
+# A SEPARATE database on a SEPARATE port, with no volume: the suite truncates
+# and reseeds, so pointing it at the dev database would delete whatever you were
+# working on, and a persisted volume would let one run's leftovers decide the
+# next run's assertions.
+#
+#   npm run e2e:up      — start and seed
+#   npm run e2e:down    — stop and discard
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: people-pay-360-e2e
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: ppx_postgres_test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: people_pay_360_test
+    ports:
+      - '8174:5432'
+    # tmpfs, not a volume: the whole database lives in RAM. It is faster, and it
+    # cannot survive a run to contaminate the next one.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d people_pay_360_test']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks:
+      - ppx_test
+
+networks:
+  ppx_test:
+    driver: bridge

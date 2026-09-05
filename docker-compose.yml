@@ -1,0 +1,138 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# People Pay 360 — Docker Compose
+#
+# Local build (without pulling from a registry):
+#   docker compose build
+#   docker compose up -d
+#
+# HOST PORTS ARE OFFSET from the HRM/ESS checkout so both stacks can run on the
+# same machine: Postgres 8074, API 8075, portal 7014, MinIO 9014 — all verified free
+# alongside the HRM/ESS stack, whose own test containers already hold 8069 and 9010.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ppx_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: people_pay_360
+    ports:
+      - '8074:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # The backend's entrypoint runs `prisma db push` as its first act, so
+      # starting it before Postgres accepts connections is a guaranteed crash
+      # loop. depends_on: service_healthy below is what prevents that.
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d people_pay_360']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ppx_network
+
+  # ── NestJS backend ───────────────────────────────────────────────────────────
+  backend:
+    image: people-pay-360/backend:latest
+    build:
+      # Context is the backend directory only — this keeps the build fast and
+      # avoids sending frontend source to the Docker daemon.
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: ppx_backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    env_file:
+      # Supplies JWT_SECRET, MAIL_*, ODOO_* and the rest. Values in the
+      # `environment` block below take precedence over this file.
+      - apps/backend/.env
+    environment:
+      - NODE_ENV=production
+      - PORT=3011
+      - CORS_ORIGIN=http://localhost:7014,http://localhost:3010
+      # Container-side database URL. Overrides apps/backend/.env, which holds
+      # the HOST-side value (localhost:8074) so `npm run dev`, prisma and jest
+      # work outside Docker. In here the database is reached by its compose
+      # service name — `localhost` would be this container itself.
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/people_pay_360?schema=public
+      - DIRECT_URL=postgresql://postgres:postgres@postgres:5432/people_pay_360?schema=public
+      # Same reasoning for MinIO: the .env values are host-side, and inside this
+      # container they would point at the container itself — which presents as a
+      # connection timeout at every boot while MinIO was up the whole time.
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_USE_SSL=false
+      - MINIO_ACCESS_KEY=admin
+      - MINIO_SECRET_KEY=StrongPassword@123
+      # The address a BROWSER uses for public objects. Without it, stored URLs
+      # would read http://minio:9000/... and resolve nowhere outside this network.
+      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL:-http://localhost:9014}
+    ports:
+      - '8075:3011'
+    networks:
+      - ppx_network
+
+  # ── Next.js frontend ─────────────────────────────────────────────────────────
+  frontend:
+    image: people-pay-360/frontend:latest
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+      args:
+        # BAKED INTO THE JS BUNDLE at build time — setting this in `environment`
+        # below would have no effect whatsoever. Override with:
+        #   NEXT_PUBLIC_API_URL=https://api.example.com docker compose build frontend
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8075}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-People Pay 360}
+        NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-}
+    container_name: ppx_frontend
+    restart: always
+    depends_on:
+      - backend
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      # Runtime-only, so it IS honoured here: used by the SSR rewrite and by
+      # generateMetadata(), never sent to the browser.
+      - BACKEND_INTERNAL_URL=http://backend:3011
+    ports:
+      - '7014:3000'
+    networks:
+      - ppx_network
+
+  # ── MinIO object storage ─────────────────────────────────────────────────────
+  minio:
+    image: minio/minio
+    container_name: ppx_minio
+    ports:
+      - '9014:9000'
+      - '9899:9001'
+    volumes:
+      - miniodata:/data
+    environment:
+      MINIO_ROOT_USER: 'admin'
+      MINIO_ROOT_PASSWORD: 'StrongPassword@123'
+    command: server /data --console-address ":9001"
+    restart: always
+    networks:
+      - ppx_network
+
+volumes:
+  pgdata:
+    driver: local
+  miniodata:
+    driver: local
+
+networks:
+  ppx_network:
+    driver: bridge

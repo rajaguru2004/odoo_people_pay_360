@@ -1,0 +1,25 @@
+{
+  "appName": "People Pay 360",
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "create": "Create",
+    "edit": "Edit",
+    "delete": "Delete",
+    "search": "Search",
+    "signIn": "Sign in",
+    "signOut": "Sign out"
+  },
+  "states": {
+    "loading": "Loading…",
+    "empty": "Nothing here yet",
+    "error": "Something went wrong"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "employees": "Employees",
+    "departments": "Departments",
+    "payroll": "Payroll",
+    "settings": "Settings"
+  }
+}

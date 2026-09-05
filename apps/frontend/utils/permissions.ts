@@ -1,0 +1,85 @@
+import { UserRole } from '@/types/auth';
+
+/**
+ * Role → permission map.
+ *
+ * This is a UI-AFFORDANCE layer, not a security boundary. It decides what to
+ * render; the backend's RolesGuard decides what is allowed. Every permission
+ * here has a server-side counterpart, and a screen that hides a button must
+ * never be the only thing stopping the action.
+ */
+export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
+  ADMIN: [
+    'VIEW_DASHBOARD',
+    'VIEW_EMPLOYEES', 'CREATE_EMPLOYEE', 'EDIT_EMPLOYEE', 'TERMINATE_EMPLOYEE',
+    'VIEW_DEPARTMENTS', 'MANAGE_DEPARTMENTS',
+    'VIEW_ALL_PAYROLL', 'MANAGE_PAYROLL', 'APPROVE_PAYROLL', 'VIEW_OWN_PAYSLIP',
+    'MANAGE_SALARY_COMPONENTS',
+    'VIEW_REPORTS', 'EXPORT_DATA',
+    'MANAGE_USERS',
+    'VIEW_SYSTEM_SETTINGS', 'EDIT_SYSTEM_SETTINGS',
+    'MANAGE_INTEGRATIONS',
+    'VIEW_OWN_PROFILE', 'EDIT_OWN_PROFILE',
+  ],
+
+  HR_MANAGER: [
+    'VIEW_DASHBOARD',
+    'VIEW_EMPLOYEES', 'CREATE_EMPLOYEE', 'EDIT_EMPLOYEE', 'TERMINATE_EMPLOYEE',
+    'VIEW_DEPARTMENTS', 'MANAGE_DEPARTMENTS',
+    'VIEW_ALL_PAYROLL', 'VIEW_OWN_PAYSLIP',
+    'VIEW_REPORTS', 'EXPORT_DATA',
+    'MANAGE_USERS',
+    'VIEW_OWN_PROFILE', 'EDIT_OWN_PROFILE',
+  ],
+
+  PAYROLL_OFFICER: [
+    'VIEW_DASHBOARD',
+    'VIEW_EMPLOYEES',
+    'VIEW_DEPARTMENTS',
+    // Runs payroll but cannot APPROVE it. Separation of duties: the person who
+    // calculates a run must not be the person who releases it for payment.
+    'VIEW_ALL_PAYROLL', 'MANAGE_PAYROLL', 'VIEW_OWN_PAYSLIP',
+    'MANAGE_SALARY_COMPONENTS',
+    'VIEW_REPORTS', 'EXPORT_DATA',
+    'VIEW_OWN_PROFILE', 'EDIT_OWN_PROFILE',
+  ],
+
+  MANAGER: [
+    'VIEW_DASHBOARD',
+    'VIEW_EMPLOYEES',
+    'VIEW_DEPARTMENTS',
+    'VIEW_OWN_PAYSLIP',
+    'VIEW_REPORTS',
+    'VIEW_OWN_PROFILE', 'EDIT_OWN_PROFILE',
+  ],
+
+  EMPLOYEE: [
+    'VIEW_DASHBOARD',
+    'VIEW_OWN_PAYSLIP',
+    'VIEW_OWN_PROFILE', 'EDIT_OWN_PROFILE',
+  ],
+};
+
+export function hasPermission(role: UserRole | undefined | null, permission: string): boolean {
+  if (!role) return false;
+  return ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
+}
+
+export function hasAnyPermission(role: UserRole | undefined | null, permissions: string[]): boolean {
+  return permissions.some((p) => hasPermission(role, p));
+}
+
+/** Where a role lands after signing in. */
+export function getDefaultRouteForRole(role: UserRole | undefined | null): string {
+  switch (role) {
+    case 'ADMIN':
+    case 'HR_MANAGER':
+    case 'PAYROLL_OFFICER':
+    case 'MANAGER':
+      return '/dashboard';
+    case 'EMPLOYEE':
+      return '/dashboard';
+    default:
+      return '/login';
+  }
+}

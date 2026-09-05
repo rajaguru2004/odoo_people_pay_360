@@ -1,0 +1,25 @@
+{
+  "appName": "بيبول باي 360",
+  "actions": {
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "create": "إنشاء",
+    "edit": "تعديل",
+    "delete": "حذف",
+    "search": "بحث",
+    "signIn": "تسجيل الدخول",
+    "signOut": "تسجيل الخروج"
+  },
+  "states": {
+    "loading": "جارٍ التحميل…",
+    "empty": "لا يوجد شيء بعد",
+    "error": "حدث خطأ ما"
+  },
+  "nav": {
+    "dashboard": "لوحة التحكم",
+    "employees": "الموظفون",
+    "departments": "الأقسام",
+    "payroll": "الرواتب",
+    "settings": "الإعدادات"
+  }
+}

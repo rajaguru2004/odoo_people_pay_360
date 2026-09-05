@@ -1,0 +1,722 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Single-screen "cockpit" layout — only on large monitors with enough vertical
+ * room. 14" laptops (≤1512px wide) fall below this and get natural scroll flow
+ * instead of the cramped fixed-viewport grid. */
+@custom-variant cockpit (@media (min-width: 1536px) and (min-height: 900px));
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * CSS CUSTOM PROPERTIES — ALL SET BY ThemeProvider AT RUNTIME
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Do NOT hardcode brand colors here.
+ * ThemeProvider (theme/provider.tsx) writes these vars from the active preset.
+ * Default values below are fallbacks only — shown before JS hydrates.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+:root {
+  /* Brand */
+  --color-brand-primary:       #00358F;
+  --color-brand-primary-dark:  #002570;
+  --color-brand-primary-light: #AECCFF;
+  --color-brand-accent:        #f66600;
+  --color-brand-accent-dark:   #cc5200;
+
+  /* Status */
+  --color-status-success:    #10b981;
+  --color-status-success-bg: #d1fae5;
+  --color-status-warning:    #f59e0b;
+  --color-status-warning-bg: #fef3c7;
+  --color-status-error:      #ef4444;
+  --color-status-error-bg:   #fee2e2;
+  --color-status-info:       #3b82f6;
+  --color-status-info-bg:    #dbeafe;
+
+  /* Surface */
+  --color-surface-page:         #F4F6FC;
+  --color-surface-card:         #ffffff;
+  --color-surface-overlay:      #ffffff;
+  --color-surface-border:       #e2e8f0;
+  --color-surface-border-light: #f1f5f9;
+
+  /* Text */
+  --color-text-heading:   #0f172a;
+  --color-text-body:      #334155;
+  --color-text-muted:     #64748b;
+  --color-text-on-brand:  #ffffff;
+  --color-text-on-accent: #ffffff;
+
+  /* Sidebar */
+  --color-sidebar-bg:              #ffffff;
+  --color-sidebar-border:          #f1f5f9;
+  --color-sidebar-text:            #475569;
+  --color-sidebar-text-muted:      #94a3b8;
+  --color-sidebar-active-bg:       #f1f5f9;
+  --color-sidebar-active-text:     #0f172a;
+  --color-sidebar-hover-bg:        #f8fafc;
+  --color-sidebar-hover-text:      #0f172a;
+  --color-sidebar-sub-active-bg:   #eff6ff;
+  --color-sidebar-sub-active-text: #2563eb;
+
+  /* Header */
+  --color-header-bg:     #ffffff;
+  --color-header-border: #e2e8f0;
+  --color-header-text:   #0f172a;
+
+  /* Shape */
+  --radius-card:   0.75rem;
+  --radius-button: 0.5rem;
+  --radius-input:  0.5rem;
+  --radius-badge:  9999px;
+
+  /* Typography */
+  --font-brand-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  --font-brand-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* Legacy spacing (keep for existing usages) */
+  --padding-sm-container: 20px;
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * TAILWIND THEME INLINE — Maps Tailwind color utilities to CSS vars
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Usage in components:
+ *   bg-brand-primary       → uses --color-brand-primary
+ *   text-text-muted        → uses --color-text-muted
+ *   border-surface-border  → uses --color-surface-border
+ *   bg-sidebar-active-bg   → uses --color-sidebar-active-bg
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+@theme inline {
+  /* ── Brand ───────────────────────────────────────────────────────────────── */
+  --color-brand-primary:       var(--color-brand-primary);
+  --color-brand-primary-dark:  var(--color-brand-primary-dark);
+  --color-brand-primary-light: var(--color-brand-primary-light);
+  --color-brand-accent:        var(--color-brand-accent);
+  --color-brand-accent-dark:   var(--color-brand-accent-dark);
+
+  /* ── Status ──────────────────────────────────────────────────────────────── */
+  --color-status-success:    var(--color-status-success);
+  --color-status-success-bg: var(--color-status-success-bg);
+  --color-status-warning:    var(--color-status-warning);
+  --color-status-warning-bg: var(--color-status-warning-bg);
+  --color-status-error:      var(--color-status-error);
+  --color-status-error-bg:   var(--color-status-error-bg);
+  --color-status-info:       var(--color-status-info);
+  --color-status-info-bg:    var(--color-status-info-bg);
+
+  /* ── Surface ─────────────────────────────────────────────────────────────── */
+  --color-surface-page:         var(--color-surface-page);
+  --color-surface-card:         var(--color-surface-card);
+  --color-surface-overlay:      var(--color-surface-overlay);
+  --color-surface-border:       var(--color-surface-border);
+  --color-surface-border-light: var(--color-surface-border-light);
+
+  /* ── Text ────────────────────────────────────────────────────────────────── */
+  --color-text-heading:   var(--color-text-heading);
+  --color-text-body:      var(--color-text-body);
+  --color-text-muted:     var(--color-text-muted);
+  --color-text-on-brand:  var(--color-text-on-brand);
+  --color-text-on-accent: var(--color-text-on-accent);
+
+  /* ── Sidebar ─────────────────────────────────────────────────────────────── */
+  --color-sidebar-bg:              var(--color-sidebar-bg);
+  --color-sidebar-border:          var(--color-sidebar-border);
+  --color-sidebar-text:            var(--color-sidebar-text);
+  --color-sidebar-text-muted:      var(--color-sidebar-text-muted);
+  --color-sidebar-active-bg:       var(--color-sidebar-active-bg);
+  --color-sidebar-active-text:     var(--color-sidebar-active-text);
+  --color-sidebar-hover-bg:        var(--color-sidebar-hover-bg);
+  --color-sidebar-hover-text:      var(--color-sidebar-hover-text);
+  --color-sidebar-sub-active-bg:   var(--color-sidebar-sub-active-bg);
+  --color-sidebar-sub-active-text: var(--color-sidebar-sub-active-text);
+
+  /* ── Header ──────────────────────────────────────────────────────────────── */
+  --color-header-bg:     var(--color-header-bg);
+  --color-header-border: var(--color-header-border);
+  --color-header-text:   var(--color-header-text);
+
+  /* ── Legacy aliases (backward compat during migration) ───────────────────── */
+  --color-primary:      var(--color-brand-primary);
+  --color-secondary:    var(--color-brand-accent);
+  --color-brandBlue:    var(--color-brand-primary);
+  --color-offWhite:     var(--color-surface-page);
+  --color-brandRed:     var(--color-status-error);
+
+  /* ── Fonts ───────────────────────────────────────────────────────────────── */
+  --font-sans: var(--font-brand-sans);
+  --font-mono: var(--font-brand-mono);
+
+  /* ── Animations ──────────────────────────────────────────────────────────── */
+  --animate-fade-in:      fade-in 0.6s ease-in-out;
+  --animate-slide-up:     slide-up 0.6s ease-out;
+  --animate-slide-down:   slide-down 0.6s ease-out;
+  --animate-slide-left:   slide-left 0.6s ease-out;
+  --animate-slide-right:  slide-right 0.6s ease-out;
+  --animate-slide-in-right: slide-in-right 0.3s ease-out;
+  --animate-scale-in:     scale-in 0.5s ease-out;
+  --animate-float:        float 3s ease-in-out infinite;
+  --animate-gradient:     gradient 8s ease infinite;
+
+  /* ── Shape ───────────────────────────────────────────────────────────────── */
+  --radius-card:   var(--radius-card);
+  --radius-button: var(--radius-button);
+  --radius-input:  var(--radius-input);
+  --radius-badge:  var(--radius-badge);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * KEYFRAMES
+ * ───────────────────────────────────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slide-up {
+  from { transform: translateY(30px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes slide-down {
+  from { transform: translateY(-30px); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+@keyframes slide-left {
+  from { transform: translateX(30px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes slide-right {
+  from { transform: translateX(-30px); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0);    }
+}
+@keyframes scale-in {
+  from { transform: scale(0.9); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0px);  }
+  50%       { transform: translateY(-20px); }
+}
+@keyframes gradient {
+  0%, 100% { background-position: 0%   50%; }
+  50%       { background-position: 100% 50%; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * BASE STYLES
+ * ───────────────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-surface-page);
+  color:       var(--color-text-body);
+  font-family: var(--font-brand-sans);
+  margin:  0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * GLASS EFFECTS
+ * ───────────────────────────────────────────────────────────────────────────── */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.glass-dark {
+  background: rgba(5, 6, 8, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(174, 204, 255, 0.1);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * SCROLLBARS — Use surface tokens (neutral — not brand)
+ * ───────────────────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width:  10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-surface-page);
+}
+::-webkit-scrollbar-thumb {
+  background:    var(--color-brand-primary-light);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-primary);
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-brand-primary-light) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  width:  8px;
+  height: 8px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background:    var(--color-surface-border-light);
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background:    var(--color-brand-primary);
+  border-radius: 10px;
+  border: 2px solid var(--color-surface-border-light);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-primary-dark);
+}
+
+.no-scrollbar,
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width:    none;
+}
+.no-scrollbar::-webkit-scrollbar,
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * UTILITY CLASSES
+ * ───────────────────────────────────────────────────────────────────────────── */
+.perspective-1000    { perspective: 1000px; }
+.transform-style-3d  { transform-style: preserve-3d; }
+.rotate-y-6          { transform: rotateY(6deg); }
+.bg-300\%            { background-size: 300%; }
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+/* Background Grid Pattern */
+.bg-grid-slate-100 {
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23cbd5e1' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * SIDEBAR / NAV — Strip focus rings (accessibility exception documented)
+ * Reason: Custom focus handling via keyboard nav; browser default rings
+ * conflict with sidebar design system visual states.
+ * ───────────────────────────────────────────────────────────────────────────── */
+aside a, aside button, nav a, nav button {
+  outline:                    none !important;
+  outline-width:              0    !important;
+  box-shadow:                 none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+aside a:focus, aside a:active, aside a:focus-visible,
+aside button:focus, aside button:active, aside button:focus-visible,
+nav a:focus, nav a:active, nav a:focus-visible,
+nav button:focus, nav button:active, nav button:focus-visible {
+  outline:       none !important;
+  outline-width: 0    !important;
+  box-shadow:    none !important;
+}
+
+[class~="rounded-[--radius-card]"] {
+  border-radius: var(--radius-card) !important;
+}
+[class~="rounded-[--radius-button]"] {
+  border-radius: var(--radius-button) !important;
+}
+[class~="rounded-[--radius-input]"] {
+  border-radius: var(--radius-input) !important;
+}
+[class~="rounded-[--radius-badge]"] {
+  border-radius: var(--radius-badge) !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * MOBILE / SAFE-AREA — insets for notched devices
+ * body already sets `overflow-x: hidden` to prevent horizontal page scroll.
+ * ───────────────────────────────────────────────────────────────────────────── */
+.safe-area-top    { padding-top: env(safe-area-inset-top); }
+.safe-area-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-area-x {
+  padding-left:  env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/*
+ * Clearance for the ESS bottom tab bar (`components/dashboard/MobileTabBar`).
+ *
+ * The bar is `position: fixed` and 56px tall plus the home-indicator inset, so
+ * the scroll container it floats over has to end above it — otherwise the last
+ * card of every ESS screen is permanently half-covered. Scoped to the phone
+ * breakpoint because the bar itself is `md:hidden`; above 768px the desktop
+ * `md:p-6` padding is what applies, unchanged.
+ */
+@media (max-width: 767px) {
+  .pb-mobile-tabbar {
+    padding-bottom: calc(3.5rem + 1rem + env(safe-area-inset-bottom));
+  }
+}
+
+/*
+ * Horizontal rails (leave balances, chip rows) scroll by swipe on a phone; the
+ * scrollbar is chrome the gesture does not need, and on desktop-class engines
+ * it eats 8px of the card it sits under.
+ */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * THE STACKING LADDER — written down because it is otherwise only discoverable
+ * by grepping 85 `z-50`s and guessing which of them meant "above the sidebar".
+ *
+ *    10 / 20   in-card stacking; a `motion` element a sibling must overlap
+ *    20        sticky bar inside <main>            (.ess-sticky-bar)
+ *    30        TopHeader                            (DashboardLayout)
+ *    40        MobileTabBar, mobile drawer backdrop
+ *    50        Sidebar drawer, header dropdowns, the chatbot
+ *    60        sheets and modals                    (components/common/Sheet)
+ *    70        a sheet opened from inside a sheet   (<Sheet nested>)
+ *   100        toasts
+ *
+ * Deliberately a comment and not a set of custom properties: `z-[60]` is what
+ * all 100-odd call sites already say, and a var only one of them uses would be
+ * indirection without a reader.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * SHEET — one overlay component, two shapes
+ *
+ * `components/common/Sheet.tsx` is a bottom sheet under 768px and the centred
+ * dialog this app already had at and above it. The panel's ENTRANCE is the one
+ * part of that which cannot be a Tailwind `md:` class: framer-motion's
+ * `initial`/`animate` props are JavaScript, and branching them on a media query
+ * would reintroduce the `useIsMobile()` first-render flash the whole mobile
+ * pass exists to avoid. So the entrance is CSS, and the breakpoint picks it.
+ * ───────────────────────────────────────────────────────────────────────────── */
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0);    }
+}
+
+.sheet-panel-enter {
+  animation: scale-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (max-width: 767px) {
+  .sheet-panel-enter {
+    animation: sheet-up 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * A STICKY BAR INSIDE <main>
+ *
+ * `<main>` is the scroll container in this shell, and it carries `p-4`. A
+ * `sticky top-0` child therefore sticks at main's PADDING box, which leaves the
+ * 16px gutters on either side of it transparent — content scrolls visibly
+ * through them. Full-bleeding the gutter and painting the page colour is what
+ * makes a stuck filter row read as a bar rather than as a floating card.
+ * ───────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .ess-sticky-bar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    background: var(--color-surface-page);
+  }
+
+  /* Floating things that must clear the fixed tab bar — mirrors
+     `.pb-mobile-tabbar` so the two cannot drift apart. */
+  .above-tabbar {
+    bottom: calc(3.5rem + 1rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * THE 44px FLOOR, ON PHONES ONLY
+ *
+ * Forty screens, forty authors' worth of `py-1.5`, `h-9`, `p-2` and third-party
+ * buttons (FullCalendar draws its own toolbar at 34px). Fixing each one where
+ * it stands is forty edits that screen forty-one will not know about, and the
+ * audit that finds them is a browser run — an expensive way to learn something
+ * a stylesheet can simply make true.
+ *
+ * So the floor is declared once, for the phone breakpoint, over the content
+ * area only. `min-height` and not `height`: a control that is already taller
+ * keeps its size, and nothing in the approved desktop layout is touched
+ * because the whole block is inside `max-width: 767px`.
+ *
+ * `min-height` has no effect on a non-replaced INLINE element, which is what
+ * keeps a link inside a paragraph from growing a 44px line box — the targets
+ * this is aimed at are all buttons, inline-flex pills and form controls.
+ *
+ * WIDTH is deliberately not set here: a blanket `min-width` would stretch
+ * every chip in a wrapped row and push layouts sideways, which is the failure
+ * this pass exists to remove. Narrow targets (icon-only buttons, one-word
+ * filter chips) carry their own `min-w-11` where they are declared.
+ *
+ * This does not replace the per-screen work — `h-12` inputs and `h-14` primary
+ * actions are still written out, because 44px is a floor and the primary action
+ * on a phone should be well above it. It catches what the floor is for: the
+ * long tail nobody would otherwise find.
+ * ───────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  main button,
+  main a[href],
+  main [role="button"],
+  main summary,
+  main select,
+  main textarea,
+  main input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]) {
+    min-height: 44px;
+  }
+
+  /*
+   * And the other half of the same problem: mobile Safari ZOOMS THE PAGE IN
+   * when a focused form control's font-size is under 16px. It is not a
+   * preference and there is no opt-out — `maximum-scale=1` is ignored on iOS
+   * and would break pinch-zoom for low-vision users anyway.
+   *
+   * In this shell the consequence is worse than the usual one: `<main>` is the
+   * scroll container, so the zoom leaves the reader scrolled sideways inside a
+   * box whose own `scrollWidth` still measures clean. No screenshot shows it
+   * and no overflow assertion catches it — which is why it survived on four
+   * screens that had already been through a mobile pass.
+   */
+  main input:not([type="hidden"]),
+  main select,
+  main textarea {
+    font-size: 16px;
+  }
+
+  /*
+   * FullCalendar draws its own toolbar and its own buttons, so neither a
+   * Tailwind class nor the height floor above can reach their WIDTH: prev and
+   * next render as 42px squares. This is the one place a third-party widget
+   * has to be reached into, and it is scoped to the phone breakpoint like
+   * everything else here.
+   */
+  .fc .fc-button {
+    min-width: 44px;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * REDUCED MOTION
+ *
+ * The ESS phone pass adds a framer-motion entrance to every screen, and this
+ * app had no reduced-motion handling at all before it. An OS-level "reduce
+ * motion" is an accessibility setting, not a preference to be second-guessed:
+ * vestibular disorders make sliding and scaling genuinely unpleasant.
+ *
+ * 0.01ms rather than `none` on purpose — a zeroed duration still fires
+ * `animationend`/`transitionend`, so components that wait for one do not hang.
+ * ───────────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * DASHBOARD — Premium KPI card & sparkline utilities
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * THE CARD — flat surface panel
+ *
+ * `.surface-panel` is the canonical card for the whole product: a flat panel on
+ * `--color-surface-card` with a hairline border, so a page holding five figures
+ * and two charts reads as one surface rather than seven floating ones.
+ *
+ * It started life as the module-hub card while the dashboards wore the
+ * glassmorphic `.kpi-card` below, and the split was on purpose — but it left a
+ * user moving from the dashboard to any module page looking at two different
+ * products, on top of ~30 files that had hand-rolled a third variant out of
+ * `bg-white rounded-xl border-slate-200 shadow-sm`. Those are all this class now.
+ *
+ * `.kpi-card` survives in exactly three places, and nothing else should reach
+ * for it: the dashboard hero rows (`OverviewCards`, `StatusSummaryCardsV2`),
+ * where the glass lift is the point, and the Recharts tooltips, which are
+ * floating overlays rather than cards.
+ * ───────────────────────────────────────────────────────────────────────────── */
+.surface-panel {
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-surface-border);
+  border-radius: 20px;
+  box-shadow:
+    0 1px 3px rgba(16, 24, 40, 0.04),
+    0 4px 16px -4px rgba(16, 24, 40, 0.04);
+}
+
+/* Only for panels that are links; a static panel must not invite a click. */
+a.surface-panel,
+.surface-panel-interactive {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+a.surface-panel:hover,
+.surface-panel-interactive:hover {
+  border-color: color-mix(in srgb, var(--color-brand-primary) 35%, var(--color-surface-border));
+  box-shadow: 0 8px 24px -4px rgba(16, 24, 40, 0.08);
+  transform: translateY(-2px);
+}
+
+.stat-tile-face {
+  background: var(--color-surface-card);
+  border-radius: 18px;
+}
+
+/*
+ * Module-landing KPI tile. Not a card family of its own — it is always worn
+ * WITH `.surface-panel` (see `components/module-landing/StatCard.tsx`), and adds
+ * only the hover transition; the surface, border and shadow come from the panel.
+ */
+.stat-card {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+a.stat-card:hover,
+.stat-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--color-brand-primary) 35%, var(--color-surface-border));
+  box-shadow: 0 10px 24px -8px rgba(16, 24, 40, 0.12);
+}
+
+/* Recharts paints its own focus ring on the surface; we never want it. */
+.recharts-wrapper:focus,
+.recharts-surface:focus {
+  outline: none;
+}
+
+/* Glassmorphic KPI card base — all dashboard cards inherit from this */
+.kpi-card {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.04),
+    0 12px 28px rgba(0, 0, 0, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.kpi-card:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.04),
+    0 8px 24px rgba(0, 0, 0, 0.07),
+    0 20px 40px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* SVG sparkline fade mask — fades left and right edges */
+.sparkline-mask {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 12%,
+    black 88%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 12%,
+    black 88%,
+    transparent 100%
+  );
+}
+
+/* Metric change pill / badge */
+.stat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  line-height: 1;
+}
+
+.stat-badge-up {
+  background-color: var(--color-status-success-bg);
+  color: var(--color-status-success);
+  border: 1px solid color-mix(in srgb, var(--color-status-success) 20%, transparent);
+}
+
+.stat-badge-down {
+  background-color: var(--color-status-error-bg);
+  color: var(--color-status-error);
+  border: 1px solid color-mix(in srgb, var(--color-status-error) 20%, transparent);
+}
+
+/* Thick section divider with left accent */
+.section-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.section-divider::before {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 20px;
+  border-radius: 9999px;
+  background: var(--color-brand-primary);
+}
+
+.section-divider::after {
+  content: '';
+  display: block;
+  flex: 1;
+  height: 1px;
+  background: var(--color-surface-border);
+}
+
+
+/* Skeleton shimmer — professional loading sweep (used by the HR Copilot).
+   Solid slate base so the block is always visible; a light sweep gives motion. */
+@keyframes copilot-shimmer {
+  0%   { background-position: -150% 0; }
+  100% { background-position: 150% 0; }
+}
+.shimmer {
+  background-color: rgb(226 232 240); /* slate-200 — always visible */
+  background-image: linear-gradient(
+    90deg,
+    rgba(226, 232, 240, 0) 0%,
+    rgba(255, 255, 255, 0.9) 50%,
+    rgba(226, 232, 240, 0) 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: copilot-shimmer 1.5s infinite;
+}

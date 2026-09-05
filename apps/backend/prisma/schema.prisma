@@ -1,0 +1,318 @@
+// People Pay 360 — Prisma schema
+//
+// Conventions carried over from the ESS/HRM checkout and worth keeping:
+//   • Model names are PascalCase singular; every table/column is mapped to
+//     snake_case with @map/@@map, so the database reads naturally to a DBA and
+//     the client reads naturally to TypeScript.
+//   • Ids are database-generated uuids (`gen_random_uuid()`), not application
+//     ones, so a row inserted by a migration or by hand is indistinguishable
+//     from one the app made.
+//   • Money is Decimal(18, 3) — three decimals because the Gulf currencies this
+//     is built for (OMR, KWD, BHD) are thousandths, not hundredths. Never Float:
+//     binary floating point cannot represent 0.1 and payroll must balance.
+//   • Timestamps are @db.Timestamp(6) and stored UTC.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// =====================================================
+// ENUMS
+// =====================================================
+
+enum UserRole {
+  ADMIN
+  HR_MANAGER
+  PAYROLL_OFFICER
+  MANAGER
+  EMPLOYEE
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum PayrollRunStatus {
+  DRAFT
+  CALCULATED
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+enum SalaryComponentType {
+  EARNING
+  DEDUCTION
+  EMPLOYER_CONTRIBUTION
+}
+
+// =====================================================
+// IDENTITY
+// =====================================================
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String   @unique @db.VarChar(255)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  role         UserRole @default(EMPLOYEE)
+  employeeId   String?  @unique @map("employee_id") @db.Uuid
+  isActive     Boolean  @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamp(6)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee  Employee?  @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  auditLogs AuditLog[]
+
+  @@index([role])
+  @@map("users")
+}
+
+// =====================================================
+// ORGANISATION
+// =====================================================
+
+model Company {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @db.VarChar(255)
+  legalName String?  @map("legal_name") @db.VarChar(255)
+  /// IANA zone. Every wall-clock the app stores — shift starts, cut-off times —
+  /// is interpreted in THIS zone, not in the browser's. Getting that wrong is
+  /// how reminders end up firing hours early for half the workforce.
+  timezone  String   @default("Asia/Muscat") @db.VarChar(64)
+  currency  String   @default("OMR") @db.VarChar(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  branches Branch[]
+
+  @@map("companies")
+}
+
+model Branch {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  code      String   @unique @db.VarChar(32)
+  name      String   @db.VarChar(255)
+  timezone  String?  @db.VarChar(64)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  departments Department[]
+  employees   Employee[]
+
+  @@index([companyId])
+  @@map("branches")
+}
+
+model Department {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId  String?  @map("branch_id") @db.Uuid
+  code      String   @unique @db.VarChar(32)
+  name      String   @db.VarChar(255)
+  managerId String?  @map("manager_id") @db.Uuid
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  branch    Branch?    @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  manager   Employee?  @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
+  employees Employee[]
+
+  @@index([branchId])
+  @@map("departments")
+}
+
+// =====================================================
+// PEOPLE
+// =====================================================
+
+model Employee {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeCode String         @unique @map("employee_code") @db.VarChar(32)
+  firstName    String         @map("first_name") @db.VarChar(120)
+  lastName     String         @map("last_name") @db.VarChar(120)
+  workEmail    String?        @unique @map("work_email") @db.VarChar(255)
+  phone        String?        @db.VarChar(32)
+  position     String?        @db.VarChar(160)
+  status       EmployeeStatus @default(ACTIVE)
+  hireDate     DateTime?      @map("hire_date") @db.Date
+  exitDate     DateTime?      @map("exit_date") @db.Date
+  branchId     String?        @map("branch_id") @db.Uuid
+  departmentId String?        @map("department_id") @db.Uuid
+  managerId    String?        @map("manager_id") @db.Uuid
+  /// Personal IANA zone. NULL means "use the company zone" — an explicit null
+  /// rather than a copied default, so changing the company zone moves everyone
+  /// who never set one.
+  timezone     String?        @db.VarChar(64)
+  avatarUrl    String?        @map("avatar_url") @db.VarChar(512)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  branch             Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  department         Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  manager            Employee?         @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
+  reports            Employee[]        @relation("EmployeeManager")
+  managedDepartments Department[]      @relation("DepartmentManager")
+  user               User?
+  salaryStructure    SalaryStructure?
+  payslips           Payslip[]
+
+  @@index([departmentId])
+  @@index([branchId])
+  @@index([status])
+  @@map("employees")
+}
+
+// =====================================================
+// PAYROLL
+// =====================================================
+
+model SalaryComponent {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String              @unique @db.VarChar(32)
+  name        String              @db.VarChar(160)
+  type        SalaryComponentType
+  /// Whether this component counts toward gratuity / end-of-service accrual.
+  isGratuityBase Boolean          @default(false) @map("is_gratuity_base")
+  isTaxable   Boolean             @default(true) @map("is_taxable")
+  sequence    Int                 @default(100)
+  isActive    Boolean             @default(true) @map("is_active")
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  structureLines SalaryStructureLine[]
+  payslipLines   PayslipLine[]
+
+  @@map("salary_components")
+}
+
+model SalaryStructure {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId String   @unique @map("employee_id") @db.Uuid
+  currency   String   @default("OMR") @db.VarChar(3)
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  lines    SalaryStructureLine[]
+
+  @@map("salary_structures")
+}
+
+model SalaryStructureLine {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  structureId String  @map("structure_id") @db.Uuid
+  componentId String  @map("component_id") @db.Uuid
+  amount      Decimal @db.Decimal(18, 3)
+
+  structure SalaryStructure @relation(fields: [structureId], references: [id], onDelete: Cascade)
+  component SalaryComponent @relation(fields: [componentId], references: [id], onDelete: Restrict)
+
+  @@unique([structureId, componentId])
+  @@map("salary_structure_lines")
+}
+
+model PayrollRun {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Period is stored as its first day, not as "2026-09", so it sorts and
+  /// range-queries as a date rather than as a string.
+  periodStart DateTime         @map("period_start") @db.Date
+  periodEnd   DateTime         @map("period_end") @db.Date
+  status      PayrollRunStatus @default(DRAFT)
+  currency    String           @default("OMR") @db.VarChar(3)
+  totalGross  Decimal          @default(0) @map("total_gross") @db.Decimal(18, 3)
+  totalNet    Decimal          @default(0) @map("total_net") @db.Decimal(18, 3)
+  approvedAt  DateTime?        @map("approved_at") @db.Timestamp(6)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  payslips Payslip[]
+
+  @@unique([periodStart, periodEnd])
+  @@index([status])
+  @@map("payroll_runs")
+}
+
+model Payslip {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payrollRunId String   @map("payroll_run_id") @db.Uuid
+  employeeId   String   @map("employee_id") @db.Uuid
+  grossPay     Decimal  @default(0) @map("gross_pay") @db.Decimal(18, 3)
+  totalDeductions Decimal @default(0) @map("total_deductions") @db.Decimal(18, 3)
+  netPay       Decimal  @default(0) @map("net_pay") @db.Decimal(18, 3)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  payrollRun PayrollRun    @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee   Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  lines      PayslipLine[]
+
+  @@unique([payrollRunId, employeeId])
+  @@index([employeeId])
+  @@map("payslips")
+}
+
+model PayslipLine {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payslipId   String              @map("payslip_id") @db.Uuid
+  componentId String?             @map("component_id") @db.Uuid
+  /// Denormalised on purpose: a payslip is a legal record of what was paid, so
+  /// it must still read correctly after the component behind it is renamed or
+  /// retired. Never resolve these labels through the component at display time.
+  label       String              @db.VarChar(160)
+  type        SalaryComponentType
+  amount      Decimal             @db.Decimal(18, 3)
+  sequence    Int                 @default(100)
+
+  payslip   Payslip          @relation(fields: [payslipId], references: [id], onDelete: Cascade)
+  component SalaryComponent? @relation(fields: [componentId], references: [id], onDelete: SetNull)
+
+  @@index([payslipId])
+  @@map("payslip_lines")
+}
+
+// =====================================================
+// PLATFORM
+// =====================================================
+
+model SystemSetting {
+  key       String   @id @db.VarChar(128)
+  value     String   @db.Text
+  /// Set when `value` holds ciphertext rather than plaintext (integration
+  /// credentials). Encrypted values are never returned by any API response.
+  isSecret  Boolean  @default(false) @map("is_secret")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  @@map("system_settings")
+}
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String   @db.VarChar(64)
+  entityType String   @map("entity_type") @db.VarChar(64)
+  entityId   String?  @map("entity_id") @db.VarChar(64)
+  metadata   Json?
+  ipAddress  String?  @map("ip_address") @db.VarChar(64)
+  userAgent  String?  @map("user_agent") @db.VarChar(512)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
