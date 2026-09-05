@@ -35,6 +35,8 @@
   "system": "System",
   "settings": "Settings",
   "toggleSection": "Toggle {section}",
+  "collapseSidebar": "Collapse sidebar",
+  "expandSidebar": "Expand sidebar",
   "leaveOvertime": "Leave & overtime",
   "leaveRequests": "Leave requests",
   "pendingLeave": "Pending leave",

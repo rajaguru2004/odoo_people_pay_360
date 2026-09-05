@@ -35,6 +35,8 @@
   "system": "النظام",
   "settings": "الإعدادات",
   "toggleSection": "إظهار أو إخفاء {section}",
+  "collapseSidebar": "طي الشريط الجانبي",
+  "expandSidebar": "توسيع الشريط الجانبي",
   "leaveOvertime": "الإجازات والعمل الإضافي",
   "leaveRequests": "طلبات الإجازة",
   "pendingLeave": "الإجازات المعلقة",

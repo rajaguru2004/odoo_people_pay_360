@@ -488,6 +488,45 @@ export interface FaceEnrollment {
   updatedAt: string;
 }
 
+/** One row of the enrolment gallery. Reference photo, quality, date — no template. */
+export interface FaceEnrollmentGalleryItem {
+  id: string;
+  employeeId: string;
+  /** Server-relative, e.g. `/uploads/face-enrollments/<id>/<ts>.jpg`. */
+  imageUrl: string | null;
+  quality: number;
+  isActive: boolean;
+  createdAt: string;
+}
+
+/** `POST /face-enrollments/register` — the frame the browser captured. */
+export interface RegisterFacePayload {
+  /** A data URI. The server computes the template from it; the browser cannot. */
+  image: string;
+  /** Enrol somebody else. HR only; omitted, it enrols the caller. */
+  employeeId?: string;
+}
+
+export interface RegisterFaceResult extends FaceEnrollmentGalleryItem {
+  totalRegistered: number;
+  maxAllowed: number;
+  /** How many the guided flow asks for before an enrolment is usable. */
+  required: number;
+  employee: { id: string; employeeCode: string; fullName: string };
+}
+
+/**
+ * `GET /face-enrollments/counts` — how many templates each employee holds.
+ *
+ * Counted in the database and returned whole, so the enrolment table can label
+ * every row without asking per employee.
+ */
+export interface FaceEnrollmentCounts {
+  maxAllowed: number;
+  required: number;
+  counts: { employeeId: string; count: number }[];
+}
+
 export interface CreateFaceEnrollmentPayload {
   employeeId: string;
   /** Exactly 128 finite numbers — the server refuses anything else. */
