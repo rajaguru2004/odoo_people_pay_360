@@ -64,6 +64,12 @@ const DEFAULTS: Record<string, string> = {
   face_recognition_min_quality: '0.6',
   /** Distance below which two face templates are the same person. */
   face_recognition_match_threshold: '0.6',
+  /**
+   * Templates one person may hold. Three is what the guided enrolment asks for
+   * — front, and a small turn each way — and the spare two are for a change of
+   * glasses or a beard, not for five captures of the same pose.
+   */
+  face_recognition_max_descriptors: '5',
 };
 
 @Injectable()

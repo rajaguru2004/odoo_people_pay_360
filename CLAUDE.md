@@ -116,7 +116,8 @@ still owns its URL prefix.
 | Attendance list / today / summary | ✓ | ✓ | ✓ | ✓ | |
 | Own attendance history | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Branch / department / employee lists | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Biometric enrolment | ✓ | ✓ | | | |
+| Biometric enrolment — anyone else | ✓ | ✓ | | | |
+| Biometric enrolment — YOUR OWN face | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 The workforce-wide attendance views answer BY NAME — who was absent, who arrived
 late — which is why an employee is refused them while still being entitled to
@@ -137,8 +138,17 @@ cannot see that.
   auditor asks when a permit actually lapsed, about a date already past.
 - **An approved correction stamps the attendance row `source: MANUAL`**, so a
   later import cannot silently undo a human decision.
-- **A face descriptor travels one way.** It goes up at enrolment and never comes
-  back: responses carry existence, quality and date, nothing matchable offline.
+- **A face descriptor travels one way, and the BROWSER never makes one.** The
+  portal ships no recogniser — face-api runs server-side in `FaceDescriptorService`,
+  so enrolment posts a JPEG to `POST /face-enrollments/register` and gets back
+  existence, quality and date. A descriptor never comes down, and a template
+  computed by a different model than the one doing the matching would recognise
+  nobody, which is why the browser is not allowed to try. (`POST /face-enrollments`
+  still takes a pre-computed template, for a terminal that ran the model itself.)
+- **Three captures, from three angles.** One frontal template matches a frontal
+  pose and little else. The guided flow refuses a capture within 0.3 of one
+  already on file, because a second copy of the same pose spends a slot without
+  adding a pose.
 - **Per-branch settings are nullable and mean "inherit".** An explicit null, not
   a copied default, so changing the company value moves every branch that never
   overrode it.

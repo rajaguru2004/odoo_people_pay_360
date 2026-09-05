@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import faceEnrollmentService from '@/services/faceEnrollmentService';
 import type {
   CreateFaceEnrollmentPayload,
+  RegisterFacePayload,
   VerifyFacePayload,
 } from '@/types/attendance';
 
@@ -13,6 +14,8 @@ export const faceEnrollmentKeys = {
   employee: (employeeId: string) =>
     [...faceEnrollmentKeys.all, 'employee', employeeId] as const,
   status: () => [...faceEnrollmentKeys.all, 'status'] as const,
+  mine: () => [...faceEnrollmentKeys.all, 'mine'] as const,
+  counts: () => [...faceEnrollmentKeys.all, 'counts'] as const,
 };
 
 export function useFaceEnrollments() {
@@ -27,6 +30,40 @@ export function useEmployeeFaceEnrollments(employeeId: string | undefined) {
     queryKey: faceEnrollmentKeys.employee(employeeId!),
     queryFn: () => faceEnrollmentService.forEmployee(employeeId!),
     enabled: !!employeeId,
+  });
+}
+
+/** The signed-in employee's own gallery. */
+export function useMyFaceEnrollments() {
+  return useQuery({
+    queryKey: faceEnrollmentKeys.mine(),
+    queryFn: () => faceEnrollmentService.mine(),
+  });
+}
+
+/** Per-employee template counts for the enrolment table. HR only. */
+export function useFaceEnrollmentCounts(enabled = true) {
+  return useQuery({
+    queryKey: faceEnrollmentKeys.counts(),
+    queryFn: () => faceEnrollmentService.counts(),
+    enabled,
+  });
+}
+
+/**
+ * Enrol from a captured photo.
+ *
+ * Invalidates the whole subtree rather than a guessed key: one capture moves
+ * the gallery, the status card AND the per-employee counts, and a screen still
+ * showing 2/3 after the third capture is the bug this avoids.
+ */
+export function useRegisterFace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: RegisterFacePayload) =>
+      faceEnrollmentService.register(payload),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: faceEnrollmentKeys.all }),
   });
 }
 

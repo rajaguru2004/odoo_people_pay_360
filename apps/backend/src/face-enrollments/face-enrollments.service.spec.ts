@@ -1,6 +1,7 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../system-settings/system-settings.service';
 import { FaceEnrollmentsService } from './face-enrollments.service';
+import { FaceDescriptorService } from './face-descriptor.service';
 import { DEFAULT_MATCH_THRESHOLD } from './face-match.util';
 
 const WIDTH = 128;
@@ -63,6 +64,9 @@ describe('FaceEnrollmentsService', () => {
     service = new FaceEnrollmentsService(
       prisma as unknown as PrismaService,
       settings as unknown as SystemSettingsService,
+      // Never reached by these cases: `verify` takes a template that has
+      // already been computed, and the recogniser only runs on `register`.
+      { extract: jest.fn() } as unknown as FaceDescriptorService,
     );
     prisma.employee.findUnique.mockResolvedValue({ id: AISHA });
     settings.getNumber.mockResolvedValue(DEFAULT_MATCH_THRESHOLD);

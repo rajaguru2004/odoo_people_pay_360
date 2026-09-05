@@ -200,8 +200,13 @@ test.describe('Biometric enrolment', () => {
       page.getByRole('heading', { name: /biometric enrolment/i }),
     ).toBeVisible();
 
-    // The page reports quality and date. A descriptor reaching the browser at
-    // all would be a leak, so nothing on this screen can render one.
-    await expect(page.getByText(/quality/i).first()).toBeVisible();
+    // The table answers how many captures each person holds and whether that is
+    // enough to punch with. A descriptor reaching the browser at all would be a
+    // leak, so nothing on this screen can render one — the counts come from
+    // `/face-enrollments/counts`, which returns totals and no templates.
+    await expect(page.getByTestId('bio-search')).toBeVisible();
+    await expect(
+      page.getByRole('columnheader', { name: /captures/i }),
+    ).toBeVisible();
   });
 });

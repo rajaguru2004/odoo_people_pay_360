@@ -15,6 +15,7 @@ import { FaceEnrollmentsService } from './face-enrollments.service';
 import { CreateFaceEnrollmentDto } from './dto/create-face-enrollment.dto';
 import { ListFaceEnrollmentsDto } from './dto/list-face-enrollments.dto';
 import { VerifyFaceDto } from './dto/verify-face.dto';
+import { RegisterFaceDto } from './dto/register-face.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -51,6 +52,30 @@ export class FaceEnrollmentsController {
     return this.service.statusFor(user.employeeId);
   }
 
+  // Literal segments, declared before `employee/:employeeId` for the same
+  // reason `status` is: Express matches in order and would read either as a
+  // parameterised path otherwise.
+  @Get('me')
+  @ApiOperation({
+    summary: "The signed-in employee's own enrolments",
+    description:
+      'Ids, reference photos, quality and dates. The template is not part of the response.',
+  })
+  mine(@CurrentUser() user: Principal) {
+    return this.service.mine(user.employeeId);
+  }
+
+  @Get('counts')
+  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
+  @ApiOperation({
+    summary: 'How many templates each employee holds',
+    description:
+      'Counted in the database, so the enrolment table reports a true total rather than the length of a page.',
+  })
+  counts() {
+    return this.service.countsByEmployee();
+  }
+
   @Get('employee/:employeeId')
   @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
   @ApiOperation({ summary: "One employee's enrolments" })
@@ -73,17 +98,44 @@ export class FaceEnrollmentsController {
     return this.service.verify(dto);
   }
 
+  /**
+   * Open to every signed-in caller because enrolling YOURSELF is the whole
+   * point of the self-service screen. Enrolling somebody else needs ADMIN or
+   * HR_MANAGER, which the service checks — the decorator cannot, because the
+   * answer depends on whose record the body names.
+   */
+  @Post('register')
+  @ApiOperation({
+    summary: 'Enrol from a captured photo',
+    description:
+      'The server computes the template from the frame. The browser has no recogniser, and a template built by a different model than the one that matches it recognises nobody.',
+  })
+  register(@Body() dto: RegisterFaceDto, @CurrentUser() user: Principal) {
+    return this.service.register(dto, user);
+  }
+
   @Post()
   @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Enrol a face template' })
+  @ApiOperation({
+    summary: 'Enrol a pre-computed face template',
+    description:
+      'For a terminal that ran the recogniser itself. A browser sends a photo to /register instead.',
+  })
   create(@Body() dto: CreateFaceEnrollmentDto) {
     return this.service.create(dto);
   }
 
+  /** Ownership is checked in the service — see the note on `removeFor`. */
   @Delete(':id')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Delete a face enrolment' })
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.remove(id);
+  @ApiOperation({
+    summary: 'Delete a face enrolment',
+    description:
+      "HR may delete anybody's; everybody else may delete only their own.",
+  })
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: Principal,
+  ) {
+    return this.service.removeFor(id, user);
   }
 }

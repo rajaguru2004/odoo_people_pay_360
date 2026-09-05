@@ -3,16 +3,20 @@ import { ApiResponse } from '@/types/api';
 import type {
   CreateFaceEnrollmentPayload,
   FaceEnrollment,
+  FaceEnrollmentCounts,
+  FaceEnrollmentGalleryItem,
   FaceEnrollmentStatus,
   FaceVerifyResult,
+  RegisterFacePayload,
+  RegisterFaceResult,
   VerifyFacePayload,
 } from '@/types/attendance';
 
 /**
  * Biometric enrolment.
  *
- * The face descriptor travels one way only. It goes up when a template is
- * registered and never comes back down: responses carry the enrolment's
+ * The face descriptor travels one way only. It is computed on the SERVER from
+ * the captured frame and never comes back down: responses carry the enrolment's
  * existence, quality and date, and nothing that could be matched against a
  * person offline.
  */
@@ -30,6 +34,28 @@ class FaceEnrollmentService {
     return axiosInstance.get('/face-enrollments/status');
   }
 
+  /** The signed-in employee's own gallery. */
+  mine(): Promise<ApiResponse<FaceEnrollmentGalleryItem[]>> {
+    return axiosInstance.get('/face-enrollments/me');
+  }
+
+  /** How many templates each employee holds, counted in the database. */
+  counts(): Promise<ApiResponse<FaceEnrollmentCounts>> {
+    return axiosInstance.get('/face-enrollments/counts');
+  }
+
+  /**
+   * Enrol from a captured frame.
+   *
+   * The photo goes up and the server turns it into a template. It is not done
+   * here because the portal ships no recogniser — and a template built by a
+   * different model than the one that matches it would recognise nobody.
+   */
+  register(payload: RegisterFacePayload): Promise<ApiResponse<RegisterFaceResult>> {
+    return axiosInstance.post('/face-enrollments/register', payload);
+  }
+
+  /** For a terminal that ran the recogniser itself. A browser uses `register`. */
   create(
     payload: CreateFaceEnrollmentPayload,
   ): Promise<ApiResponse<FaceEnrollment>> {
