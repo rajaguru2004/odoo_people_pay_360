@@ -866,18 +866,30 @@ model SalaryStructureLine {
 }
 
 model PayrollRun {
-  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// Period is stored as its first day, not as "2026-09", so it sorts and
   /// range-queries as a date rather than as a string.
-  periodStart DateTime         @map("period_start") @db.Date
-  periodEnd   DateTime         @map("period_end") @db.Date
-  status      PayrollRunStatus @default(DRAFT)
-  currency    String           @default("OMR") @db.VarChar(3)
-  totalGross  Decimal          @default(0) @map("total_gross") @db.Decimal(18, 3)
-  totalNet    Decimal          @default(0) @map("total_net") @db.Decimal(18, 3)
-  approvedAt  DateTime?        @map("approved_at") @db.Timestamp(6)
-  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt   DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  periodStart     DateTime         @map("period_start") @db.Date
+  periodEnd       DateTime         @map("period_end") @db.Date
+  status          PayrollRunStatus @default(DRAFT)
+  currency        String           @default("OMR") @db.VarChar(3)
+  totalGross      Decimal          @default(0) @map("total_gross") @db.Decimal(18, 3)
+  totalNet        Decimal          @default(0) @map("total_net") @db.Decimal(18, 3)
+  notes           String?          @db.Text
+  /// Who approved, kept as a plain id rather than a relation: an approver may
+  /// later be deactivated, and the run must keep saying who signed it.
+  approvedById    String?          @map("approved_by_id") @db.Uuid
+  /// Why the run went back to DRAFT. Cleared on the next calculation, because a
+  /// stale reason next to fresh figures reads as a live objection.
+  rejectionReason String?          @map("rejection_reason") @db.Text
+  approvedAt      DateTime?        @map("approved_at") @db.Timestamp(6)
+  calculatedAt    DateTime?        @map("calculated_at") @db.Timestamp(6)
+  paidAt          DateTime?        @map("paid_at") @db.Timestamp(6)
+  /// Counted at calculation, not derived from a page of payslips — the number
+  /// the run header states is the number the run actually produced.
+  employeeCount   Int              @default(0) @map("employee_count")
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
   payslips Payslip[]
 
@@ -886,15 +898,37 @@ model PayrollRun {
   @@map("payroll_runs")
 }
 
+/// One employee's pay for one run.
+///
+/// **A payslip is its own history.** `SalaryStructure.employeeId` is `@unique`,
+/// so a pay rise overwrites the structure and nothing is kept of what it used
+/// to say. That loses nothing, because `PayslipLine` snapshots `code`, `label`,
+/// `type` and `amount` at generation: the record of what was paid lives here,
+/// not in the structure it was derived from.
+///
+/// **Employer contributions are recorded, never paid.** `EMPLOYER_CONTRIBUTION`
+/// lines are stored and summed into `totalEmployerCost`, and are excluded from
+/// `grossPay`, `totalDeductions` and `netPay` — they are what the employer
+/// spends, not what the employee receives.
 model Payslip {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  payrollRunId    String   @map("payroll_run_id") @db.Uuid
-  employeeId      String   @map("employee_id") @db.Uuid
-  grossPay        Decimal  @default(0) @map("gross_pay") @db.Decimal(18, 3)
-  totalDeductions Decimal  @default(0) @map("total_deductions") @db.Decimal(18, 3)
-  netPay          Decimal  @default(0) @map("net_pay") @db.Decimal(18, 3)
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payrollRunId      String   @map("payroll_run_id") @db.Uuid
+  employeeId        String   @map("employee_id") @db.Uuid
+  /// Human-quotable reference, unique across every run. An employee asking about
+  /// "PS-2026-08-0031" must land on exactly one row.
+  payslipNumber     String   @unique @map("payslip_number") @db.VarChar(32)
+  /// The period's working days for THIS employee's branch calendar, and the days
+  /// actually paid. `lopDays` is stored rather than recomputed so the payslip
+  /// still explains itself after the branch calendar is edited.
+  workDays          Int      @default(0) @map("work_days")
+  paidDays          Decimal  @default(0) @map("paid_days") @db.Decimal(5, 2)
+  lopDays           Decimal  @default(0) @map("lop_days") @db.Decimal(5, 2)
+  grossPay          Decimal  @default(0) @map("gross_pay") @db.Decimal(18, 3)
+  totalDeductions   Decimal  @default(0) @map("total_deductions") @db.Decimal(18, 3)
+  netPay            Decimal  @default(0) @map("net_pay") @db.Decimal(18, 3)
+  totalEmployerCost Decimal  @default(0) @map("total_employer_cost") @db.Decimal(18, 3)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
   payrollRun PayrollRun    @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
   employee   Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
@@ -912,6 +946,11 @@ model PayslipLine {
   /// Denormalised on purpose: a payslip is a legal record of what was paid, so
   /// it must still read correctly after the component behind it is renamed or
   /// retired. Never resolve these labels through the component at display time.
+  /// The stable machine key reports and the UI join on — `BASIC`, `HRA`, `LOP`.
+  /// Needed because `componentId` is nullable: the LOP line has no component
+  /// behind it, and nothing may be resolved through the component at display
+  /// time anyway.
+  code        String              @db.VarChar(32)
   label       String              @db.VarChar(160)
   type        SalaryComponentType
   amount      Decimal             @db.Decimal(18, 3)

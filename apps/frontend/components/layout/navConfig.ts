@@ -243,7 +243,25 @@ export const adminMenuItems: NavGroup[] = [
     labelKey: 'payroll',
     href: '/dashboard/payroll',
     roles: ['ADMIN', 'HR_MANAGER', 'PAYROLL_OFFICER'],
-    permissions: ['VIEW_ALL_PAYROLL', 'VIEW_OWN_PAYSLIP'],
+    // GET /payroll/hub-summary is ADMIN + HR + payroll officer — the same three
+    // the group is for, so no re-pointing is needed here. The manager and
+    // employee trees are the ones that need it, and they carry it below.
+    hubRoles: ['ADMIN', 'HR_MANAGER', 'PAYROLL_OFFICER'],
+    permissions: ['VIEW_ALL_PAYROLL'],
+    children: [
+      { labelKey: 'payrollRuns', href: '/dashboard/payroll/runs' },
+      // Starting a run is MANAGE_PAYROLL. An HR manager reads payroll and does
+      // not run it, and POST /payroll-runs refuses them.
+      {
+        labelKey: 'runPayroll',
+        href: '/dashboard/payroll/runs/new',
+        roles: ['ADMIN', 'PAYROLL_OFFICER'],
+      },
+      { labelKey: 'payslips', href: '/dashboard/payroll/payslips' },
+      { labelKey: 'salaryStructures', href: '/dashboard/payroll/structures' },
+      { labelKey: 'salaryComponents', href: '/dashboard/payroll/salary-components' },
+      { labelKey: 'payrollReports', href: '/dashboard/payroll/reports' },
+    ],
   },
   {
     icon: Settings,
@@ -343,9 +361,13 @@ export const departmentHeadMenuItems: NavGroup[] = [
     ],
   },
   {
+    // Pointed at self-service, NOT at the hub. A manager holds only
+    // VIEW_OWN_PAYSLIP, and GET /payroll/hub-summary refuses them — left
+    // pointing at /dashboard/payroll this entry would bounce them to /403 by
+    // way of their own sidebar, the defect docs/MIGRATION.md §8 records.
     icon: Wallet,
-    labelKey: 'payroll',
-    href: '/dashboard/payroll',
+    labelKey: 'myPayslips',
+    href: '/dashboard/my-payslips',
     roles: ['MANAGER'],
     permissions: ['VIEW_OWN_PAYSLIP'],
   },
@@ -386,9 +408,11 @@ export const employeeMenuItems: NavGroup[] = [
     permissions: ['VIEW_OWN_OVERTIME'],
   },
   {
+    // Self-service, for the same reason the manager entry is: the hub is a
+    // workforce-wide aggregate this role is refused.
     icon: Wallet,
-    labelKey: 'payroll',
-    href: '/dashboard/payroll',
+    labelKey: 'myPayslips',
+    href: '/dashboard/my-payslips',
     roles: ['EMPLOYEE'],
     permissions: ['VIEW_OWN_PAYSLIP'],
   },
