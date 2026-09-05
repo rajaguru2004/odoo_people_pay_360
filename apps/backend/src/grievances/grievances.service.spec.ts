@@ -11,6 +11,11 @@ const prismaMock = () => ({
 
 type PrismaMock = ReturnType<typeof prismaMock>;
 
+/** The first argument a mocked Prisma call received, typed for the assertion. */
+function firstArg<T>(mock: jest.Mock): T {
+  return (mock.mock.calls as T[][])[0][0];
+}
+
 /** A confidential case raised by Aisha ABOUT Karim, handled by an HR user. */
 const CONFIDENTIAL = {
   id: 'grievance-1',
@@ -19,8 +24,16 @@ const CONFIDENTIAL = {
   assignedToId: 'user-hr',
   isConfidential: true,
   status: 'INVESTIGATING',
-  employee: { id: 'employee-aisha', firstName: 'Aisha', lastName: 'Al Balushi' },
-  againstEmployee: { id: 'employee-karim', firstName: 'Karim', lastName: 'Said' },
+  employee: {
+    id: 'employee-aisha',
+    firstName: 'Aisha',
+    lastName: 'Al Balushi',
+  },
+  againstEmployee: {
+    id: 'employee-karim',
+    firstName: 'Karim',
+    lastName: 'Said',
+  },
 };
 
 const complainant = {
@@ -81,27 +94,24 @@ describe('grievance confidentiality', () => {
     it('answers 404 for the subject rather than 403', async () => {
       // Confirming a confidential case exists is itself the disclosure, so the
       // refusal must not distinguish "not yours" from "not there".
-      await expect(service.findOne('grievance-1', subject)).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      await expect(
+        service.findOne('grievance-1', subject),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('hides internal notes from the complainant', async () => {
       await service.findOne('grievance-1', complainant);
-      expect(prisma.grievanceEvent.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ isInternal: false }),
-        }),
+      const { where } = firstArg<{ where: Record<string, unknown> }>(
+        prisma.grievanceEvent.findMany,
       );
+      expect(where).toMatchObject({ isInternal: false });
     });
 
     it('shows internal notes to the handler', async () => {
       await service.findOne('grievance-1', handler);
-      const where = (
-        prisma.grievanceEvent.findMany.mock.calls[0][0] as {
-          where: Record<string, unknown>;
-        }
-      ).where;
+      const { where } = firstArg<{ where: Record<string, unknown> }>(
+        prisma.grievanceEvent.findMany,
+      );
       expect(where).not.toHaveProperty('isInternal');
     });
   });
@@ -114,11 +124,9 @@ describe('grievance confidentiality', () => {
 
       await service.findAll({}, handler);
 
-      const where = (
-        prisma.grievance.findMany.mock.calls[0][0] as {
-          where: { AND?: unknown[] };
-        }
-      ).where;
+      const { where } = firstArg<{ where: { AND?: unknown[] } }>(
+        prisma.grievance.findMany,
+      );
       // `NOT: { againstEmployeeId }` evaluates to NULL on the rows that name
       // nobody, so the database drops them — which would hide almost every
       // grievance from the desk. The predicate has to name both cases.
@@ -132,13 +140,16 @@ describe('grievance confidentiality', () => {
 
       await service.findAll({}, subject);
 
-      const where = (
-        prisma.grievance.findMany.mock.calls[0][0] as {
-          where: { AND: unknown[] };
-        }
-      ).where;
+      const { where } = firstArg<{ where: { AND: unknown[] } }>(
+        prisma.grievance.findMany,
+      );
       expect(where.AND).toEqual([
-        { OR: [{ employeeId: 'employee-karim' }, { assignedToId: 'user-karim' }] },
+        {
+          OR: [
+            { employeeId: 'employee-karim' },
+            { assignedToId: 'user-karim' },
+          ],
+        },
         {
           OR: [
             { againstEmployeeId: null },

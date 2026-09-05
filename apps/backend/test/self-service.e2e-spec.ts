@@ -26,7 +26,9 @@ describe('Employee self-service (e2e)', () => {
     hr = await signIn(app, ACCOUNTS.hr);
     employee = await signIn(app, ACCOUNTS.employee);
 
-    const me = await employee.auth(request(app.getHttpServer()).get('/auth/me'));
+    const me = await employee.auth(
+      request(app.getHttpServer()).get('/auth/me'),
+    );
     employeeId = me.body.data.employeeId ?? me.body.data.employee?.id;
   });
 
@@ -154,9 +156,9 @@ describe('Employee self-service (e2e)', () => {
 
       // The desk can see it.
       const desk = await hr.auth(http().get('/grievances')).expect(200);
-      expect(
-        desk.body.data.some((row: { id: string }) => row.id === id),
-      ).toBe(true);
+      expect(desk.body.data.some((row: { id: string }) => row.id === id)).toBe(
+        true,
+      );
 
       // The person it is about cannot — not in the list...
       const asSubject = await payroll
@@ -210,9 +212,14 @@ describe('Employee self-service (e2e)', () => {
   describe('my team', () => {
     it('answers with the people the caller supervises', async () => {
       const res = await hr.auth(http().get('/supervisors/my-team')).expect(200);
-      expect(res.body.data.count).toEqual(expect.any(Number));
-      expect(Array.isArray(res.body.data.data)).toBe(true);
-      for (const row of res.body.data.data) {
+
+      // The rows ARE the payload, and the count rides in `meta` — the same
+      // envelope as every other list. These endpoints are not the only ones in
+      // the system whose rows sit two levels deep.
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.meta.count).toBe(res.body.data.length);
+
+      for (const row of res.body.data) {
         // The screens read one name field; the parts stay beside it for the
         // avatar initials.
         expect(row.fullName).toEqual(expect.any(String));
@@ -224,7 +231,9 @@ describe('Employee self-service (e2e)', () => {
     it('returns the caller’s own month without naming anybody', async () => {
       const res = await employee
         .auth(
-          http().get('/calendar/my-calendar?startDate=2026-09-01&endDate=2026-09-30'),
+          http().get(
+            '/calendar/my-calendar?startDate=2026-09-01&endDate=2026-09-30',
+          ),
         )
         .expect(200);
       expect(res.body.data).toEqual(expect.any(Array));

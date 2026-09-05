@@ -24,12 +24,16 @@ import type { Principal } from '../auth/auth.service';
 /**
  * The shape the list routes answer with.
  *
- * The count travels beside the rows rather than being read off `data.length`:
- * these routes are not paginated, so there is no `meta` to carry it, and a
- * supervisor's team size is printed on screens that never render the list.
+ * The count travels beside the rows rather than being read off `data.length`,
+ * because a supervisor's team size is printed on screens that never render the
+ * list. It rides in `meta`, which the standard envelope already carries — the
+ * interceptor passes through anything that already has `success` on it, so a
+ * route needs no nested container of its own. A `{ count, data }` object under
+ * `data` would make these the only endpoints in the system whose rows sit two
+ * levels deep.
  */
 function team<T>(rows: T[]) {
-  return { count: rows.length, data: rows };
+  return { success: true as const, data: rows, meta: { count: rows.length } };
 }
 
 @ApiTags('Supervisors')

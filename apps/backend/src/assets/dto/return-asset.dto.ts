@@ -38,10 +38,11 @@ export class ReturnAssetDto {
   @ApiPropertyOptional({
     enum: RETURN_STATUSES,
     default: 'AVAILABLE',
-    description: 'A damaged or missing item must not re-enter the assignable pool',
+    description:
+      'A damaged or missing item must not re-enter the assignable pool',
   })
   @IsOptional()
-  @IsIn(RETURN_STATUSES as unknown as string[])
+  @IsIn(RETURN_STATUSES)
   assetStatus?: (typeof RETURN_STATUSES)[number];
 
   @ApiPropertyOptional()

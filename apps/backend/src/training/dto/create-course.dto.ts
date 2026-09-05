@@ -43,7 +43,9 @@ export class CreateCourseDto {
   @Min(0)
   durationHours?: number;
 
-  @ApiPropertyOptional({ description: 'Falls through to a session that sets no cost' })
+  @ApiPropertyOptional({
+    description: 'Falls through to a session that sets no cost',
+  })
   @IsOptional()
   @IsNumber()
   @Min(0)

@@ -19,7 +19,9 @@ export class RejectLetterDto {
     example: 'Salary data cannot be released to this addressee.',
     minLength: 5,
   })
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString()
   @MinLength(5, { message: 'A rejection reason must be at least 5 characters' })
   @MaxLength(500)

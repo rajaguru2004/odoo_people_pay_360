@@ -10,7 +10,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { AssetsService } from './assets.service';
 import { AssetAssignmentsService } from './asset-assignments.service';
@@ -44,9 +49,15 @@ export class AssetsController {
   @Get('my')
   @ApiOperation({ summary: 'Assets assigned to the caller' })
   @ApiQuery({ name: 'openOnly', required: false, type: Boolean })
-  myAssets(@CurrentUser() user: Principal, @Query('openOnly') openOnly?: string) {
+  myAssets(
+    @CurrentUser() user: Principal,
+    @Query('openOnly') openOnly?: string,
+  ) {
     if (!user?.employeeId) return [];
-    return this.assignments.findByEmployee(user.employeeId, openOnly === 'true');
+    return this.assignments.findByEmployee(
+      user.employeeId,
+      openOnly === 'true',
+    );
   }
 
   @Post('assignments/:id/acknowledge')
@@ -68,7 +79,9 @@ export class AssetsController {
 
   @Get('assignments/open')
   @Roles(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Everything currently held, optionally by one person' })
+  @ApiOperation({
+    summary: 'Everything currently held, optionally by one person',
+  })
   @ApiQuery({ name: 'employeeId', required: false })
   openAssignments(
     @CurrentUser() user: Principal,
@@ -138,10 +151,7 @@ export class AssetsController {
   @Patch(':id')
   @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
   @ApiOperation({ summary: 'Edit an asset' })
-  update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateAssetDto,
-  ) {
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAssetDto) {
     return this.assets.update(id, dto);
   }
 

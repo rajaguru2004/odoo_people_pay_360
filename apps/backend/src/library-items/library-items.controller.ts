@@ -10,7 +10,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { LibraryType, UserRole } from '@prisma/client';
 import { LibraryItemsService } from './library-items.service';
 import { CreateLibraryItemDto } from './dto/create-library-item.dto';

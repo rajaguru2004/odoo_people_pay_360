@@ -9,7 +9,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { LettersService } from './letters.service';
 import { RequestLetterDto } from './dto/request-letter.dto';
@@ -98,7 +103,10 @@ export class LettersController {
   @ApiOperation({
     summary: 'Render, number and file the letter in the employee’s vault',
   })
-  issue(@CurrentUser() user: Principal, @Param('id', ParseUUIDPipe) id: string) {
+  issue(
+    @CurrentUser() user: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.letters.issue(id, user);
   }
 

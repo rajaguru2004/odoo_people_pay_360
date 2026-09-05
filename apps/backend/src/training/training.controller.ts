@@ -10,7 +10,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { TrainingService } from './training.service';
 import { CreateCourseDto } from './dto/create-course.dto';
@@ -153,7 +158,10 @@ export class TrainingController {
 
   @Delete('nominations/:id')
   @ApiOperation({ summary: 'Cancel a nomination' })
-  cancel(@CurrentUser() user: Principal, @Param('id', ParseUUIDPipe) id: string) {
+  cancel(
+    @CurrentUser() user: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.training.cancelNomination(id, user);
   }
 }

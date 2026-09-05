@@ -12,7 +12,7 @@ import { initials } from '@/utils/formatters';
 
 function MyTeamScreen() {
   const { data, isLoading, isError, error } = useMySupervisees();
-  const team = data?.data?.data ?? [];
+  const team = data?.data ?? [];
 
   usePageHeader(
     'My team',

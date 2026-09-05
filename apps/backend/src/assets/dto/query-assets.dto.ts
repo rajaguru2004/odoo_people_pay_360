@@ -27,7 +27,9 @@ export class QueryAssetsDto {
   @IsUUID()
   branchId?: string;
 
-  @ApiPropertyOptional({ description: 'Matches the tag, the name or the serial number' })
+  @ApiPropertyOptional({
+    description: 'Matches the tag, the name or the serial number',
+  })
   @IsOptional()
   @IsString()
   search?: string;

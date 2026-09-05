@@ -15,7 +15,9 @@ export class CreateSessionDto {
   @IsUUID()
   courseId: string;
 
-  @ApiPropertyOptional({ description: 'Omit to open the session to every branch' })
+  @ApiPropertyOptional({
+    description: 'Omit to open the session to every branch',
+  })
   @IsOptional()
   @IsUUID()
   branchId?: string;

@@ -2126,7 +2126,7 @@ async function seedLeaveAccrualHistory(employees: Record<string, string>) {
     select: { defaultDays: true },
   });
   const perPeriod =
-    Math.round((((annual?.defaultDays ?? 12) / 12) + Number.EPSILON) * 100) / 100;
+    Math.round(((annual?.defaultDays ?? 12) / 12 + Number.EPSILON) * 100) / 100;
 
   // Every month up to and including the current one, in the company clock.
   const monthsSoFar = DateTime.now().setZone(COMPANY_ZONE).month;
@@ -3053,6 +3053,92 @@ const VAULT_DOCUMENTS: Array<{
   },
 ];
 
+/**
+ * A month of calendar for the self-service demo account.
+ *
+ * The roster in `seedWorkSchedules` deliberately covers the plant and the
+ * maintenance crew — the shift patterns the Schedules hub exists to show. None
+ * of them is the account somebody signs in as to look at My Calendar, so that
+ * screen opened on an empty grid and could not be told apart from a broken
+ * query. This gives EMP-0005 an ordinary office week plus one approved absence
+ * and one approved overtime, so all four lanes of the calendar draw something.
+ */
+async function seedEssCalendar(employees: Record<string, string>) {
+  const employeeId = employees['EMP-0005'];
+  if (!employeeId) return;
+
+  /** Weekdays only — the weekend is the branch calendar's job, not the roster's. */
+  const OFFICE_WEEKDAYS = [1, 2, 3, 4, 7];
+  const HORIZON = 21;
+
+  let shifts = 0;
+  for (let offset = -7; offset <= HORIZON; offset += 1) {
+    const date = daysFromToday(offset);
+    if (!OFFICE_WEEKDAYS.includes(isoWeekdayOf(date))) continue;
+
+    await prisma.workSchedule.upsert({
+      where: { employeeId_date: { employeeId, date } },
+      update: {},
+      create: {
+        employeeId,
+        date,
+        shiftType: ShiftType.FULL_DAY,
+        startTime: '08:00',
+        endTime: '17:00',
+        requiredHours: 8,
+        isWorkDay: true,
+        notes: 'Head office hours',
+      },
+    });
+    shifts += 1;
+  }
+
+  // One approved absence, so the leave lane is not permanently empty on a
+  // screen whose whole point is showing the four of them side by side. Guarded
+  // on the employee having none at all, so it never competes with the leave
+  // module's own seed.
+  const hasLeave = await prisma.leaveRequest.count({
+    where: { employeeId, status: 'APPROVED' },
+  });
+  if (hasLeave === 0) {
+    await prisma.leaveRequest.create({
+      data: {
+        employeeId,
+        leaveType: 'Annual Leave',
+        startDate: daysFromToday(9),
+        endDate: daysFromToday(11),
+        totalDays: 3,
+        reason: 'Family trip booked in advance',
+        status: 'APPROVED',
+        approvedAt: daysFromToday(-2),
+      },
+    });
+  }
+
+  // ...and one approved overtime, for the same reason.
+  const overtimeDate = daysFromToday(-3);
+  const hasOvertime = await prisma.overtimeRequest.count({
+    where: { employeeId, date: overtimeDate },
+  });
+  if (hasOvertime === 0) {
+    await prisma.overtimeRequest.create({
+      data: {
+        employeeId,
+        date: overtimeDate,
+        startTime: wallClockInstant(overtimeDate, 17 * 60, COMPANY_ZONE),
+        endTime: wallClockInstant(overtimeDate, 20 * 60, COMPANY_ZONE),
+        hours: 3,
+        regularHours: 3,
+        reason: 'Month-end payroll cut-off',
+        status: 'APPROVED',
+        approvedAt: daysFromToday(-2),
+      },
+    });
+  }
+
+  console.log(`  ✔ ${shifts} self-service shifts, 1 leave, 1 overtime`);
+}
+
 async function seedVaultDocuments(employees: Record<string, string>) {
   for (const doc of VAULT_DOCUMENTS) {
     const employeeId = employees[doc.employee];
@@ -3126,6 +3212,7 @@ async function main() {
   await seedGrievances(employees);
   await seedLetters(employees, adminEmail);
   await seedVaultDocuments(employees);
+  await seedEssCalendar(employees);
 
   console.log('✅ Seed complete.');
 }

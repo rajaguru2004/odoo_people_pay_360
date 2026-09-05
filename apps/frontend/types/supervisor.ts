@@ -38,10 +38,15 @@ export type SupervisedEmployee = SuperviseeCard;
  * these endpoints are not paginated, and keeping the field is what lets a
  * caller show "signs for 12" without holding all twelve.
  */
-export interface SupervisedTeam {
-  count: number;
-  data: SuperviseeCard[];
-}
+/**
+ * A supervisor's reports.
+ *
+ * The rows ARE the payload — `{ success, data: [...], meta: { count } }`, the
+ * same envelope as every other list in the system. The count is read from
+ * `meta`, which is where the envelope carries it, so these endpoints do not
+ * become the only ones whose rows sit two levels deep.
+ */
+export type SupervisedTeam = SuperviseeCard[];
 
 export interface AssignSupervisorPayload {
   employeeId: string;

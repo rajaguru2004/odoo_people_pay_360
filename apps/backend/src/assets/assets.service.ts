@@ -183,7 +183,10 @@ export class AssetsService {
     }));
     const open = history.find((row) => row.returnedAt === null) ?? null;
 
-    const { assignments: _assignments, ...rest } = asset;
+    // `assignments` is replaced by `currentHolder` + `history` below, so it is
+    // dropped rather than shipped twice under two names.
+    const rest = { ...asset, assignments: undefined };
+    delete (rest as { assignments?: unknown }).assignments;
     return {
       ...rest,
       currentHolder: open
@@ -281,7 +284,11 @@ export class AssetsService {
         id: true,
         assetTag: true,
         _count: { select: { assignments: true } },
-        assignments: { where: { returnedAt: null }, select: { id: true }, take: 1 },
+        assignments: {
+          where: { returnedAt: null },
+          select: { id: true },
+          take: 1,
+        },
       },
     });
     if (!existing) throw new NotFoundException('Asset not found');

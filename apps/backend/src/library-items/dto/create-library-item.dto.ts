@@ -29,27 +29,42 @@ export class CreateLibraryItemDto {
   @IsBoolean()
   isActive?: boolean;
 
-  @ApiPropertyOptional({ default: 0, description: 'Order weight within the list' })
+  @ApiPropertyOptional({
+    default: 0,
+    description: 'Order weight within the list',
+  })
   @IsOptional()
   @IsInt()
   sortOrder?: number;
 
-  @ApiPropertyOptional({ example: 12, description: 'LEAVE_TYPE: days allocated per year' })
+  @ApiPropertyOptional({
+    example: 12,
+    description: 'LEAVE_TYPE: days allocated per year',
+  })
   @IsOptional()
   @IsInt()
   defaultDays?: number;
 
-  @ApiPropertyOptional({ default: true, description: 'LEAVE_TYPE: is the leave paid' })
+  @ApiPropertyOptional({
+    default: true,
+    description: 'LEAVE_TYPE: is the leave paid',
+  })
   @IsOptional()
   @IsBoolean()
   isPaid?: boolean;
 
-  @ApiPropertyOptional({ default: 0, description: 'LEAVE_TYPE: notice days required in advance' })
+  @ApiPropertyOptional({
+    default: 0,
+    description: 'LEAVE_TYPE: notice days required in advance',
+  })
   @IsOptional()
   @IsInt()
   requiresNoticeDays?: number;
 
-  @ApiPropertyOptional({ default: true, description: 'LEAVE_TYPE: whether it draws down the balance' })
+  @ApiPropertyOptional({
+    default: true,
+    description: 'LEAVE_TYPE: whether it draws down the balance',
+  })
   @IsOptional()
   @IsBoolean()
   affectsBalance?: boolean;

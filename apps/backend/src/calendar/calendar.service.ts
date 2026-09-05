@@ -224,10 +224,7 @@ export class CalendarService {
       return { workDays: 0, leaveDays: 0, overtimeHours: 0, holidays: 0 };
     }
 
-    const start = DateTime.fromObject(
-      { year, month, day: 1 },
-      { zone: 'utc' },
-    );
+    const start = DateTime.fromObject({ year, month, day: 1 }, { zone: 'utc' });
     const from = start.toJSDate();
     const to = start.endOf('month').startOf('day').toJSDate();
 
@@ -434,11 +431,7 @@ export class CalendarService {
    * shared date — that is how a national holiday observed in one country and
    * not another is expressed without a second calendar.
    */
-  private async holidaysInRange(
-    from: Date,
-    to: Date,
-    branchId: string | null,
-  ) {
+  private async holidaysInRange(from: Date, to: Date, branchId: string | null) {
     const where: Prisma.HolidayWhereInput = {
       date: { gte: from, lte: to },
       ...(branchId ? { OR: [{ branchId: null }, { branchId }] } : {}),

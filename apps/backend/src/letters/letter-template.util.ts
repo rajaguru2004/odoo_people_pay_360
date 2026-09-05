@@ -81,7 +81,12 @@ export function renderLetterTemplate(
   // removed should produce a blank, not the literal `{{jobGrade}}`.
   return out.replace(INTERPOLATION, (_whole, key: string) => {
     const value = lookup(context, key);
-    if (value === null || value === undefined) return '';
-    return escapeHtml(String(value));
+    // Only a scalar renders. An object would stringify to "[object Object]" on
+    // a legal document, which is worse than a blank in every direction.
+    if (typeof value === 'string') return escapeHtml(value);
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return escapeHtml(String(value));
+    }
+    return '';
   });
 }

@@ -1,4 +1,6 @@
 import {
+  Award,
+  Boxes,
   Building2,
   CalendarCheck,
   CalendarRange,
@@ -214,6 +216,28 @@ export const adminMenuItems: NavGroup[] = [
     href: '/dashboard/payroll',
     roles: ['ADMIN', 'HR_MANAGER', 'PAYROLL_OFFICER'],
     permissions: ['VIEW_ALL_PAYROLL', 'VIEW_OWN_PAYSLIP'],
+  },
+  {
+    icon: Award,
+    labelKey: 'talent',
+    href: '/dashboard/training',
+    roles: ['ADMIN', 'HR_MANAGER'],
+    permissions: ['VIEW_EMPLOYEES'],
+    children: [
+      { labelKey: 'training', href: '/dashboard/training' },
+      { labelKey: 'grievances', href: '/dashboard/grievances' },
+    ],
+  },
+  {
+    icon: Boxes,
+    labelKey: 'workplace',
+    href: '/dashboard/assets',
+    roles: ['ADMIN', 'HR_MANAGER'],
+    permissions: ['VIEW_EMPLOYEES'],
+    children: [
+      { labelKey: 'assets', href: '/dashboard/assets' },
+      { labelKey: 'letters', href: '/dashboard/letters' },
+    ],
   },
   {
     icon: Settings,

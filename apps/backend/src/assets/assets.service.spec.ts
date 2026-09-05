@@ -16,6 +16,11 @@ const prismaMock = () => ({
 
 type PrismaMock = ReturnType<typeof prismaMock>;
 
+/** The first argument a mocked Prisma call received, typed for the assertion. */
+function firstArg<T>(mock: jest.Mock): T {
+  return (mock.mock.calls as T[][])[0][0];
+}
+
 describe('AssetsService — the open assignment rule', () => {
   let prisma: PrismaMock;
   let service: AssetsService;
@@ -50,7 +55,9 @@ describe('AssetsService — the open assignment rule', () => {
       assignments: [],
     });
 
-    await expect(service.remove('asset-1')).rejects.toThrow(/Retire it instead/);
+    await expect(service.remove('asset-1')).rejects.toThrow(
+      /Retire it instead/,
+    );
     expect(prisma.assetItem.delete).not.toHaveBeenCalled();
   });
 
@@ -100,11 +107,9 @@ describe('AssetsService — the open assignment rule', () => {
 
     await service.findAll({ unassignedOnly: true });
 
-    const where = (
-      prisma.assetItem.findMany.mock.calls[0][0] as {
-        where: Record<string, unknown>;
-      }
-    ).where;
+    const { where } = firstArg<{ where: Record<string, unknown> }>(
+      prisma.assetItem.findMany,
+    );
     expect(where).toEqual({ assignments: { none: { returnedAt: null } } });
     expect(where).not.toHaveProperty('status');
   });
@@ -115,11 +120,9 @@ describe('AssetsService — the open assignment rule', () => {
 
     await service.findAll({});
 
-    const include = (
-      prisma.assetItem.findMany.mock.calls[0][0] as {
-        include: { assignments: { where: unknown; take: number } };
-      }
-    ).include;
+    const { include } = firstArg<{
+      include: { assignments: { where: unknown; take: number } };
+    }>(prisma.assetItem.findMany);
     expect(include.assignments.where).toEqual({ returnedAt: null });
     expect(include.assignments.take).toBe(1);
   });

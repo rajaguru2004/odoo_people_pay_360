@@ -1,4 +1,11 @@
-import { IsDateString, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import {
+  IsDateString,
+  IsInt,
+  IsOptional,
+  IsUUID,
+  Max,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -40,7 +47,9 @@ export class CalendarStatsDto {
   @Max(9999)
   year: number;
 
-  @ApiPropertyOptional({ description: 'Whose month to count. Defaults to the caller.' })
+  @ApiPropertyOptional({
+    description: 'Whose month to count. Defaults to the caller.',
+  })
   @IsOptional()
   @IsUUID()
   employeeId?: string;

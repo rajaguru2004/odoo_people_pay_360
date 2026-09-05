@@ -240,7 +240,10 @@ export class LettersService implements OnModuleInit {
               select: {
                 currency: true,
                 lines: {
-                  select: { amount: true, component: { select: { type: true } } },
+                  select: {
+                    amount: true,
+                    component: { select: { type: true } },
+                  },
                 },
               },
             },
@@ -597,9 +600,9 @@ export class LettersService implements OnModuleInit {
    * used to verify it, so two concurrent issues must not be able to collide.
    */
   private async nextSerial(templateKey: string): Promise<string> {
-    const rows = await this.prisma.$queryRawUnsafe<
-      Array<{ nextval: bigint }>
-    >(`SELECT nextval('${SERIAL_SEQUENCE}') AS nextval`);
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ nextval: bigint }>>(
+      `SELECT nextval('${SERIAL_SEQUENCE}') AS nextval`,
+    );
     const seq = Number(rows[0]?.nextval ?? Date.now() % 100000);
     const prefix = templateKey.split('_')[0].slice(0, 6).toUpperCase();
     return `${prefix}-${new Date().getFullYear()}-${String(seq).padStart(5, '0')}`;

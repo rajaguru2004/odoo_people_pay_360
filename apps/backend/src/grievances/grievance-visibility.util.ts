@@ -1,4 +1,4 @@
-import type { UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 
 export const GRIEVANCE_STATUSES = [
   'OPEN',
@@ -32,11 +32,18 @@ export const GRIEVANCE_AGING_DAYS = 14;
 export const WITHDRAWABLE_STATUSES = new Set<string>(['OPEN', 'ACKNOWLEDGED']);
 
 /** The roles that run the grievance desk. */
-const HANDLER_ROLES: UserRole[] = ['ADMIN', 'HR_MANAGER'];
+const HANDLER_ROLES: string[] = [UserRole.ADMIN, UserRole.HR_MANAGER];
 
+/**
+ * The caller, as this module needs to know them.
+ *
+ * `role` is a plain string rather than `UserRole`: the same predicates are
+ * exercised from the specs with hand-built principals, and widening here costs
+ * nothing because every comparison below is against a known member.
+ */
 export interface GrievanceReader {
   id?: string;
-  role?: UserRole | string;
+  role?: string;
   employeeId?: string | null;
 }
 
@@ -47,7 +54,7 @@ export interface GrievanceSubject {
 }
 
 export function isGrievanceHandler(user: GrievanceReader | null | undefined) {
-  return HANDLER_ROLES.includes(user?.role as UserRole);
+  return HANDLER_ROLES.includes(user?.role ?? '');
 }
 
 /**

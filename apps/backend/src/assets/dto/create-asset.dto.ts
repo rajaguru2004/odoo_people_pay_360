@@ -51,7 +51,9 @@ export class CreateAssetDto {
   @IsDateString()
   purchaseDate?: string;
 
-  @ApiPropertyOptional({ description: 'Money is thousandths here, never hundredths' })
+  @ApiPropertyOptional({
+    description: 'Money is thousandths here, never hundredths',
+  })
   @IsOptional()
   @IsNumber()
   @Min(0)

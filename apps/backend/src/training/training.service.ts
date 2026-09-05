@@ -111,9 +111,7 @@ export class TrainingService {
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
     if (endDate < startDate) {
-      throw new BadRequestException(
-        'A session cannot end before it starts',
-      );
+      throw new BadRequestException('A session cannot end before it starts');
     }
 
     return this.prisma.trainingSession.create({
@@ -149,7 +147,9 @@ export class TrainingService {
         course: true,
         branch: { select: { id: true, name: true } },
         _count: {
-          select: { nominations: { where: { status: { in: COMMITTED_STATUSES } } } },
+          select: {
+            nominations: { where: { status: { in: COMMITTED_STATUSES } } },
+          },
         },
       },
       orderBy: { startDate: 'desc' },
@@ -303,7 +303,11 @@ export class TrainingService {
     return nomination;
   }
 
-  private async applyApproved(id: string, approverUserId: string, remarks?: string) {
+  private async applyApproved(
+    id: string,
+    approverUserId: string,
+    remarks?: string,
+  ) {
     const nomination = await this.getNominationOrThrow(id);
     const updated = await this.prisma.trainingNomination.update({
       where: { id },
@@ -321,14 +325,21 @@ export class TrainingService {
         action: 'TRAINING_APPROVED',
         entityType: 'TrainingNomination',
         entityId: id,
-        metadata: { course: nomination.session.course.title, remarks: remarks ?? null },
+        metadata: {
+          course: nomination.session.course.title,
+          remarks: remarks ?? null,
+        },
       },
     });
 
     return this.serialize(updated);
   }
 
-  private async applyRejected(id: string, approverUserId: string, reason?: string) {
+  private async applyRejected(
+    id: string,
+    approverUserId: string,
+    reason?: string,
+  ) {
     const updated = await this.prisma.trainingNomination.update({
       where: { id },
       data: {
@@ -489,7 +500,10 @@ export class TrainingService {
           _count: { _all: true },
         }),
         this.prisma.trainingSession.count({
-          where: { status: 'SCHEDULED', startDate: { gte: now, lte: in30Days } },
+          where: {
+            status: 'SCHEDULED',
+            startDate: { gte: now, lte: in30Days },
+          },
         }),
         this.prisma.trainingNomination.groupBy({
           by: ['status'],
