@@ -16,6 +16,12 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     // Reading the roster and writing it are separate: a department head reads
     // their team's, and every /work-schedules route is ADMIN + HR server-side.
     'VIEW_SCHEDULES', 'MANAGE_SCHEDULES',
+    // Leave and overtime. Reading the workforce's requests, deciding them and
+    // changing what the company grants are three separate things: a department
+    // head decides without ever changing an entitlement.
+    'VIEW_LEAVE', 'APPROVE_LEAVE', 'MANAGE_LEAVE_TYPES', 'MANAGE_LEAVE_BALANCES',
+    'VIEW_OVERTIME', 'APPROVE_OVERTIME', 'MANAGE_OVERTIME_POLICIES',
+    'VIEW_OWN_LEAVE', 'VIEW_OWN_OVERTIME',
     'VIEW_ALL_PAYROLL', 'MANAGE_PAYROLL', 'APPROVE_PAYROLL', 'VIEW_OWN_PAYSLIP',
     'MANAGE_SALARY_COMPONENTS',
     'VIEW_REPORTS', 'EXPORT_DATA',
@@ -30,6 +36,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     'VIEW_EMPLOYEES', 'CREATE_EMPLOYEE', 'EDIT_EMPLOYEE', 'TERMINATE_EMPLOYEE',
     'VIEW_DEPARTMENTS', 'MANAGE_DEPARTMENTS',
     'VIEW_SCHEDULES', 'MANAGE_SCHEDULES',
+    'VIEW_LEAVE', 'APPROVE_LEAVE', 'MANAGE_LEAVE_TYPES', 'MANAGE_LEAVE_BALANCES',
+    'VIEW_OVERTIME', 'APPROVE_OVERTIME', 'MANAGE_OVERTIME_POLICIES',
+    'VIEW_OWN_LEAVE', 'VIEW_OWN_OVERTIME',
     'VIEW_ALL_PAYROLL', 'VIEW_OWN_PAYSLIP',
     'VIEW_REPORTS', 'EXPORT_DATA',
     'MANAGE_USERS',
@@ -42,6 +51,10 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     'VIEW_DEPARTMENTS',
     // Runs payroll but cannot APPROVE it. Separation of duties: the person who
     // calculates a run must not be the person who releases it for payment.
+    // Overtime hours ARE a payroll fact and have to be reconciled; leave
+    // reasons are not, which is why only one of the two appears here.
+    'VIEW_OVERTIME',
+    'VIEW_OWN_LEAVE', 'VIEW_OWN_OVERTIME',
     'VIEW_ALL_PAYROLL', 'MANAGE_PAYROLL', 'VIEW_OWN_PAYSLIP',
     'MANAGE_SALARY_COMPONENTS',
     'VIEW_REPORTS', 'EXPORT_DATA',
@@ -55,6 +68,10 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     // Read only — no MANAGE_SCHEDULES. The server refuses every roster write
     // from this role, so drawing the buttons would be a lie the user finds.
     'VIEW_SCHEDULES',
+    // Decides their team's requests, changes nobody's entitlement.
+    'VIEW_LEAVE', 'APPROVE_LEAVE',
+    'VIEW_OVERTIME', 'APPROVE_OVERTIME',
+    'VIEW_OWN_LEAVE', 'VIEW_OWN_OVERTIME',
     'VIEW_OWN_PAYSLIP',
     'VIEW_REPORTS',
     'VIEW_OWN_PROFILE', 'EDIT_OWN_PROFILE',
@@ -62,6 +79,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
 
   EMPLOYEE: [
     'VIEW_DASHBOARD',
+    // Their own record only. The workforce lists answer by name and the server
+    // refuses them, so drawing the entry would be a link to /403.
+    'VIEW_OWN_LEAVE', 'VIEW_OWN_OVERTIME',
     'VIEW_OWN_PAYSLIP',
     'VIEW_OWN_PROFILE', 'EDIT_OWN_PROFILE',
   ],

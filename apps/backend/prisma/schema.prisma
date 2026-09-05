@@ -162,6 +162,40 @@ enum LegalDocumentCategory {
   RESIDENCE_PERMIT
 }
 
+/// Admin-managed pick lists.
+///
+/// Deliberately ONE table rather than one per list: a leave type and an
+/// employment type differ only in which columns they populate, and a table per
+/// list is a migration every time HR invents a category. Only the two the Leave
+/// & Overtime module reads are declared — a value nothing consumes is a value
+/// an administrator can set and then wonder why nothing happened.
+enum LibraryType {
+  LEAVE_TYPE
+  EMPLOYMENT_TYPE
+}
+
+/// How a day is classified for overtime purposes.
+///
+/// Stored rather than derived: the branch calendar and the holiday table both
+/// change, and a request approved as HOLIDAY must keep the premium it was given
+/// even after somebody edits next year's calendar. HOLIDAY beats SUNDAY when a
+/// date is both.
+enum OvertimeDayType {
+  WEEKDAY
+  SUNDAY
+  HOLIDAY
+}
+
+/// The tier the request finished in — the headline label above the four hour
+/// buckets, not a replacement for them. A window that straddles the late
+/// threshold is `LATE` and still carries regular hours.
+enum OvertimeType {
+  REGULAR
+  LATE
+  DOUBLE
+  DOUBLE_LATE
+}
+
 enum LegalDocumentStatus {
   ACTIVE
   EXPIRED
@@ -195,6 +229,10 @@ model User {
   terminationsRaised     TerminationRequest[]      @relation("TerminationRequester")
   terminationsReviewed   TerminationRequest[]      @relation("TerminationReviewer")
   correctionsReviewed    AttendanceCorrection[]    @relation("CorrectionReviewer")
+  leaveRequestsDecided   LeaveRequest[]            @relation("LeaveApprover")
+  overtimeDecided        OvertimeRequest[]         @relation("OvertimeApprover")
+  overtimeEdited         OvertimeRequest[]         @relation("OvertimeEditor")
+  leaveAttachments       LeaveAttachment[]         @relation("LeaveAttachmentUploader")
 
   @@index([role])
   @@map("users")
@@ -407,6 +445,16 @@ model Employee {
   timezone  String? @db.VarChar(64)
   avatarUrl String? @map("avatar_url") @db.VarChar(512)
 
+  /// An EMPLOYMENT_TYPE library label ("Daily Wage", "Monthly Staff"), not an
+  /// enum: the middle tier of the overtime-policy inheritance chain is
+  /// admin-configurable, and a Prisma enum would need a migration every time HR
+  /// invents a category.
+  employmentType   String? @map("employment_type") @db.VarChar(100)
+  /// A DIRECT overtime-policy override for this one person — the top tier of
+  /// the chain. Null is the normal case and means "resolve by employment type,
+  /// then the company default".
+  overtimePolicyId String? @map("overtime_policy_id") @db.Uuid
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
@@ -433,6 +481,13 @@ model Employee {
 
   oldManagerOf DepartmentChangeRequest[] @relation("ChangeRequestOldManager")
   newManagerOf DepartmentChangeRequest[] @relation("ChangeRequestNewManager")
+
+  overtimePolicy   OvertimePolicy?       @relation("EmployeeOvertimePolicy", fields: [overtimePolicyId], references: [id], onDelete: SetNull)
+  leaveRequests    LeaveRequest[]
+  leaveBalances    LeaveBalance[]
+  leaveTypeBalances LeaveTypeBalance[]
+  leaveAccruals    LeaveAccrualHistory[]
+  overtimeRequests OvertimeRequest[]
 
   @@index([departmentId])
   @@index([branchId])
@@ -900,4 +955,289 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// =====================================================
+// LEAVE & OVERTIME
+// =====================================================
+
+/// One row of an admin-managed pick list.
+///
+/// `label` is the key everything else stores — `LeaveRequest.leaveType`,
+/// `LeaveTypeBalance.leaveTypeKey` and `Employee.employmentType` all hold the
+/// label rather than the id. That is deliberate: a balance row has to keep
+/// naming the leave it belongs to even after somebody deletes the library item,
+/// or a year of history stops resolving. The cost is that renaming a library
+/// item does not rename the history behind it, which is the correct trade for a
+/// record an auditor reads.
+model LibraryItem {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  libraryType LibraryType @map("library_type")
+  label       String      @db.VarChar(200)
+  isActive    Boolean     @default(true) @map("is_active")
+  sortOrder   Int         @default(0) @map("sort_order")
+
+  // LEAVE_TYPE metadata. Null on an EMPLOYMENT_TYPE row, which carries none.
+  /// Days allocated for a fresh year. Null means "no standing entitlement".
+  defaultDays        Int?    @map("default_days")
+  isPaid             Boolean @default(true) @map("is_paid")
+  /// Minimum days between filing and the first day off. 0 = file it today.
+  requiresNoticeDays Int     @default(0) @map("requires_notice_days")
+  /// False for unpaid leave: it is still recorded and still writes attendance,
+  /// it simply never touches a balance.
+  affectsBalance     Boolean @default(true) @map("affects_balance")
+  /// 'MALE' | 'FEMALE' | null. Maternity and paternity are the reason.
+  genderRestriction  String? @map("gender_restriction") @db.VarChar(10)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  @@unique([libraryType, label])
+  @@index([libraryType, isActive])
+  @@map("library_items")
+}
+
+/// An application to be away, and the decision on it.
+///
+/// `totalDays` is WORKING days — the branch weekly-off days and the holidays in
+/// force at that branch are already removed — so a Thursday-to-Sunday request in
+/// Muscat costs two days, not four. It is stored rather than recomputed because
+/// the branch calendar changes and an approved request must keep the number the
+/// approver agreed to.
+model LeaveRequest {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId     String        @map("employee_id") @db.Uuid
+  /// A LEAVE_TYPE library LABEL, not an id — see the note on LibraryItem.
+  leaveType      String        @map("leave_type") @db.VarChar(100)
+  startDate      DateTime      @map("start_date") @db.Date
+  endDate        DateTime      @map("end_date") @db.Date
+  totalDays      Int           @map("total_days")
+  reason         String        @db.Text
+  status         RequestStatus @default(PENDING)
+  approverId     String?       @map("approver_id") @db.Uuid
+  approvedAt     DateTime?     @map("approved_at") @db.Timestamp(6)
+  /// Carries the approver comment on an approval as well as the reason on a
+  /// rejection: one column, because the screen shows one note either way.
+  rejectedReason String?       @map("rejected_reason") @db.Text
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt      DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee    Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  approver    User?             @relation("LeaveApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  attachments LeaveAttachment[]
+
+  @@index([employeeId, startDate])
+  @@index([status])
+  @@map("leave_requests")
+}
+
+/// Supporting evidence — a medical certificate, a summons.
+///
+/// Soft-deleted (`deletedAt`) rather than removed: the fact that a certificate
+/// was produced at the time is part of why the leave was approved, and a
+/// deletion must not make an approved absence look unsupported in hindsight.
+model LeaveAttachment {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leaveRequestId String    @map("leave_request_id") @db.Uuid
+  fileName       String    @map("file_name") @db.VarChar(255)
+  /// Where the bytes live. The upload itself is not part of this module — see
+  /// docs/interconnections-leave-overtime.md — so this is supplied by the
+  /// caller until a storage module exists to produce it.
+  fileUrl        String    @map("file_url") @db.Text
+  fileSize       BigInt?   @map("file_size")
+  mimeType       String?   @map("mime_type") @db.VarChar(100)
+  uploadedBy     String?   @map("uploaded_by") @db.Uuid
+  uploadedAt     DateTime  @default(now()) @map("uploaded_at") @db.Timestamp(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamp(6)
+
+  leaveRequest LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  uploader     User?        @relation("LeaveAttachmentUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  @@index([leaveRequestId, deletedAt])
+  @@map("leave_attachments")
+}
+
+/// The headline annual/sick entitlement for one employee in one year.
+///
+/// Kept alongside the per-type table below rather than replaced by it: annual
+/// and sick leave are the two figures every payslip, settlement and manager
+/// screen asks for by name, and deriving them from a string-keyed table means a
+/// renamed library row silently zeroes them.
+model LeaveBalance {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId  String   @map("employee_id") @db.Uuid
+  year        Int
+  annualLeave Int      @default(12) @map("annual_leave")
+  sickLeave   Int      @default(30) @map("sick_leave")
+  usedAnnual  Int      @default(0) @map("used_annual")
+  usedSick    Int      @default(0) @map("used_sick")
+  carriedOver Int      @default(0) @map("carried_over")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, year])
+  @@map("leave_balances")
+}
+
+/// One employee entitlement to one KIND of leave in one year.
+///
+/// There is no `remaining` column on purpose: it is `allocated + carriedOver -
+/// used`, and a stored copy is a fourth number that can disagree with the three
+/// it is made of.
+model LeaveTypeBalance {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId   String @map("employee_id") @db.Uuid
+  year         Int
+  /// Matches `LibraryItem.label` and `LeaveRequest.leaveType`.
+  leaveTypeKey String @map("leave_type_key") @db.VarChar(100)
+  allocated    Int    @default(0)
+  used         Int    @default(0)
+  carriedOver  Int    @default(0)
+
+  // ── Carry-forward, written by nothing in this module ──────────────────────
+  // Shipped now, unused now. Year-end carry-forward and leave encashment are
+  // deferred (docs/interconnections-leave-encashment.md), and the module that
+  // lands them must not have to migrate a table this one owns — a migration on
+  // a live balances table is exactly the change nobody wants to run twice.
+  /// When the carried balance lapses, if the policy sets an expiry.
+  carriedOverExpiresOn DateTime? @map("carried_over_expires_on") @db.Date
+  /// Which year the carried days came from, so a reversal knows what to undo.
+  carriedFromYear      Int?      @map("carried_from_year")
+  /// The run that wrote them. A reversal touches exactly these rows, no others.
+  carryForwardRunId    String?   @map("carry_forward_run_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, year, leaveTypeKey])
+  @@index([year, leaveTypeKey])
+  @@map("leave_type_balances")
+}
+
+/// Every credit ever made to an entitlement, automatic or by hand.
+///
+/// The row is what makes the monthly accrual idempotent: the job asks whether
+/// an AUTO row already exists for this employee, year and month before it adds
+/// anything, so a restart on the 1st cannot credit the month twice.
+model LeaveAccrualHistory {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId    String   @map("employee_id") @db.Uuid
+  year          Int
+  month         Int
+  daysAdded     Int      @map("days_added")
+  balanceBefore Int      @map("balance_before")
+  balanceAfter  Int      @map("balance_after")
+  /// 'AUTO' | 'MANUAL'.
+  accrualType   String   @map("accrual_type") @db.VarChar(20)
+  triggeredBy   String?  @map("triggered_by") @db.Uuid
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, year, month])
+  @@index([year, month, accrualType])
+  @@map("leave_accrual_history")
+}
+
+/// A reusable overtime rule set: rates, thresholds, allowances and caps.
+///
+/// The rules live in a versioned JSON blob rather than in columns because they
+/// are read as one object by the calc engine and edited as one form by an
+/// administrator — a column per rate would be a migration every time a tier is
+/// added, and a partially-migrated row would monetize hours at a rate nobody
+/// chose. `schemaVersion` is what lets an older blob still be read.
+model OvertimePolicy {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String   @unique @db.VarChar(150)
+  description    String?  @db.Text
+  isActive       Boolean  @default(true) @map("is_active")
+  /// Exactly ONE active default, enforced by a partial unique index that Prisma
+  /// cannot express — see prisma/sql/leave-overtime-indexes.sql.
+  isDefault      Boolean  @default(false) @map("is_default")
+  /// The middle inheritance tier: an EMPLOYMENT_TYPE library label. Null means
+  /// the policy is not type-scoped. At most one ACTIVE policy per type, again
+  /// by partial unique index.
+  employmentType String?  @map("employment_type") @db.VarChar(100)
+  schemaVersion  Int      @default(1) @map("schema_version")
+  rules          Json
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employees        Employee[]        @relation("EmployeeOvertimePolicy")
+  overtimeRequests OvertimeRequest[]
+
+  @@index([isActive])
+  @@index([employmentType])
+  @@map("overtime_policies")
+}
+
+/// Hours worked outside the shift, split into the tiers that pay them.
+///
+/// Four hour buckets rather than one total because a window that crosses the
+/// late-OT threshold is paid at two rates — 17:00 to 22:00 at the regular
+/// multiplier and 22:00 to 23:00 at the late one. A single `hours` figure would
+/// have to be monetized at one rate, which is how an evening of overtime gets
+/// paid entirely at the higher tier or entirely at the lower one.
+model OvertimeRequest {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId      String          @map("employee_id") @db.Uuid
+  date            DateTime        @db.Date
+  /// WALL CLOCK tagged UTC — an entered 17:00 is persisted as "…T17:00:00Z" —
+  /// so reading it with UTC getters recovers the entered hour on any server.
+  startTime       DateTime        @map("start_time") @db.Timestamp(6)
+  endTime         DateTime        @map("end_time") @db.Timestamp(6)
+  /// The payable total AFTER clamping to the attendance day boundary, which is
+  /// why it can be less than endTime minus startTime.
+  hours           Decimal         @db.Decimal(5, 2)
+  regularHours    Decimal         @default(0) @map("regular_hours") @db.Decimal(5, 2)
+  lateHours       Decimal         @default(0) @map("late_hours") @db.Decimal(5, 2)
+  doubleHours     Decimal         @default(0) @map("double_hours") @db.Decimal(5, 2)
+  doubleLateHours Decimal         @default(0) @map("double_late_hours") @db.Decimal(5, 2)
+  dayType         OvertimeDayType @default(WEEKDAY) @map("day_type")
+  otType          OvertimeType    @default(REGULAR) @map("ot_type")
+
+  foodAllowance     Decimal @default(0) @map("food_allowance") @db.Decimal(18, 3)
+  /// Approver-granted and derivable from nothing, which is why the approval
+  /// recompute deliberately never names it: listing it would zero it every time.
+  siteAllowance     Decimal @default(0) @map("site_allowance") @db.Decimal(18, 3)
+  siteAllowanceNote String? @map("site_allowance_note") @db.Text
+  /// NULLABLE on purpose: "the approver did not touch it" and "the approver set
+  /// it to 0" are different facts. Null means the policy computes the
+  /// allowance; any value, 0 included, wins.
+  foodAllowanceOverride Decimal?  @map("food_allowance_override") @db.Decimal(18, 3)
+  approverNote          String?   @map("approver_note") @db.Text
+  editedById            String?   @map("edited_by_id") @db.Uuid
+  editedAt              DateTime? @map("edited_at") @db.Timestamp(6)
+  /// What the employee actually filed. Snapshotted on the FIRST edit only, so a
+  /// second approver correction cannot overwrite the original.
+  originalStartTime     DateTime? @map("original_start_time") @db.Timestamp(6)
+  originalEndTime       DateTime? @map("original_end_time") @db.Timestamp(6)
+
+  /// The policy that classified these hours. Payroll monetizes against THIS
+  /// row, not against whatever is current, so editing a policy cannot silently
+  /// re-rate a request that was approved months ago.
+  overtimePolicyId String?       @map("overtime_policy_id") @db.Uuid
+  reason           String        @db.Text
+  status           RequestStatus @default(PENDING)
+  approverId       String?       @map("approver_id") @db.Uuid
+  approvedAt       DateTime?     @map("approved_at") @db.Timestamp(6)
+  rejectedReason   String?       @map("rejected_reason") @db.Text
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee       Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  overtimePolicy OvertimePolicy? @relation(fields: [overtimePolicyId], references: [id], onDelete: SetNull)
+  approver       User?           @relation("OvertimeApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  editedBy       User?           @relation("OvertimeEditor", fields: [editedById], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, date])
+  @@index([status])
+  @@index([date])
+  @@index([overtimePolicyId])
+  @@map("overtime_requests")
 }
