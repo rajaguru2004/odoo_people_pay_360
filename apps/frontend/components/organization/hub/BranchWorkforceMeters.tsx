@@ -1,5 +1,6 @@
 'use client';
 
+import { motion } from 'framer-motion';
 import {
   MeterList,
   PanelHeader,
@@ -75,18 +76,27 @@ export default function BranchWorkforceMeters({
         // Centred only once there are enough rows to fill the panel. One branch
         // floating in the middle of a tall box reads as a half-loaded page
         // rather than as a company with a single location.
-        <div
+        <motion.div
           className={`flex flex-1 flex-col ${
             meters.length >= 4 ? 'justify-center' : 'justify-start pt-1'
           }`}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.35, delay: 0.1 }}
         >
-          <MeterList rows={meters} />
+          <MeterList
+            rows={meters.map((m) => ({
+              ...m,
+              color: 'var(--color-brand-primary)',
+            }))}
+            trackHeight={8}
+          />
           {meters.length === 1 && (
             <p className="mt-4 text-[11px] leading-snug text-text-muted">
               One location, so this is the whole workforce rather than a comparison.
             </p>
           )}
-        </div>
+        </motion.div>
       )}
     </div>
   );

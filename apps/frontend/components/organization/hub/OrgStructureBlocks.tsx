@@ -13,6 +13,9 @@ import type { OrganizationHubSummary } from '@/types/organizationHub';
  *
  * Each block states its own gap underneath, because the count on its own is the
  * same number every week and nobody acts on it.
+ *
+ * The health bar shows the proportion that is "covered" — branches with a
+ * manager, departments with a head — so the count is never just a number.
  */
 export default function OrgStructureBlocks({
   summary,
@@ -27,6 +30,11 @@ export default function OrgStructureBlocks({
       value: summary?.branches.total,
       label: 'Branches',
       href: '/dashboard/branches',
+      /** How many have a manager. */
+      good: summary
+        ? (summary.branches.total ?? 0) - (summary.branches.withoutManager ?? 0)
+        : null,
+      total: summary?.branches.total ?? 0,
       gap:
         summary && summary.branches.withoutManager > 0
           ? `${summary.branches.withoutManager} with no manager`
@@ -37,6 +45,10 @@ export default function OrgStructureBlocks({
       value: summary?.departments.total,
       label: 'Departments',
       href: '/dashboard/departments',
+      good: summary
+        ? (summary.departments.total ?? 0) - (summary.departments.withoutHead ?? 0)
+        : null,
+      total: summary?.departments.total ?? 0,
       gap:
         summary && summary.departments.withoutHead > 0
           ? `${summary.departments.withoutHead} with no head`
@@ -47,6 +59,9 @@ export default function OrgStructureBlocks({
       value: summary?.managers.total,
       label: 'Managers',
       href: '/dashboard/teams',
+      // For managers the "health" indicator isn't a gap count, so we skip the bar
+      good: null,
+      total: 0,
       gap:
         summary?.managers.widestSpan && summary.managers.widestSpan.reports > 1
           ? `widest span ${summary.managers.widestSpan.reports}`
@@ -70,29 +85,57 @@ export default function OrgStructureBlocks({
           panel, which left a hand-sized hole under the heading beside a donut
           that fills its own. */}
       <div className="mt-3 grid flex-1 grid-cols-3 content-center gap-2">
-        {blocks.map((block) => (
-          <Link
-            key={block.key}
-            href={block.href}
-            className="surface-panel-interactive rounded-2xl bg-surface-page/60 px-2 py-4 text-center transition-colors hover:bg-surface-page"
-          >
-            <div className="text-[26px] font-extrabold leading-none tabular-nums text-text-heading">
-              {loading ? (
-                <span className="inline-block h-6 w-8 animate-pulse rounded bg-surface-border align-middle" />
-              ) : (
-                // An em dash, never 0: "no departments" is a claim, and a read
-                // that failed has not earned the right to make it.
-                (block.value ?? '—')
-              )}
-            </div>
-            <div className="mt-1.5 text-[11px] font-semibold text-text-muted">{block.label}</div>
-            {block.gap && (
-              <div className="mt-1 text-[10px] font-medium leading-tight text-status-warning">
-                {block.gap}
+        {blocks.map((block) => {
+          // Health bar: filled portion is "covered" (good) out of total.
+          // Skipped when there is no meaningful gap dimension (managers).
+          const showBar = block.good !== null && block.total > 0;
+          const healthPct = showBar
+            ? Math.round(((block.good as number) / block.total) * 100)
+            : 0;
+          const isHealthy = block.gap === null;
+
+          return (
+            <Link
+              key={block.key}
+              href={block.href}
+              className="surface-panel-interactive flex flex-col items-center rounded-2xl bg-surface-page/60 px-2 py-4 text-center transition-colors hover:bg-surface-page"
+            >
+              <div className="text-[26px] font-extrabold leading-none tabular-nums text-text-heading">
+                {loading ? (
+                  <span className="inline-block h-6 w-8 animate-pulse rounded bg-surface-border align-middle" />
+                ) : (
+                  // An em dash, never 0: "no departments" is a claim, and a read
+                  // that failed has not earned the right to make it.
+                  (block.value ?? '—')
+                )}
               </div>
-            )}
-          </Link>
-        ))}
+              <div className="mt-1.5 text-[11px] font-semibold text-text-muted">{block.label}</div>
+
+              {/* Compact health mini-bar — only where a meaningful ratio exists */}
+              {showBar && !loading && (
+                <div className="mt-2.5 w-full px-1">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-border/70">
+                    <div
+                      className="h-full rounded-full transition-all duration-700 ease-out"
+                      style={{
+                        width: `${healthPct}%`,
+                        background: isHealthy
+                          ? 'var(--color-status-success)'
+                          : 'var(--color-status-warning)',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {block.gap && (
+                <div className="mt-1.5 text-[10px] font-medium leading-tight text-status-warning">
+                  {block.gap}
+                </div>
+              )}
+            </Link>
+          );
+        })}
       </div>
     </div>
   );

@@ -590,6 +590,7 @@ export function BarOverviewChart({
   yAxisTicks = ['0', '12', '24', '36', '48', '60'],
   primaryColor = 'var(--color-brand-primary)',
   primaryLightColor = 'color-mix(in srgb, var(--color-brand-primary) 55%, var(--color-surface-card))',
+  inactiveBarColor = 'var(--color-surface-border)',
   openHighlightTooltip = true,
   minBarWidth,
 }: {
@@ -600,6 +601,9 @@ export function BarOverviewChart({
   yAxisTicks?: string[];
   primaryColor?: string;
   primaryLightColor?: string;
+  /** Fill for non-highlighted bars. Defaults to surface-border so callers that
+   *  don't supply a brand tint keep the existing neutral look. */
+  inactiveBarColor?: string;
   /**
    * The narrowest a bar may get before the plot scrolls instead of shrinking.
    *
@@ -787,8 +791,8 @@ export function BarOverviewChart({
                     </div>
                   ) : (
                     <div
-                      className="w-full max-w-[46px] rounded-t-xl border border-surface-border transition-all duration-300"
-                      style={{ height: `${pct}%`, background: 'var(--color-surface-border)' }}
+                      className="w-full max-w-[46px] rounded-t-xl transition-all duration-300"
+                      style={{ height: `${pct}%`, background: inactiveBarColor }}
                     />
                   )}
                 </div>

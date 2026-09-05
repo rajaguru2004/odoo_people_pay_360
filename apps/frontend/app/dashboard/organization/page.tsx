@@ -279,6 +279,7 @@ function OrganizationHubContent() {
                       maxVal={axis.max}
                       yAxisTicks={axis.ticks}
                       openHighlightTooltip={false}
+                      inactiveBarColor="color-mix(in srgb, var(--color-brand-primary) 18%, var(--color-surface-card))"
                     />
                   </div>
                 )}
