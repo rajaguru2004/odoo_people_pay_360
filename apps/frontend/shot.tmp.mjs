@@ -1,0 +1,13 @@
+import { chromium } from '@playwright/test';
+const b = await chromium.launch();
+const ctx = await b.newContext({ viewport: { width: 1600, height: 900 } });
+const p = await ctx.newPage();
+await p.goto('http://127.0.0.1:3410/login');
+await p.getByRole('button', { name: /demo accounts/i }).click();
+await p.getByRole('button', { name: /fill the form with the administrator account/i }).click();
+await p.getByRole('button', { name: 'Sign in', exact: true }).click();
+await p.waitForURL(/\/dashboard/, { timeout: 40000 });
+await p.goto('http://127.0.0.1:3410/dashboard/attendance/history');
+await p.waitForTimeout(4000);
+await p.screenshot({ path: process.argv[2] });
+await b.close();

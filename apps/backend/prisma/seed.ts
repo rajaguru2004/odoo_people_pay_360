@@ -44,6 +44,7 @@ import {
 } from '../src/payroll/payroll-calc.util';
 import { eachDayKey, periodFor } from '../src/payroll/payroll-period.util';
 import { resolvePaidDays } from '../src/payroll/payroll-attendance.util';
+import { DateTime } from 'luxon';
 
 const prisma = new PrismaClient();
 
@@ -324,6 +325,34 @@ function hireDateOf(p: SeedPerson): Date {
   return p.hireOffsetDays === undefined
     ? isoDate(p.hireDate as string)
     : daysFromToday(p.hireOffsetDays);
+}
+
+/** The zone every seeded wall clock is written in. Matches the company row. */
+const COMPANY_ZONE = 'Asia/Muscat';
+
+/**
+ * An instant for a wall-clock time on a given day, in a named zone.
+ *
+ * `date` is a DATE column value — midnight UTC — so adding eight hours to it
+ * produces 08:00 UTC, which is midday in Muscat. Every seeded punch then reads
+ * four hours late on screen, and the whole workforce appears to stroll in
+ * around noon. A shift starts at eight in the morning WHERE PEOPLE WORK, so the
+ * wall clock has to be resolved in their zone and only then turned into an
+ * instant.
+ *
+ * Via luxon rather than a fixed offset: Asia/Muscat happens not to observe DST,
+ * but a fixed `-4` would be silently wrong the moment this seed is pointed at a
+ * zone that does.
+ */
+function wallClockInstant(date: Date, minutesFromMidnight: number, zone: string): Date {
+  return DateTime.fromISO(toDayKey(date), { zone })
+    .plus({ minutes: minutesFromMidnight })
+    .toJSDate();
+}
+
+/** The `YYYY-MM-DD` a DATE column value stands for, read at UTC. */
+function toDayKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }
 
 function isoDate(value: string | Date): Date {
@@ -677,7 +706,7 @@ async function seedAttendance(
       }
 
       const lateBy = seed < 20 ? 20 + (seed % 25) : 0;
-      const checkIn = new Date(date.getTime() + (startHour * 60 + lateBy) * 60_000);
+      const checkIn = wallClockInstant(date, startHour * 60 + lateBy, COMPANY_ZONE);
       const workedMinutes = seed < 10 ? 240 : 480 + (seed % 40);
       const checkOut = new Date(checkIn.getTime() + workedMinutes * 60_000);
 
@@ -752,8 +781,9 @@ async function seedCorrections(employees: Record<string, string>) {
         // clock said at the moment somebody disputed it.
         originalCheckIn: attendance?.checkIn ?? null,
         originalCheckOut: attendance?.checkOut ?? null,
-        requestedCheckIn: new Date(date.getTime() + 8 * 3_600_000 + 5 * 60_000),
-        requestedCheckOut: new Date(date.getTime() + 17 * 3_600_000),
+        // 08:05 and 17:00 as the employee experiences them, not as UTC.
+        requestedCheckIn: wallClockInstant(date, 8 * 60 + 5, COMPANY_ZONE),
+        requestedCheckOut: wallClockInstant(date, 17 * 60, COMPANY_ZONE),
         reason: r.reason,
         status: RequestStatus.PENDING,
       },
