@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import payslipService from '@/services/payslipService';
+import payrollService from '@/services/payrollService';
 import type { MyPayslipListQuery, PayslipListQuery } from '@/types/payslip';
 
 /**
@@ -23,6 +24,9 @@ export const payslipKeys = {
   myDetail: (id: string) => [...payslipKeys.mine(), 'detail', id] as const,
   byEmployee: (employeeId: string, query: MyPayslipListQuery) =>
     [...payslipKeys.all, 'employee', employeeId, query] as const,
+  ytd: (year: number) => [...payslipKeys.all, 'ytd', year] as const,
+  structure: (employeeId: string) =>
+    [...payslipKeys.all, 'structure', employeeId] as const,
 };
 
 export function usePayslips(query: PayslipListQuery = {}) {
@@ -63,5 +67,29 @@ export function useEmployeePayslips(
     queryKey: payslipKeys.byEmployee(employeeId!, query),
     queryFn: () => payslipService.listByEmployee(employeeId!, query),
     enabled: !!employeeId,
+  });
+}
+
+/**
+ * The salary structure behind the caller's own pay, for the profile screen.
+ *
+ * `retry: false` because a 404 here is a legitimate answer — an employee with
+ * no structure assigned yet is not an error to retry, it is a section the page
+ * leaves out.
+ */
+export function useSalaryStructure(employeeId: string | undefined) {
+  return useQuery({
+    queryKey: payslipKeys.structure(employeeId!),
+    queryFn: () => payrollService.salaryStructure(employeeId!),
+    enabled: !!employeeId,
+    retry: false,
+  });
+}
+
+/** Year-to-date totals across the caller's own payslips. */
+export function useYtdSummary(year: number) {
+  return useQuery({
+    queryKey: payslipKeys.ytd(year),
+    queryFn: () => payrollService.ytdSummary(year),
   });
 }

@@ -52,14 +52,19 @@ describe('buildMenu', () => {
   });
 
   it('gives an employee only their own screens', () => {
-    // Flat, and every entry is a SELF screen. The company-wide leave and
-    // overtime lists answer by name across the workforce and the server refuses
-    // them to this role, so an entry for one would be a link to /403.
+    // Self-service only. The company-wide leave and overtime lists answer by
+    // name across the workforce and the server refuses them to this role, so an
+    // entry for one would be a link to /403. Approvals, My team and My time
+    // come from the employee self-service module.
     expect(labelKeys(buildMenu('EMPLOYEE'))).toEqual([
       'dashboard',
+      'approvals',
+      'myTeam',
+      'myTime',
       'myLeave',
       'myOvertime',
       'myPayslips',
+      'myRecords',
       'settings',
     ]);
   });
@@ -106,6 +111,20 @@ describe('buildMenu', () => {
     // and does not run it.
     expect(childKeys(buildMenu('PAYROLL_OFFICER'), 'payroll')).toContain('runPayroll');
     expect(childKeys(buildMenu('HR_MANAGER'), 'payroll')).not.toContain('runPayroll');
+  });
+
+  it('keeps approvals and my team as top-level employee entries', () => {
+    // Both are shown only to somebody who actually has a queue or a report, and
+    // that check reads the entry's own href. Nested under a group they would be
+    // out of its reach and drawn for everybody.
+    const menu = buildMenu('EMPLOYEE');
+    const approvals = findGroupByModuleKey(menu, 'approvals');
+    const myTeam = findGroupByModuleKey(menu, 'myTeam');
+
+    expect(approvals?.href).toBe('/dashboard/approvals');
+    expect(approvals?.children).toBeUndefined();
+    expect(myTeam?.href).toBe('/dashboard/my-team');
+    expect(myTeam?.children).toBeUndefined();
   });
 
   it('drops the system group for everyone but an admin', () => {

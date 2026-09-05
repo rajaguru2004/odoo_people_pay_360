@@ -48,6 +48,9 @@ export function useAttendanceHub(initialPeriod: HubPeriod = 'month') {
   const summary = query.data;
 
   const goPrevious = useCallback(() => {
+    // The anchors come back WITH the window, so there is nowhere to step until
+    // the first payload has landed. `canGoPrevious` keeps the control dim over
+    // exactly that gap rather than letting a press disappear into this guard.
     if (summary) setAnchor(summary.range.prevAnchor);
   }, [summary]);
 
@@ -67,6 +70,7 @@ export function useAttendanceHub(initialPeriod: HubPeriod = 'month') {
     goPrevious,
     goNext,
     goToday,
+    canGoPrevious: Boolean(summary),
     canGoNext: Boolean(summary?.range.hasNext),
     isCurrent: Boolean(summary?.range.isCurrent),
     loading: query.isLoading,

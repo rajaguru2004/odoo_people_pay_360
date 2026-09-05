@@ -3,6 +3,9 @@ import { ApiResponse } from '@/types/api';
 import type {
   CreateFaceEnrollmentPayload,
   FaceEnrollment,
+  FaceEnrollmentStatus,
+  FaceVerifyResult,
+  VerifyFacePayload,
 } from '@/types/attendance';
 
 /**
@@ -22,10 +25,26 @@ class FaceEnrollmentService {
     return axiosInstance.get(`/face-enrollments/employee/${employeeId}`);
   }
 
+  /** The signed-in employee's own enrolment status. Counts and dates only. */
+  status(): Promise<ApiResponse<FaceEnrollmentStatus>> {
+    return axiosInstance.get('/face-enrollments/status');
+  }
+
   create(
     payload: CreateFaceEnrollmentPayload,
   ): Promise<ApiResponse<FaceEnrollment>> {
     return axiosInstance.post('/face-enrollments', payload);
+  }
+
+  /**
+   * Match a freshly captured probe against the enrolled templates.
+   *
+   * The comparison happens on the server for the same reason the descriptor
+   * never comes down: matching in the browser would mean downloading everyone
+   * else's template to compare against.
+   */
+  verify(payload: VerifyFacePayload): Promise<ApiResponse<FaceVerifyResult>> {
+    return axiosInstance.post('/face-enrollments/verify', payload);
   }
 
   remove(id: string): Promise<ApiResponse<{ deleted: boolean }>> {

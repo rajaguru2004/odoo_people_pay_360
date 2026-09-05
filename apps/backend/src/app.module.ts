@@ -30,6 +30,16 @@ import { LeaveAttachmentsModule } from './leave-attachments/leave-attachments.mo
 import { LeaveRequestsModule } from './leave-requests/leave-requests.module';
 import { OvertimePolicyModule } from './overtime-policy/overtime-policy.module';
 import { OvertimeModule } from './overtime/overtime.module';
+import { ApprovalsModule } from './approvals/approvals.module';
+import { PayrollsModule } from './payrolls/payrolls.module';
+import { EmployeeProfileModule } from './employee-profile/employee-profile.module';
+import { SupervisorsModule } from './supervisors/supervisors.module';
+import { CalendarModule } from './calendar/calendar.module';
+import { AssetsModule } from './assets/assets.module';
+import { TrainingModule } from './training/training.module';
+import { GrievancesModule } from './grievances/grievances.module';
+import { LettersModule } from './letters/letters.module';
+import { DocumentVaultModule } from './document-vault/document-vault.module';
 
 @Module({
   imports: [
@@ -64,6 +74,16 @@ import { OvertimeModule } from './overtime/overtime.module';
     LeaveRequestsModule,
     OvertimePolicyModule,
     OvertimeModule,
+    ApprovalsModule,
+    PayrollsModule,
+    EmployeeProfileModule,
+    SupervisorsModule,
+    CalendarModule,
+    AssetsModule,
+    TrainingModule,
+    GrievancesModule,
+    LettersModule,
+    DocumentVaultModule,
   ],
   controllers: [AppController],
   providers: [AppService],

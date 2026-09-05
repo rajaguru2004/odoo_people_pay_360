@@ -1,33 +1,22 @@
 import axiosInstance from '@/lib/axios';
 import type { ApiResponse } from '@/types/api';
-import type { LeaveType } from '@/types/leave';
+import type {
+  CreateLibraryItemPayload,
+  LibraryItem,
+  LibraryTypeValue,
+  UpdateLibraryItemPayload,
+} from '@/types/library';
 
-export type LibraryType = 'LEAVE_TYPE' | 'EMPLOYMENT_TYPE';
+/**
+ * The union is declared once, in `@/types/library`, and re-exported here under
+ * the name the callers of this service already use. Two hand-kept copies is how
+ * a list ends up with rows in the database and no way to reach them.
+ */
+export type LibraryType = LibraryTypeValue;
+export type { LibraryItem };
 
-export interface LibraryItem {
-  id: string;
-  libraryType: LibraryType;
-  label: string;
-  isActive: boolean;
-  sortOrder: number;
-  defaultDays: number | null;
-  isPaid: boolean;
-  requiresNoticeDays: number;
-  affectsBalance: boolean;
-  genderRestriction: 'MALE' | 'FEMALE' | null;
-}
-
-export interface SaveLibraryItemPayload {
-  libraryType?: LibraryType;
-  label?: string;
-  isActive?: boolean;
-  sortOrder?: number;
-  defaultDays?: number;
-  isPaid?: boolean;
-  requiresNoticeDays?: number;
-  affectsBalance?: boolean;
-  genderRestriction?: 'MALE' | 'FEMALE' | null;
-}
+/** A create body and an update body differ only in what is required. */
+export type SaveLibraryItemPayload = UpdateLibraryItemPayload;
 
 /**
  * The admin-managed pick lists.
@@ -46,20 +35,27 @@ class LibraryItemService {
     });
   }
 
-  create(payload: SaveLibraryItemPayload): Promise<ApiResponse<LeaveType>> {
+  create(
+    payload: CreateLibraryItemPayload,
+  ): Promise<ApiResponse<LibraryItem>> {
     return axiosInstance.post('/library-items', payload);
   }
 
   update(
     id: string,
     payload: SaveLibraryItemPayload,
-  ): Promise<ApiResponse<LeaveType>> {
+  ): Promise<ApiResponse<LibraryItem>> {
     return axiosInstance.patch(`/library-items/${id}`, payload);
   }
 
   /** Soft: the row stays so old requests keep resolving. */
-  deactivate(id: string): Promise<ApiResponse<LeaveType>> {
+  deactivate(id: string): Promise<ApiResponse<LibraryItem>> {
     return axiosInstance.delete(`/library-items/${id}`);
+  }
+
+  /** Idempotent — re-running it adds only what is missing. */
+  seedDefaults(): Promise<ApiResponse<void>> {
+    return axiosInstance.post('/library-items/seed');
   }
 }
 
