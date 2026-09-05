@@ -52,7 +52,38 @@ describe('buildMenu', () => {
   });
 
   it('gives an employee only their own screens', () => {
-    expect(labelKeys(buildMenu('EMPLOYEE'))).toEqual(['dashboard', 'payroll', 'settings']);
+    expect(labelKeys(buildMenu('EMPLOYEE'))).toEqual([
+      'dashboard',
+      'myPayslips',
+      'settings',
+    ]);
+  });
+
+  it('sends a manager and an employee to self-service, not to the payroll hub', () => {
+    // GET /payroll/hub-summary is ADMIN + HR + payroll officer. Left pointing at
+    // /dashboard/payroll, these two roles would click their own sidebar into a
+    // 403 — the defect docs/MIGRATION.md §8 records.
+    for (const role of ['MANAGER', 'EMPLOYEE'] as const) {
+      const entry = buildMenu(role).find((g) => g.labelKey === 'myPayslips');
+      expect(entry).toBeDefined();
+      expect(entry!.href).toBe('/dashboard/my-payslips');
+      expect(labelKeys(buildMenu(role))).not.toContain('payroll');
+    }
+  });
+
+  it('gives the payroll roles the hub and its children', () => {
+    for (const role of ['ADMIN', 'HR_MANAGER', 'PAYROLL_OFFICER'] as const) {
+      const menu = buildMenu(role);
+      expect(findGroupByModuleKey(menu, 'payroll')!.href).toBe('/dashboard/payroll');
+      expect(childKeys(menu, 'payroll')).toContain('payrollRuns');
+    }
+  });
+
+  it('offers "Run payroll" to the roles that may start one, and no others', () => {
+    // POST /payroll-runs is ADMIN + PAYROLL_OFFICER. An HR manager reads payroll
+    // and does not run it.
+    expect(childKeys(buildMenu('PAYROLL_OFFICER'), 'payroll')).toContain('runPayroll');
+    expect(childKeys(buildMenu('HR_MANAGER'), 'payroll')).not.toContain('runPayroll');
   });
 
   it('drops the system group for everyone but an admin', () => {
