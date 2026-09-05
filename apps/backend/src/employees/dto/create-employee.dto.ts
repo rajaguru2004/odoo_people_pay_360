@@ -190,16 +190,6 @@ export class CreateEmployeeDto {
   @ApiProperty({
     required: false,
     description:
-      "Identity inside the branch's external attendance provider. Usually auto-matched on employee code.",
-  })
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  attendanceExternalId?: string;
-
-  @ApiProperty({
-    required: false,
-    description:
       'Employment classification — an EMPLOYMENT_TYPE library label. Drives ' +
       'Overtime Policy resolution, and when that library item carries a pay ' +
       'basis it also DERIVES salaryType, overriding any salaryType sent here.',

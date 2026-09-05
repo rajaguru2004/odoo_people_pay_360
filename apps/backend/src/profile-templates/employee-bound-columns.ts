@@ -304,14 +304,6 @@ export const EMPLOYEE_BOUND_COLUMNS: BoundColumn[] = [
     systemRequired: false,
     locked: false,
   },
-  {
-    fieldKey: 'attendanceExternalId',
-    table: 'employee',
-    column: 'attendanceExternalId',
-    type: 'TEXT',
-    systemRequired: false,
-    locked: false,
-  },
 
   // ── employee_profiles: personal ──────────────────────────────────────────
   {
