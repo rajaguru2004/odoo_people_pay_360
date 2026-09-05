@@ -29,10 +29,18 @@ const nextConfig: NextConfig = {
    */
   distDir: process.env.NEXT_DIST_DIR || ".next",
 
-  // Emit a self-contained server bundle at <distDir>/standalone/ for Docker.
-  // This removes node_modules from the production image (~60% smaller). No
-  // application behaviour changes.
-  output: "standalone",
+  /**
+   * A self-contained server bundle at <distDir>/standalone/ for the Docker
+   * image, which removes node_modules from it (~60% smaller).
+   *
+   * OPT-IN rather than always on, because `next start` refuses to run against a
+   * standalone build — it prints a warning and serves nothing. That takes the
+   * ordinary "build it and look at it" loop away from everybody, and it takes
+   * the Playwright suite with it, since the browser tests deliberately run a
+   * production build rather than `next dev`. The Dockerfile sets this; nothing
+   * else needs to.
+   */
+  output: process.env.NEXT_OUTPUT_STANDALONE === "true" ? "standalone" : undefined,
 
   images: {
     remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com" }],

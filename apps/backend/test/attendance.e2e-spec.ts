@@ -290,6 +290,66 @@ describe('Time and attendance (e2e)', () => {
         .expect(400));
   });
 
+  describe('bulk marking', () => {
+    it('accepts one call carrying a different verdict per person', async () => {
+      const people = await admin
+        .auth(http().get('/employees?limit=2&status=ACTIVE'))
+        .expect(200);
+      const [a, b] = people.body.data;
+
+      // The verdict rides on each ENTRY. A batch-level status would force one
+      // call per distinct verdict and turn a partial failure into several.
+      const res = await admin
+        .auth(http().post('/attendances/bulk'))
+        .send({
+          date: '2026-08-04',
+          entries: [
+            { employeeId: a.id, status: 'ABSENT' },
+            { employeeId: b.id, status: 'ON_LEAVE' },
+          ],
+        })
+        .expect(201);
+
+      expect(res.body.data.results).toHaveLength(2);
+      expect(res.body.data.failed).toEqual([]);
+    });
+
+    it('reports a bad id as one failed row, not as a failed batch', async () => {
+      const people = await admin
+        .auth(http().get('/employees?limit=1&status=ACTIVE'))
+        .expect(200);
+
+      const res = await admin
+        .auth(http().post('/attendances/bulk'))
+        .send({
+          date: '2026-08-05',
+          entries: [
+            { employeeId: people.body.data[0].id, status: 'ABSENT' },
+            {
+              employeeId: '00000000-0000-0000-0000-000000000000',
+              status: 'ABSENT',
+            },
+          ],
+        })
+        .expect(201);
+
+      // One row the server could not place must not discard the rest of the
+      // grid the user just filled in.
+      expect(res.body.data.applied).toBe(1);
+      expect(res.body.data.failed).toHaveLength(1);
+    });
+
+    it('refuses a batch-level status, which is not the contract', () =>
+      admin
+        .auth(http().post('/attendances/bulk'))
+        .send({
+          date: '2026-08-06',
+          employeeIds: ['00000000-0000-0000-0000-000000000000'],
+          status: 'ABSENT',
+        })
+        .expect(400));
+  });
+
   describe('corrections', () => {
     it('lists the queue with pagination meta', async () => {
       const res = await admin

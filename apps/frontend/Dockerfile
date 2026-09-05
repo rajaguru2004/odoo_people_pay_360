@@ -39,6 +39,10 @@ ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=$NEXT_PUBLIC_GA_MEASUREMENT_ID
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Opt in to the standalone bundle. It is off by default in next.config.ts so
+# that `next start` keeps working outside this image — see the note there.
+ENV NEXT_OUTPUT_STANDALONE=true
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
