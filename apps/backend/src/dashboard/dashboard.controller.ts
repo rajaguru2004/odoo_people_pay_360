@@ -64,11 +64,20 @@ export class DashboardController {
       'is not entitled to are omitted, and `sections` lists what arrived.',
   })
   @ApiResponse({ status: 200, description: 'Overview retrieved successfully' })
-  getAnalyticsOverview(
+  async getAnalyticsOverview(
     @CurrentUser() user: any,
     @Query() query: AnalyticsOverviewQueryDto,
   ) {
-    return this.analyticsService.overview(user, query.months ?? 6);
+    // Enveloped here rather than in the service, which keeps returning the bare
+    // domain payload. Every caller reads through the axios interceptor, which
+    // hands back the whole body — so a bare payload arrives as an envelope with
+    // no `data`, the hook's `.data` reads undefined, and react-query rejects an
+    // undefined result as a failed query. The page then shows its "could not be
+    // read" banner over a response that arrived intact.
+    return {
+      success: true,
+      data: await this.analyticsService.overview(user, query.months ?? 6),
+    };
   }
 
   @Get('employee-stats')

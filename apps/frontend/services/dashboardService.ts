@@ -83,10 +83,10 @@ class DashboardService {
    * `sections` array is the contract for what actually arrived; consumers read
    * that, never a truthy figure.
    *
-   * NOTE: the backend route is not built yet — see docs/payroll-dashboard-walkthrough.md.
-   * Until it is, this 404s and the page shows its error state, which is the
-   * honest outcome: better an empty panel than main's payload rendered as if it
-   * were this one.
+   * Enveloped like every other route: the axios interceptor hands back the whole
+   * body, so the caller reads `.data`. The handler wraps it explicitly — the
+   * service behind it returns the bare payload and there is no global
+   * interceptor to add the envelope.
    */
   async overview(
     query: DashboardOverviewQuery = {},

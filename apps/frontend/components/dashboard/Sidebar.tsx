@@ -363,21 +363,25 @@ export default function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarP
       {/* ── Logo (extra padding on mobile reserves room for the ✕) ── */}
       <div className="h-20 flex items-center justify-between px-4 pe-14 md:pe-4 border-b border-sidebar-border bg-sidebar-bg shrink-0">
         {isOpen ? (
-          <div className="flex items-center justify-between w-full">
-            <Link href="/dashboard" className="flex items-center gap-3 min-w-0 flex-1 hover:opacity-90 transition-opacity">
-              <div className="w-11 h-11 bg-surface-card border border-surface-border-light rounded-xl shadow-xs flex items-center justify-center p-1.5 shrink-0 select-none">
-                <SidebarLogo className="w-7 h-7" />
-              </div>
-              {branding.company_name_image_url?.trim() ? (
-                <div className="flex min-w-0 flex-1 items-center">
-                  <img
-                    src={branding.company_name_image_url}
-                    alt={branding.company_name}
-                    title={branding.company_name}
-                    className="max-h-10 w-auto max-w-full object-contain select-none"
-                  />
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-3 min-w-0 w-full hover:opacity-90 transition-opacity"
+          >
+            {branding.company_name_image_url?.trim() ? (
+              // A wordmark is a COMPLETE lockup — it carries the mark itself, so the icon
+              // tile beside it prints the same logo twice and splits 248px of rail between
+              // them, leaving the wordmark too small to read. Given one, it gets the row.
+              <img
+                src={branding.company_name_image_url}
+                alt={branding.company_name}
+                title={branding.company_name}
+                className="h-14 w-full object-contain object-left rtl:object-right select-none"
+              />
+            ) : (
+              <>
+                <div className="w-11 h-11 bg-surface-card border border-surface-border-light rounded-xl shadow-xs flex items-center justify-center p-1.5 shrink-0 select-none">
+                  <SidebarLogo className="w-7 h-7" />
                 </div>
-              ) : (
                 <div className="flex flex-col min-w-0 flex-1">
                   <span
                     className="font-bold text-sidebar-active-text text-[13px] leading-tight font-sans tracking-tight truncate select-none"
@@ -392,9 +396,9 @@ export default function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarP
                     {branding.company_subtitle}
                   </span>
                 </div>
-              )}
-            </Link>
-          </div>
+              </>
+            )}
+          </Link>
         ) : (
           <Link
             href="/dashboard"

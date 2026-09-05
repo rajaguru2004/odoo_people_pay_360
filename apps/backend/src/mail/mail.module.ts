@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 import { MailerModule } from '@nestjs-modules/mailer';
-// Through the package's own `exports` map, not its `dist/` layout. Under
-// `moduleResolution: nodenext` TypeScript honours `exports`, and this package
-// publishes only `.` and `./adapters/*` — a deep path into `dist/` resolves to
-// nothing and fails the build even though the file is sitting right there.
-import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.adapter';
+// Deep into `dist/`, which is where the adapter actually lives. v2.0.2 ships no
+// `exports` map and no root-level `adapters/` re-export stubs — the package root
+// only re-exports `dist/index`, which does NOT include the adapters. So
+// `@nestjs-modules/mailer/adapters/handlebars.adapter` resolves to nothing under
+// `moduleResolution: nodenext` and fails the build.
+import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { join } from 'path';
 import { existsSync } from 'fs';

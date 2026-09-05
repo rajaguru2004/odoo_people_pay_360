@@ -39,7 +39,16 @@ export class PayrollAnalyticsController {
       'attention queue — all for a single resolved period.',
   })
   @ApiResponse({ status: 200, description: 'Summary retrieved successfully' })
-  summary(@Query() query: PayrollDashboardQueryDto, @CurrentUser() user: any) {
-    return this.service.summary(query, user);
+  async summary(
+    @Query() query: PayrollDashboardQueryDto,
+    @CurrentUser() user: any,
+  ) {
+    // Enveloped here, not in the service, which keeps returning the bare
+    // aggregate. Callers read this through the axios interceptor, which hands
+    // back the whole body — a bare payload arrives as an envelope with no
+    // `data`, the hook's `.data` reads undefined, and react-query rejects an
+    // undefined result as a failed query. The page then prints its "could not
+    // be loaded" banner over a response that arrived intact.
+    return { success: true, data: await this.service.summary(query, user) };
   }
 }
