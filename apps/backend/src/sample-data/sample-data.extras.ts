@@ -2,7 +2,7 @@
  * Sample-data EXTRAS — every module the core `SampleDataService` did not reach.
  *
  * The core seed builds the org (branches, departments, employees, contracts,
- * attendance, leave, overtime, reimbursements, advances, payroll, projects).
+ * attendance, leave, overtime, reimbursements, advances, payroll).
  * This file fills the remaining pages so a client demo never lands on an empty
  * screen: assets, travel, training, budgets, banking, letters, grievances,
  * rewards/disciplines, documents, visas, teams, timesheets, appraisals,
@@ -40,13 +40,6 @@ export interface ExtrasEmployee {
   startDate: Date;
 }
 
-export interface ExtrasProject {
-  id: string;
-  name: string;
-  taskIds: string[];
-  memberIdxs: readonly number[];
-}
-
 export interface ExtrasContext {
   prisma: PrismaClient;
   employees: ExtrasEmployee[];
@@ -55,9 +48,6 @@ export interface ExtrasContext {
   /** employee index -> User.id, for every employee that has a login. */
   userIdByEmpIdx: Record<number, string>;
   hrUserId: string;
-  projects: ExtrasProject[];
-  /** Workflow status rows of the sample project workflow. */
-  statuses: { id: string; name: string; category: string }[];
   months: { year: number; month: number }[];
   rng: () => number;
   say: (message: string) => void;
@@ -144,9 +134,9 @@ export async function seedSampleExtras(ctx: ExtrasContext): Promise<void> {
   await seedBudgets(ctx);
   await seedApprovals(ctx);
   await seedContractLifecycle(ctx);
-  await seedTimesheetsAndWorkLogs(ctx);
+  await seedTimesheets(ctx);
   await seedAppraisal(ctx);
-  await seedProjectDetail(ctx);
+  await seedManagerHandover(ctx);
   await seedNotificationsAndAudit(ctx);
   await seedGarnishments(ctx);
 }
@@ -1739,16 +1729,12 @@ async function seedContractLifecycle(ctx: ExtrasContext): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// 15. Timesheets & work logs
+// 15. Timesheets
 // ---------------------------------------------------------------------------
 
-async function seedTimesheetsAndWorkLogs(ctx: ExtrasContext): Promise<void> {
-  const { prisma, employees, projects, statuses, hrUserId, rng, say } = ctx;
-  say('Logging timesheets & task work logs…');
-
-  const allTasks = projects.flatMap((p) => p.taskIds.map((id) => ({ id, project: p })));
-  if (!allTasks.length) return;
-  const inProgress = statuses.find((s) => s.category === 'IN_PROGRESS') ?? statuses[0];
+async function seedTimesheets(ctx: ExtrasContext): Promise<void> {
+  const { prisma, employees, hrUserId, rng, say } = ctx;
+  say('Logging timesheets…');
 
   const STATUS_CYCLE = ['APPROVED', 'APPROVED', 'SUBMITTED', 'DRAFT', 'REJECTED'] as const;
 
@@ -1757,46 +1743,21 @@ async function seedTimesheetsAndWorkLogs(ctx: ExtrasContext): Promise<void> {
     for (let back = 1; back <= 5; back++) {
       const workDate = day(-back);
       const status = STATUS_CYCLE[(emp.index + back) % STATUS_CYCLE.length];
-      const task = allTasks[(emp.index + back) % allTasks.length];
       const decided = status === 'APPROVED' || status === 'REJECTED';
       await prisma.timesheet.create({
         data: {
           employeeId: emp.id,
-          taskId: task.id,
           workDate,
           hoursWorked: 6 + randInt(rng, 0, 3),
-          description: `Worked on ${task.project.name} deliverables.`,
+          description: 'Regular duties and scheduled work.',
           status,
           submittedAt: status === 'DRAFT' ? null : day(-back + 1),
           approvedAt: status === 'APPROVED' ? day(-back + 1) : null,
           approvedBy: decided ? hrUserId : null,
-          rejectionReason: status === 'REJECTED' ? 'Hours exceed the approved allocation for this task.' : null,
+          rejectionReason:
+            status === 'REJECTED' ? 'Hours exceed the approved allocation for this day.' : null,
         },
       });
-    }
-  }
-
-  // Work logs against project tasks, for the members of each project.
-  for (const project of projects) {
-    for (let i = 0; i < project.taskIds.length; i++) {
-      const taskId = project.taskIds[i];
-      for (let k = 0; k < 2; k++) {
-        const empIdx = project.memberIdxs[(i + k) % project.memberIdxs.length];
-        const start = atTime(day(-(2 + k)), 9 + k * 3);
-        const hours = 1.5 + k;
-        await prisma.workLog.create({
-          data: {
-            taskId,
-            employeeId: employees[empIdx].id,
-            startTime: start,
-            endTime: new Date(start.getTime() + hours * 3_600_000),
-            duration: hours,
-            notes: k === 0 ? 'Implementation and unit tests.' : 'Review feedback and rework.',
-            statusId: inProgress?.id ?? null,
-            statusName: inProgress?.name ?? null,
-          },
-        });
-      }
     }
   }
 }
@@ -1967,112 +1928,12 @@ async function seedAppraisal(ctx: ExtrasContext): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// 17. Project detail — task history, dependencies, workflow transitions,
-//     and the manager-handover trail on the department that changed hands.
+// 17. The manager-handover trail on the department that changed hands.
 // ---------------------------------------------------------------------------
 
-async function seedProjectDetail(ctx: ExtrasContext): Promise<void> {
-  const { prisma, employees, deptIds, projects, statuses, hrUserId, userIdByEmpIdx, say } = ctx;
-  say('Back-filling task history, dependencies & workflow transitions…');
-
-  const todo = statuses.find((s) => s.category === 'TODO') ?? statuses[0];
-  const inProgress = statuses.find((s) => s.category === 'IN_PROGRESS') ?? statuses[0];
-  const done = statuses.find((s) => s.category === 'DONE') ?? statuses[statuses.length - 1];
-
-  for (const project of projects) {
-    for (let i = 0; i < project.taskIds.length; i++) {
-      const taskId = project.taskIds[i];
-      const actorIdx = project.memberIdxs[i % project.memberIdxs.length];
-      const actorId = userIdByEmpIdx[actorIdx] ?? hrUserId;
-      await prisma.taskActivity.createMany({
-        data: [
-          {
-            taskId,
-            actorId: hrUserId,
-            activityType: 'CREATED',
-            description: 'Task created and added to Sprint 1.',
-            createdAt: day(-14),
-          },
-          {
-            taskId,
-            actorId: hrUserId,
-            activityType: 'ASSIGNED',
-            description: `Assigned to ${employees[actorIdx].fullName}.`,
-            newValue: { assignee: employees[actorIdx].fullName },
-            createdAt: day(-13),
-          },
-          {
-            taskId,
-            actorId,
-            activityType: 'STATUS_CHANGED',
-            description: `Moved from ${todo?.name} to ${inProgress?.name}.`,
-            oldValue: { status: todo?.name },
-            newValue: { status: inProgress?.name },
-            createdAt: day(-(4 + (i % 5))),
-          },
-        ],
-      });
-    }
-
-    // A blocking pair per project, so the dependency panel is not empty.
-    if (project.taskIds.length >= 3) {
-      await prisma.taskDependency.upsert({
-        where: {
-          dependentTaskId_blockingTaskId: {
-            dependentTaskId: project.taskIds[2],
-            blockingTaskId: project.taskIds[0],
-          },
-        },
-        update: {},
-        create: {
-          type: 'BLOCKS',
-          dependentTaskId: project.taskIds[2],
-          blockingTaskId: project.taskIds[0],
-        },
-      });
-      await prisma.taskDependency.upsert({
-        where: {
-          dependentTaskId_blockingTaskId: {
-            dependentTaskId: project.taskIds[1],
-            blockingTaskId: project.taskIds[0],
-          },
-        },
-        update: {},
-        create: {
-          type: 'RELATES_TO',
-          dependentTaskId: project.taskIds[1],
-          blockingTaskId: project.taskIds[0],
-        },
-      });
-    }
-  }
-
-  // Allowed board moves for the sample workflow.
-  const anyStatus = await prisma.projectTaskStatus.findFirst({
-    where: { id: todo?.id },
-    select: { workflowId: true },
-  });
-  if (anyStatus && todo && inProgress && done) {
-    const pairs: [string, string][] = [
-      [todo.id, inProgress.id],
-      [inProgress.id, done.id],
-      [inProgress.id, todo.id],
-      [done.id, inProgress.id],
-    ];
-    for (const [from, to] of pairs) {
-      await prisma.statusTransition.upsert({
-        where: {
-          workflowId_fromStatusId_toStatusId: {
-            workflowId: anyStatus.workflowId,
-            fromStatusId: from,
-            toStatusId: to,
-          },
-        },
-        update: {},
-        create: { workflowId: anyStatus.workflowId, fromStatusId: from, toStatusId: to },
-      });
-    }
-  }
+async function seedManagerHandover(ctx: ExtrasContext): Promise<void> {
+  const { prisma, employees, deptIds, say } = ctx;
+  say('Back-filling the manager handover trail…');
 
   // Manager handover in flight on the department whose change request is pending.
   const pendingChange = await prisma.departmentChangeRequest.findFirst({

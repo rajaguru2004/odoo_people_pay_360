@@ -1,5 +1,4 @@
 import {
-  IsUUID,
   IsDateString,
   IsNumber,
   IsOptional,
@@ -11,10 +10,6 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class CreateTimesheetDto {
-  @ApiProperty({ example: 'uuid-of-task', required: true })
-  @IsUUID()
-  taskId: string;
-
   @ApiProperty({ example: '2026-06-12', description: 'Work date' })
   @IsDateString()
   workDate: string;
@@ -33,11 +28,6 @@ export class CreateTimesheetDto {
 }
 
 export class UpdateTimesheetDto {
-  @ApiProperty({ example: 'uuid-of-task', required: false })
-  @IsOptional()
-  @IsUUID()
-  taskId?: string;
-
   @ApiProperty({ required: false })
   @IsOptional()
   @IsDateString()

@@ -748,8 +748,7 @@
     "caption": "Workplace — the landing dashboard",
     "legend": [
       "What the company owns and who holds it",
-      "Letters waiting to be issued",
-      "Projects running and overdue"
+      "Letters waiting to be issued"
     ],
     "missing": [],
     "width": 1440,
@@ -782,20 +781,6 @@
     "missing": [],
     "width": 1440,
     "height": 560
-  },
-  {
-    "name": "projects-admin",
-    "file": "shots/projects-admin.png",
-    "caption": "Projects",
-    "legend": [
-      "Start a project",
-      "Projects running now",
-      "Filter by state",
-      "Find a project"
-    ],
-    "missing": [],
-    "width": 1440,
-    "height": 599
   },
   {
     "name": "system-hub",

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Plus, Loader2 } from 'lucide-react';
@@ -8,7 +8,6 @@ import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import PageActionRow from '@/components/common/PageActionRow';
 import { usePageHeader } from '@/hooks/usePageHeader';
 import timesheetService from '@/services/timesheetService';
-import taskService from '@/services/taskService';
 
 export default function NewTimesheetPage() {
   const router = useRouter();
@@ -18,21 +17,11 @@ export default function NewTimesheetPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [tasks, setTasks] = useState<any[]>([]);
   const [form, setForm] = useState({
-    taskId: '',
     workDate: new Date().toISOString().split('T')[0],
     hoursWorked: '',
     description: '',
   });
-
-  useEffect(() => {
-    taskService.getMyTasks()
-      .then((res: any) => {
-        setTasks(res.data || []);
-      })
-      .catch((err) => console.error('Failed to fetch tasks:', err));
-  }, []);
 
   const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
@@ -41,13 +30,11 @@ export default function NewTimesheetPage() {
     e.preventDefault();
     setError('');
     const hours = parseFloat(form.hoursWorked);
-    if (!form.taskId) { setError('Task selection is required'); return; }
     if (!form.workDate) { setError('Work date is required'); return; }
     if (!hours || hours < 0.5 || hours > 24) { setError('Hours must be between 0.5 and 24'); return; }
     setLoading(true);
     try {
       const res = await timesheetService.create({
-        taskId: form.taskId,
         workDate: form.workDate,
         hoursWorked: hours,
         description: form.description || undefined,
@@ -87,18 +74,6 @@ export default function NewTimesheetPage() {
             )}
 
             <div className="space-y-5">
-              <div>
-                <label className="block text-sm font-semibold text-text-body mb-1.5">Task <span className="text-status-error">*</span></label>
-                <select value={form.taskId} onChange={set('taskId')} className={inputClass}>
-                  <option value="">Select Task</option>
-                  {tasks.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      [{t.taskCode}] {t.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               <div>
                 <label className="block text-sm font-semibold text-text-body mb-1.5">Work Date</label>
                 <input type="date" value={form.workDate} onChange={set('workDate')} className={inputClass} />

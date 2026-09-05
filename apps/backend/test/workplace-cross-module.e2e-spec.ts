@@ -5,7 +5,6 @@ import {
   setupWorkplaceFixtures,
   WorkplaceFixtures,
 } from './utils/workplace-fixtures';
-import { presetRolesCreateData } from '../src/projects/rbac/permissions.constants';
 import {
   BranchContext,
   runWithBranchBypass,
@@ -26,14 +25,11 @@ import {
  * pinned by WP-1…WP-7; what is left is the places where two of them touch and
  * neither one owns the outcome:
  *
- *   XM-API-06  a Department CHANGE_PARENT change request moving a department a
- *              PROJECT points at, and the soft delete of one (plan R18)
  *   XM-API-07  nested `runWithBranchBypass` around a clearance count (plan R19)
  *   XM-API-10  a letter for an employee whose profile template carries an
  *              `isSensitive` field — a disclosure test
  *   XM-API-11  an issued letter landing in the employee's document vault
  *   XM-API-13  an asset following its holder into another manager's department
- *   XM-API-14  a project whose `Team` is deleted
  *   XM-API-15  deleting a `Branch` that owns assets
  *   XM-API-16  NEW SEAM, not in the plan: an employee offboarded through the
  *              termination-request path while a letter request of theirs is
@@ -44,45 +40,19 @@ import {
  *   XM-API-01..04  the clearance gate across all three offboarding doors, the
  *                  two kill switches, loans in four statuses, override + audit
  *                  -> `workplace-asset-clearance.e2e-spec.ts` (CLR-API-01..26)
- *   XM-API-05      the three tenancy answers side by side with one scoped HR
- *                  -> `workplace-project-core.e2e-spec.ts` (PRJ-API-34)
- *   XM-API-08      owner SetNull   -> `workplace-project-core.e2e-spec.ts` (PRJ-API-35)
- *   XM-API-09      member Cascade  -> `workplace-project-core.e2e-spec.ts` (PRJ-API-36)
  *   XM-API-12      warranty reminder tiers and the dedupe key
  *                  -> `workplace-asset-clearance.e2e-spec.ts` (XM-API-12a..g)
  *
  * House rules (plan §0): every assertion is filtered to THIS run's rows — the
  * sibling suites write to the same database — and every known defect is PINNED
  * with a `KNOWN GAP` comment plus an `it.failing` twin, never hidden.
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * READ THIS BEFORE EDITING — the single project-code slot (finding R6).
- *
- * `ProjectsService.generateProjectCode()` takes the LEXICAL maximum
- * `project_code` and does `parseInt(code.replace('PROJ-',''),10)+1`. The
- * workplace fixtures seed `WP…`-shaped codes, which sort above `'P'`, so the
- * parse yields NaN and the generator emits the literal string `PROJ-0NaN`.
- * `project_code` is `@unique`, so exactly ONE API-created project can exist at
- * a time and the second `POST /projects` answers a raw 500.
- *
- * This file therefore creates every project it needs straight through Prisma
- * with an explicit `C8…` code — 'C' sorts BELOW 'P', so these rows cannot make
- * the generator any worse than the fixtures already have. Nothing here goes
- * through `POST /projects`; the defect itself is owned by PRJ-API-33 in
- * `workplace-project-core.e2e-spec.ts`.
- * ─────────────────────────────────────────────────────────────────────────────
  */
 describe('Workplace — cross-module seams (e2e)', () => {
   let ctx: E2EContext;
   let fx: WorkplaceFixtures;
 
-  /** `runId.slice(-8)` — `project_code` is VarChar(20). */
-  let short: string;
-
   // Rows this spec owns, torn down in `afterAll` BEFORE `fx.cleanup()`.
-  const ownProjectIds: string[] = [];
   const ownDeptIds: string[] = [];
-  const ownTeamIds: string[] = [];
   const ownBranchIds: string[] = [];
   const ownAssetIds: string[] = [];
   const ownEmployeeIds: string[] = [];
@@ -123,27 +93,6 @@ describe('Workplace — cross-module seams (e2e)', () => {
     });
     ownDeptIds.push(dept.id);
     return dept;
-  };
-
-  /** A project built straight through Prisma — see the R6 note above. */
-  const mkProject = async (suffix: string, over: Record<string, unknown> = {}) => {
-    const project = await ctx.prisma.project.create({
-      data: {
-        projectCode: `C8${short}${suffix}`.slice(0, 20),
-        name: `XM ${suffix} ${fx.runId}`,
-        slug: `xm-${suffix.toLowerCase()}-${fx.runId}`,
-        taskPrefix: `X${suffix}`.slice(0, 8),
-        visibility: 'PRIVATE',
-        status: 'ACTIVE',
-        priority: 'MEDIUM',
-        workflowId: fx.privateWorkflowId,
-        ownerId: fx.ownerEmployeeId,
-        roles: { create: presetRolesCreateData() },
-        ...over,
-      },
-    });
-    ownProjectIds.push(project.id);
-    return project;
   };
 
   const mkEmployee = async (suffix: string, over: Record<string, unknown> = {}) => {
@@ -248,7 +197,6 @@ describe('Workplace — cross-module seams (e2e)', () => {
   beforeAll(async () => {
     ctx = await bootE2EApp();
     fx = await setupWorkplaceFixtures(ctx);
-    short = fx.runId.slice(-8);
   }, 180000);
 
   afterAll(async () => {
@@ -267,10 +215,6 @@ describe('Workplace — cross-module seams (e2e)', () => {
       where: { id: { in: ownTerminationRequestIds } },
     });
     await prisma.contract.deleteMany({ where: { id: { in: ownContractIds } } });
-
-    await prisma.project.deleteMany({ where: { id: { in: ownProjectIds } } });
-    await prisma.teamMember.deleteMany({ where: { teamId: { in: ownTeamIds } } });
-    await prisma.team.deleteMany({ where: { id: { in: ownTeamIds } } });
 
     await prisma.assetAssignment.deleteMany({
       where: { assetId: { in: ownAssetIds } },
@@ -303,231 +247,6 @@ describe('Workplace — cross-module seams (e2e)', () => {
     await fx?.cleanup();
     await ctx?.app.close();
   }, 120000);
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // XM-API-06 — a Department change request against a department a PROJECT
-  // points at (plan finding R18)
-  // ───────────────────────────────────────────────────────────────────────────
-  describe('XM-API-06 department change requests × projects (R18)', () => {
-    it('XM-API-06 approving a CHANGE_PARENT moves the department and leaves the project pointing at it', async () => {
-      // `Project.departmentId` is `onDelete: SetNull`, which is the FK people
-      // reach for when they ask "what happens to the project?". A parent change
-      // is a MOVE, not a delete, so the FK is never involved: the department row
-      // survives with a new `parentId` and the project's `departmentId` is
-      // untouched. This case exists so that intent is recorded rather than
-      // assumed — and so a future "tidy up orphaned projects" change fails here.
-      const dept = await mkDept('CPDEPT');
-      const newParent = await mkDept('CPPARENT');
-      const project = await mkProject('CP', { departmentId: dept.id });
-
-      const created = await createChangeRequest(fx.admin.token, dept.id, {
-        requestType: 'CHANGE_PARENT',
-        newParentId: newParent.id,
-        reason: 'Reporting line moves under the new division',
-      });
-      expect(created.status).toBe(201);
-      ownChangeRequestIds.push(created.body.data.id);
-
-      // A different principal must decide it — the raiser may not approve.
-      const reviewed = await reviewChangeRequest(
-        fx.scopedHr.token,
-        created.body.data.id,
-        { action: 'APPROVE', reviewNote: 'approved by HR' },
-      );
-      expect(reviewed.status).toBe(200);
-      expect(reviewed.body.data.status).toBe('APPROVED');
-
-      // The department really moved…
-      const movedDept = await ctx.prisma.department.findUnique({
-        where: { id: dept.id },
-      });
-      expect(movedDept?.parentId).toBe(newParent.id);
-
-      // …and the project is untouched by it.
-      const after = await ctx.prisma.project.findUnique({
-        where: { id: project.id },
-      });
-      expect(after?.departmentId).toBe(dept.id);
-
-      // Still reachable, and still projecting the department it always did.
-      const read = await get(`/projects/${project.id}`, fx.admin.token);
-      expect(read.status).toBe(200);
-      expect(read.body.data.department?.id).toBe(dept.id);
-      expect(read.body.data.deletedAt).toBeNull();
-    });
-
-    it('XM-API-06b a department change request notifies its approvers on raise and its raiser on the decision', async () => {
-      // REGRESSION LOCK (R18, fixed). `notifyApprovers()` and
-      // `notifyReviewDecision()` in
-      // `src/departments/department-change-requests.service.ts` were
-      // `console.log` stubs carrying a literal `// TODO: Implement email
-      // sending`. No Notification row, no email, no outbox entry — a request
-      // that reorganises the company hierarchy sat in a queue nobody was told
-      // about, and its raiser never learned the outcome, while every other
-      // request-shaped flow in this codebase (letters, leave, loans, travel)
-      // writes a real Notification.
-      //
-      // Both halves now write real rows through `NotificationsService`, the
-      // same shape `LettersService.notifyHr` uses. Email delivery is still
-      // owed and is still a TODO in the source — this asserts the in-app half,
-      // which is the half the app itself renders.
-      const dept = await mkDept('NOTIFY');
-      const newParent = await mkDept('NOTIFYPAR');
-
-      const before = await runNotificationCount();
-
-      const created = await createChangeRequest(fx.admin.token, dept.id, {
-        requestType: 'CHANGE_PARENT',
-        newParentId: newParent.id,
-        reason: 'Someone will hear about this',
-      });
-      expect(created.status).toBe(201);
-      ownChangeRequestIds.push(created.body.data.id);
-
-      // Raising it tells the approvers — everyone who could decide it, minus
-      // the raiser, who `review()` refuses anyway.
-      const afterRaise = await runNotificationCount();
-      expect(afterRaise).toBeGreaterThan(before);
-
-      const raised = await ctx.prisma.notification.findFirst({
-        where: {
-          user: { email: { contains: fx.runId } },
-          title: 'Department change request awaiting review',
-          message: { contains: dept.name },
-        },
-      });
-      expect(raised).toBeTruthy();
-      expect(raised!.link).toBe('/dashboard/departments/change-requests');
-      // The raiser is not told their own request is waiting for them.
-      expect(raised!.userId).not.toBe(fx.admin.userId);
-
-      const reviewed = await reviewChangeRequest(
-        fx.scopedHr.token,
-        created.body.data.id,
-        { action: 'APPROVE', reviewNote: 'approved by HR' },
-      );
-      expect(reviewed.status).toBe(200);
-
-      // Deciding it tells the raiser, with the outcome and the reviewer's note,
-      // linked to the request rather than the queue.
-      expect(await runNotificationCount()).toBeGreaterThan(afterRaise);
-
-      const decided = await ctx.prisma.notification.findFirst({
-        where: {
-          userId: fx.admin.userId,
-          link: `/dashboard/departments/change-requests/${created.body.data.id}`,
-        },
-      });
-      expect(decided).toBeTruthy();
-      expect(decided!.title).toBe('Department change request approved');
-      expect(decided!.message).toContain('approved');
-      expect(decided!.message).toContain('approved by HR');
-    });
-
-    it('XM-API-06c a REJECTED decision reaches the raiser too, carrying the rejection note', async () => {
-      // The other half of R18's decide path. A rejection is the outcome a
-      // raiser is most likely to be waiting on and the one a `console.log`
-      // stub lost most expensively.
-      const dept = await mkDept('NOTIFYR');
-      const newParent = await mkDept('NOTIFYRPAR');
-
-      const created = await createChangeRequest(fx.admin.token, dept.id, {
-        requestType: 'CHANGE_PARENT',
-        newParentId: newParent.id,
-        reason: 'This one gets refused',
-      });
-      expect(created.status).toBe(201);
-      ownChangeRequestIds.push(created.body.data.id);
-
-      const before = await runNotificationCount();
-
-      const reviewed = await reviewChangeRequest(
-        fx.scopedHr.token,
-        created.body.data.id,
-        { action: 'REJECT', reviewNote: 'the new division is not staffed yet' },
-      );
-      expect(reviewed.status).toBe(200);
-      expect(reviewed.body.data.status).toBe('REJECTED');
-
-      expect(await runNotificationCount()).toBeGreaterThan(before);
-
-      const decided = await ctx.prisma.notification.findFirst({
-        where: {
-          userId: fx.admin.userId,
-          link: `/dashboard/departments/change-requests/${created.body.data.id}`,
-        },
-      });
-      expect(decided).toBeTruthy();
-      expect(decided!.title).toBe('Department change request rejected');
-      expect(decided!.message).toContain('rejected');
-      expect(decided!.message).toContain('the new division is not staffed yet');
-    });
-
-    it('XM-API-06d a soft-deleted department stays linked, but the project can now SEE it is retired', async () => {
-      // REGRESSION LOCK (R63, fixed). The harder half of R18.
-      // `DELETE /departments/:id` is a SOFT delete — `isActive: false`, the row
-      // stays — so the `SetNull` on `Project.departmentId` never fires. That
-      // part is unchanged and is the department module's own design.
-      //
-      // What WAS broken: `projectInclude` selected only `{id, name, code}`, so
-      // nothing in the project payload could tell the reader the department was
-      // retired. The project screen showed a department the org chart said did
-      // not exist, and no caller could tell the difference. The projection now
-      // carries `isActive`, so a retired link is legible without severing it.
-      const dept = await mkDept('SOFTDEL');
-      const project = await mkProject('SD', { departmentId: dept.id });
-
-      const removed = await ctx
-        .http()
-        .delete(`/departments/${dept.id}`)
-        .set(bearer(fx.admin.token));
-      expect(removed.status).toBe(200);
-
-      const deptRow = await ctx.prisma.department.findUnique({
-        where: { id: dept.id },
-      });
-      // Soft, not hard: the row is still there…
-      expect(deptRow).not.toBeNull();
-      expect(deptRow?.isActive).toBe(false);
-
-      // …so the FK never fired and the project still points at it. That is the
-      // department module's behaviour, deliberately left alone.
-      const after = await ctx.prisma.project.findUnique({
-        where: { id: project.id },
-      });
-      expect(after?.departmentId).toBe(dept.id);
-
-      // The fix: the project payload now says the link is retired.
-      const read = await get(`/projects/${project.id}`, fx.admin.token);
-      expect(read.status).toBe(200);
-      expect(read.body.data.department).toMatchObject({
-        id: dept.id,
-        code: deptRow!.code,
-        isActive: false,
-      });
-
-      // While the department list — the only place a user could look it up —
-      // has already dropped it. That asymmetry is what made the flag necessary.
-      const depts = await get('/departments', fx.admin.token);
-      expect(depts.status).toBe(200);
-      const listed = (depts.body.data ?? []).map((d: any) => d.id);
-      expect(listed).not.toContain(dept.id);
-    });
-
-    it('XM-API-06e a LIVE department is not flagged, so the retired flag means something', async () => {
-      // The control the pin never had: a projection that always reported
-      // `isActive: false` would satisfy XM-API-06d and tell the reader nothing.
-      const dept = await mkDept('LIVEDEP');
-      const project = await mkProject('LD', { departmentId: dept.id });
-
-      const read = await get(`/projects/${project.id}`, fx.admin.token);
-      expect(read.status).toBe(200);
-      expect(read.body.data.department).toMatchObject({
-        id: dept.id,
-        isActive: true,
-      });
-    });
-  });
 
   // ───────────────────────────────────────────────────────────────────────────
   // XM-API-07 — nested branch bypass around a clearance count (plan finding R19)
@@ -924,8 +643,8 @@ describe('Workplace — cross-module seams (e2e)', () => {
     });
 
     it('XM-API-11e a colleague\'s vault does not list it, and the secure download refuses them', async () => {
-      // The project-outsider persona: a real login, a different employee.
-      const theirs = await get('/document-vault/me', fx.projectOutsider.token);
+      // The outsider persona: a real login, a different employee.
+      const theirs = await get('/document-vault/me', fx.outsider.token);
       expect(theirs.status).toBe(200);
       expect(
         (theirs.body.data.items as any[]).map((i) => i.id),
@@ -933,7 +652,7 @@ describe('Workplace — cross-module seams (e2e)', () => {
 
       const download = await get(
         `/secure-files/employee-document/${documentId}`,
-        fx.projectOutsider.token,
+        fx.outsider.token,
       );
       expect(download.status).toBe(403);
     });
@@ -1046,106 +765,6 @@ describe('Workplace — cross-module seams (e2e)', () => {
       );
       expect(byOld.status).toBe(403);
       expect(String(byOld.body.message)).toContain('your own department');
-    });
-  });
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // XM-API-14 — a project whose Team is deleted
-  // ───────────────────────────────────────────────────────────────────────────
-  describe('XM-API-14 deleting a project\'s Team', () => {
-    const mkTeam = async (suffix: string) => {
-      const team = await ctx.prisma.team.create({
-        data: {
-          name: `XM Team ${suffix} ${fx.runId}`,
-          code: `XMT-${suffix}-${short}`.slice(0, 50),
-          departmentId: fx.otherDeptId,
-          type: 'PROJECT',
-          isActive: true,
-        },
-      });
-      ownTeamIds.push(team.id);
-      return team;
-    };
-
-    it('XM-API-14 KNOWN GAP: DELETE /teams/:id is a SOFT delete, so the link survives — but it is now legible', async () => {
-      // `Project.teamId` is `onDelete: SetNull`, and plan §8 expects the delete
-      // to null it. It never can: `TeamsService.delete()` writes
-      // `isActive: false` and leaves the row, so the FK is not involved. The
-      // project keeps pointing at a team that has been "deleted" — that half is
-      // STILL a known gap, and XM-API-14b is its twin.
-      //
-      // What changed (R64, fixed): `projectInclude` selected `{id, name, code}`
-      // with no `isActive`, so the payload could not show the difference at all.
-      // It now carries the flag, so a retired team is at least legible to the
-      // reader even though the link is not severed.
-      const team = await mkTeam('SOFT');
-      const project = await mkProject('T1', { teamId: team.id });
-
-      const removed = await ctx
-        .http()
-        .delete(`/teams/${team.id}`)
-        .set(bearer(fx.admin.token));
-      expect(removed.status).toBe(200);
-
-      const teamRow = await ctx.prisma.team.findUnique({ where: { id: team.id } });
-      expect(teamRow).not.toBeNull();
-      expect(teamRow?.isActive).toBe(false);
-
-      const after = await ctx.prisma.project.findUnique({
-        where: { id: project.id },
-      });
-      expect(after?.teamId).toBe(team.id); // NOT null
-
-      const read = await get(`/projects/${project.id}`, fx.admin.token);
-      expect(read.status).toBe(200);
-      expect(read.body.data.team).toMatchObject({
-        id: team.id,
-        code: team.code,
-        isActive: false,
-      });
-    });
-
-    it.failing(
-      'XM-API-14b deleting a team SHOULD leave its projects with teamId null (plan §8)',
-      async () => {
-        const team = await mkTeam('SOFTW');
-        const project = await mkProject('T2', { teamId: team.id });
-
-        await ctx
-          .http()
-          .delete(`/teams/${team.id}`)
-          .set(bearer(fx.admin.token))
-          .expect(200);
-
-        const after = await ctx.prisma.project.findUnique({
-          where: { id: project.id },
-        });
-        expect(after?.teamId).toBeNull();
-      },
-    );
-
-    it('XM-API-14c a real row delete does fire SetNull, and the project survives it intact', async () => {
-      // The FK the API never reaches. Proving it works matters: it is the only
-      // thing standing between a hard delete (a migration, a support script)
-      // and an orphaned foreign key.
-      const team = await mkTeam('HARD');
-      const project = await mkProject('T3', { teamId: team.id });
-
-      await ctx.prisma.team.delete({ where: { id: team.id } });
-
-      const after = await ctx.prisma.project.findUniqueOrThrow({
-        where: { id: project.id },
-      });
-      expect(after.teamId).toBeNull();
-      // Everything else about the project is untouched — SetNull, not Cascade.
-      expect(after.deletedAt).toBeNull();
-      expect(after.name).toBe(project.name);
-      expect(after.ownerId).toBe(fx.ownerEmployeeId);
-
-      const read = await get(`/projects/${project.id}`, fx.admin.token);
-      expect(read.status).toBe(200);
-      expect(read.body.data.team).toBeNull();
-      expect(read.body.data._count).toBeDefined();
     });
   });
 

@@ -315,28 +315,6 @@ async function main() {
     console.log(`✅ User ${userData.email} processed successfully.`);
   }
 
-  // Default project-management workflow (kanban columns) -------------------
-  let workflow = await prisma.workflow.findFirst({ where: { isDefault: true } });
-  if (!workflow) {
-    console.log('🗂️  Creating default project workflow...');
-    workflow = await prisma.workflow.create({
-      data: {
-        name: 'Default Workflow',
-        description: 'Default kanban workflow for new projects',
-        isDefault: true,
-        statuses: {
-          create: [
-            { name: 'To Do', color: '#64748B', category: 'TODO', position: 0, isDefault: true },
-            { name: 'In Progress', color: '#00358F', category: 'IN_PROGRESS', position: 1 },
-            { name: 'In Review', color: '#f66600', category: 'IN_PROGRESS', position: 2 },
-            { name: 'Done', color: '#16A34A', category: 'DONE', position: 3 },
-          ],
-        },
-      },
-    });
-    console.log('✅ Default workflow created with 4 statuses.');
-  }
-
   // One-time data repairs -------------------------------------------------
   // Deliberately non-fatal: a repair that fails must not crash-loop the
   // container. It leaves its marker unwritten and retries on the next deploy.

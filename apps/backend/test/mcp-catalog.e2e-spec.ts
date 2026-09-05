@@ -23,15 +23,13 @@ const ALL_TOOLS = [
   'leave_request_cancel', 'leave_request_create', 'leave_request_list', 'leave_request_reject',
   'payroll_approve', 'payroll_finalize', 'payroll_get', 'payroll_item_update', 'payroll_list',
   'payroll_lock', 'payroll_reject', 'payroll_run', 'payroll_submit_for_approval', 'payslip_get',
-  'project_create', 'project_get', 'project_list', 'project_member_add', 'report_headcount',
+  'report_headcount',
   'report_leave_overview', 'report_org_tree', 'report_payroll_summary', 'report_today_snapshot',
-  'shift_create', 'shift_delete', 'task_assign', 'task_create', 'task_get', 'task_list',
-  'task_status_change', 'task_update',
+  'shift_create', 'shift_delete',
   // Appraisal analytics (date-range summaries)
   'attendance_employee_summary', 'conduct_records_get', 'leave_employee_summary',
-  'overtime_employee_summary', 'project_contribution_get', 'reimbursement_employee_summary',
-  'task_employee_stats', 'team_membership_get', 'timesheet_employee_summary',
-  'worklog_employee_summary',
+  'overtime_employee_summary', 'reimbursement_employee_summary',
+  'team_membership_get', 'timesheet_employee_summary',
   // Visa lifecycle
   'visa_cancel', 'visa_create', 'visa_expiring_summary', 'visa_get', 'visa_list', 'visa_renew',
   // Supervisor assignment + configurable approval hierarchy
@@ -94,7 +92,7 @@ const EMPLOYEE_TOOLS = [
   'loan_eligibility_check', 'loan_statement',
   'attendance_employee_history', 'department_list', 'employee_calendar_get', 'employee_directory',
   'holiday_list', 'leave_balance_get', 'leave_request_cancel', 'leave_request_create', 'payslip_get',
-  'project_get', 'project_list', 'task_get', 'task_list', 'task_status_change', 'visa_list',
+  'visa_list',
   'approval_pending_for_me',
   // Bank self-service: an employee reads their own bank detail and raises a change
   // request; bank_master_list + banking_config_fields are the reference data that
@@ -174,7 +172,7 @@ describe('MCP catalog & reads (e2e)', () => {
 
     it('MANAGER sees a mid-tier subset', async () => {
       const mgr = await names(manager);
-      expect(mgr).toEqual(expect.arrayContaining(['employee_list', 'leave_pending_approvals', 'task_create']));
+      expect(mgr).toEqual(expect.arrayContaining(['employee_list', 'leave_pending_approvals', 'overtime_pending_approvals']));
       expect(mgr).not.toContain('payroll_run');
       expect(mgr).not.toContain('shift_create');
       expect(mgr).not.toContain('employee_delete');
@@ -275,11 +273,6 @@ describe('MCP catalog & reads (e2e)', () => {
       await h.callOk(admin, 'department_list', {});
       const body = await h.callOk(admin, 'department_get', { id: h.fx.deptId });
       expect(body.data?.id ?? body.id).toBe(h.fx.deptId);
-    });
-
-    it('project_list / task_list', async () => {
-      await h.callOk(admin, 'project_list', {});
-      await h.callOk(admin, 'task_list', {});
     });
 
     it('attendance reads', async () => {

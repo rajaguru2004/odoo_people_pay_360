@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useTranslations } from 'next-intl';
-import { Laptop, AlertTriangle, FileText, FolderKanban, CalendarClock } from 'lucide-react';
+import { Laptop, AlertTriangle, FileText } from 'lucide-react';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import ModuleLandingPage from '@/components/module-landing/ModuleLandingPage';
 import AttentionStrip, { type AttentionItem } from '@/components/module-landing/AttentionStrip';
@@ -23,12 +23,12 @@ import { formatAmountWithSymbol } from '@/utils/formatters';
 import { niceAxis, sharePct } from '@/utils/hubAxis';
 
 /**
- * Workplace module hub — "are resources, requests and projects being managed".
+ * Workplace module hub — "are resources and requests being managed".
  *
- * The headline is the letter desk rather than assets or projects because it is
- * the only workplace entity with two real timestamps (`createdAt` and
- * `issuedAt`) and genuine recurring monthly volume. Assets move a dozen times a
- * year and projects a handful, which makes for twelve mostly-empty bars.
+ * The headline is the letter desk rather than assets because it is the only
+ * workplace entity with two real timestamps (`createdAt` and `issuedAt`) and
+ * genuine recurring monthly volume. Assets move a dozen times a year, which
+ * makes for twelve mostly-empty bars.
  *
  * What this page will not claim: an asset overdue for return. `AssetAssignment`
  * has no `returnDueDate`, so the exceptions it CAN see — in repair, lost,
@@ -42,7 +42,6 @@ function WorkplaceHubContent() {
 
   const assets = summary?.assets;
   const letters = summary?.letters;
-  const projects = summary?.projects;
   const clearances = summary?.clearances;
   const windowLabel = summary?.window.label ?? '';
   const prevLabel = summary?.window.previous.label ?? '';
@@ -101,32 +100,6 @@ function WorkplaceHubContent() {
           : t('kpiLettersHint', { days: oldestPendingDays }),
       href: '/dashboard/letters',
     },
-    {
-      key: 'projects',
-      label: t('kpiProjects'),
-      value: num(projects?.byStatus.ACTIVE),
-      icon: FolderKanban,
-      // No delta: `ProjectStatus` has no history table either.
-      footnote: projects ? t('kpiProjectsHint', { total: projects.total }) : undefined,
-      href: '/dashboard/projects',
-    },
-    {
-      key: 'overdue',
-      label: t('kpiProjectsOverdue'),
-      // A successful query that found nothing overdue is a TRUE statement, so
-      // this renders 0, not an em dash — the em-dash contract covers failed
-      // reads. What would mislead is silence about coverage, so the footnote
-      // carries how many live projects have no end date to miss.
-      value: num(projects?.overdue),
-      icon: CalendarClock,
-      tone: (projects?.overdue ?? 0) > 0 ? 'danger' : 'default',
-      footnote: !projects
-        ? undefined
-        : projects.withoutEndDate > 0
-          ? t('kpiProjectsOverdueNoDates', { count: projects.withoutEndDate })
-          : t('kpiProjectsOverdueHint', { soon: projects.dueIn30Days }),
-      href: '/dashboard/projects',
-    },
   ];
 
   const attentionItems: AttentionItem[] = useMemo(() => {
@@ -160,15 +133,6 @@ function WorkplaceHubContent() {
       });
     }
 
-    if (summary.projects.overdue > 0) {
-      items.push({
-        key: 'overdueProjects',
-        label: t('attnOverdueProjects', { count: summary.projects.overdue }),
-        severity: 'critical',
-        href: '/dashboard/projects',
-      });
-    }
-
     if (summary.assets.unacknowledged > 0) {
       items.push({
         key: 'unacknowledged',
@@ -193,15 +157,6 @@ function WorkplaceHubContent() {
         label: t('attnStaleLetters', { days: oldestPendingDays }),
         severity: 'warning',
         href: '/dashboard/letters',
-      });
-    }
-
-    if (summary.projects.dueIn30Days > 0) {
-      items.push({
-        key: 'dueSoon',
-        label: t('attnDueSoon', { count: summary.projects.dueIn30Days }),
-        severity: 'info',
-        href: '/dashboard/projects',
       });
     }
 
@@ -324,28 +279,6 @@ function WorkplaceHubContent() {
       }));
   }, [letters, t]);
 
-  /** All five project statuses — `/projects/stats` returns only four. */
-  const projectSegments: BarSegment[] = useMemo(() => {
-    if (!projects) return [];
-    const order: Array<[keyof typeof projects.byStatus, string]> = [
-      ['ACTIVE', 'color-mix(in srgb, var(--color-brand-primary) 90%, white)'],
-      ['PLANNING', 'color-mix(in srgb, var(--color-brand-primary) 45%, white)'],
-      ['ON_HOLD', 'var(--color-status-warning)'],
-      ['COMPLETED', 'var(--color-status-success)'],
-      ['CANCELLED', 'var(--color-border)'],
-    ];
-    const total = Math.max(1, projects.total);
-    return order
-      .filter(([k]) => projects.byStatus[k] > 0)
-      .map(([k, color]) => ({
-        key: k,
-        label: t(`projectStatus.${k}` as any),
-        value: projects.byStatus[k],
-        color,
-        shareLabel: `${Math.round((projects.byStatus[k] / total) * 100)}%`,
-      }));
-  }, [projects, t]);
-
   const chartEmpty = barItems.length === 0 || barItems.every((b) => b.value === 0);
 
   return (
@@ -416,7 +349,7 @@ function WorkplaceHubContent() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* 1 — the exceptions, and what they are worth */}
             <div className="surface-panel p-6 rounded-[20px] h-full flex flex-col">
               <PanelHeader title={t('assetHealth')} hint={t('assetHealthHint')} />
@@ -468,33 +401,6 @@ function WorkplaceHubContent() {
                   rather than quietly excluded from an average labelled "all". */}
               {letters && !letters.rejectTurnaroundMeasurable && (
                 <p className="mt-3 text-[11px] text-text-muted">{t('rejectNotMeasured')}</p>
-              )}
-            </div>
-
-            {/* 3 — project position */}
-            <div className="surface-panel p-6 rounded-[20px] h-full flex flex-col">
-              <PanelHeader
-                title={t('projectHealth')}
-                hint={t('projectHealthHint')}
-              />
-              <p className="mt-3 text-[22px] font-semibold text-text-primary">
-                {hubFailed || !projects ? '—' : projects.overdue}
-              </p>
-              <p className="text-[12px] text-text-muted">{t('projectHero')}</p>
-              <div className="mt-4 flex-1">
-                {projectSegments.length === 0 ? (
-                  <p className="text-[13px] text-text-muted py-6">
-                    {hubFailed ? t('projectsUnknown') : t('noProjects')}
-                  </p>
-                ) : (
-                  <SegmentedBar segments={projectSegments} legendColumns={2} />
-                )}
-              </div>
-              {/* Assets and letters narrow with the branch selector; `Project`
-                  is deliberately absent from the branch scope map, so these
-                  figures do not. Better said than assumed. */}
-              {projects && !projects.projectsAreBranchScoped && (
-                <p className="mt-3 text-[11px] text-text-muted">{t('projectsNotScoped')}</p>
               )}
             </div>
           </div>

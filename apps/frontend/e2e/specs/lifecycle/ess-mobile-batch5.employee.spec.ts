@@ -2,7 +2,7 @@ import { test } from '../../fixtures';
 import { PHONE, auditPhoneScreen } from '../../mobile-audit';
 
 /**
- * Batch 5 — time: the calendar, timesheets and work logs.
+ * Batch 5 — time: the calendar and timesheets.
  *
  * `my-calendar` is the one screen in the portal that genuinely cannot be a
  * single responsive tree: FullCalendar takes its view and its toolbar as props,
@@ -27,7 +27,6 @@ const SCREENS: ReadonlyArray<{
   { id: 'B5-02', path: '/dashboard/my-timesheets', ready: 'ess-my-timesheets', label: 'my timesheets' },
   { id: 'B5-03', path: '/dashboard/timesheets', ready: 'ess-timesheets', label: 'timesheets' },
   { id: 'B5-04', path: '/dashboard/timesheets/new', ready: 'ess-timesheet-new', label: 'a new timesheet' },
-  { id: 'B5-05', path: '/dashboard/work-logs', ready: 'ess-work-logs', label: 'work logs' },
 ];
 
 test.describe('Batch 5 on a phone', () => {

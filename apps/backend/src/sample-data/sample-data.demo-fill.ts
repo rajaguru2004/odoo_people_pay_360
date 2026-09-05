@@ -771,15 +771,14 @@ async function seedRosterConflicts(
  * The workplace top-up that never existed.
  *
  * Every other module hub had one of these; Workplace had none, and it showed.
- * The sample seed builds an asset register where nothing is lost, a letter desk
- * with a handful of rows in the current month only, and projects with no end
- * dates — so three of the hub's five cards were structurally incapable of
- * moving off zero.
+ * The sample seed builds an asset register where nothing is lost and a letter
+ * desk with a handful of rows in the current month only, so the hub's cards
+ * were structurally incapable of moving off zero.
  *
- * The base seed now handles the asset side (one LOST item, unsigned handovers)
- * and the project side (real end dates). What is left, and what this does, is
- * the letter desk: the hub's HEADLINE chart is twelve months of letter volume,
- * and the sample seed writes only the current month.
+ * The base seed now handles the asset side (one LOST item, unsigned handovers).
+ * What is left, and what this does, is the letter desk: the hub's HEADLINE
+ * chart is twelve months of letter volume, and the sample seed writes only the
+ * current month.
  */
 async function seedWorkplaceFill(
   prisma: PrismaClient,

@@ -184,8 +184,6 @@
     "rewardsOverview": "Overview",
     "reward": "Reward",
     "discipline": "Discipline",
-    "projects": "Projects",
-    "allProjects": "All Projects",
     "auditLogs": "Audit Logs",
     "documentTemplates": "Document Templates",
     "settings": "Settings",
@@ -531,7 +529,6 @@
     "status": {
       "avgShiftHours": "Avg Shift Hours",
       "earlyDepartures": "Early Departures Today",
-      "activeProjects": "Active Projects",
       "turnoverRate": "Turnover Rate",
       "hrs": "hrs",
       "top": "Top: {dept}"
@@ -596,7 +593,7 @@
     },
     "workplace": {
       "title": "Workplace",
-      "subtitle": "Company property, documents and project work"
+      "subtitle": "Company property and documents"
     },
     "system": {
       "title": "System",
@@ -657,7 +654,6 @@
       "grievances": "Complaints raised and how they were closed",
       "assets": "Company property, who holds what",
       "letters": "Letter requests and issued documents",
-      "allProjects": "Projects, tasks and time booked to them",
       "settings": "Configuration for every module",
       "auditLogs": "Who changed what, and when",
       "documentTemplates": "Design the letters, payslips and certificates your company issues"
@@ -1247,18 +1243,11 @@
     "kpiLetters": "Pending letter requests",
     "kpiLettersHint": "Oldest waiting {days} days",
     "kpiLettersClear": "Nothing waiting",
-    "kpiProjects": "Active projects",
-    "kpiProjectsHint": "Of {total} not archived",
-    "kpiProjectsOverdue": "Projects overdue",
-    "kpiProjectsOverdueHint": "{soon, plural, =0 {None due in 30 days} one {# due in 30 days} other {# due in 30 days}}",
-    "kpiProjectsOverdueNoDates": "{count, plural, one {# project has} other {# projects have}} no end date",
     "attnClearances": "{count, plural, one {# leaver still holds} other {# leavers still hold}} company property",
     "attnLost": "{count, plural, one {# asset is} other {# assets are}} lost",
-    "attnOverdueProjects": "{count, plural, one {# project is} other {# projects are}} past its end date",
     "attnUnacknowledged": "{count, plural, one {# handover} other {# handovers}} never signed for",
     "attnWarranty": "{count, plural, one {# warranty expires} other {# warranties expire}} within 60 days",
     "attnStaleLetters": "A letter request has waited {days} days",
-    "attnDueSoon": "{count, plural, one {# project is} other {# projects are}} due within 30 days",
     "letterTrend": "Letter requests",
     "letterTrendHint": "Raised each month, and how much of it went out.",
     "noTrendData": "No letter has been requested in the last twelve months.",
@@ -1296,19 +1285,6 @@
       "PENDING": "Pending",
       "ISSUED": "Issued",
       "REJECTED": "Rejected"
-    },
-    "projectHealth": "Project health",
-    "projectHealthHint": "Across every status.",
-    "projectHero": "Past their end date",
-    "noProjects": "No projects yet.",
-    "projectsUnknown": "Could not read project status.",
-    "projectsNotScoped": "Project figures are company-wide and do not narrow with the branch selector.",
-    "projectStatus": {
-      "PLANNING": "Planning",
-      "ACTIVE": "Active",
-      "ON_HOLD": "On hold",
-      "COMPLETED": "Completed",
-      "CANCELLED": "Cancelled"
     }
   },
   "talentHub": {

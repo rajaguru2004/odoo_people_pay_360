@@ -52,10 +52,6 @@ model User {
   companyKnowledges     CompanyKnowledge[]   @relation("UserKnowledge")
   notifications         Notification[]       @relation("UserNotifications")
 
-  // Task Tracker relations
-  taskComments             TaskComment[]             @relation("TaskComments")
-  taskAttachments          TaskAttachment[]          @relation("TaskAttachments")
-  taskActivities           TaskActivity[]            @relation("TaskActivities")
   approvedTimesheets       Timesheet[]               @relation("ApprovedTimesheets")
   leaveApprovals           LeaveApproval[]           @relation("LeaveApprovalDecider")
   leaveAttachments         LeaveAttachment[]         @relation("LeaveAttachmentUploader")
@@ -128,7 +124,6 @@ model Department {
   managerTransitions ManagerTransition[]
   oldParentRequests  DepartmentChangeRequest[] @relation("OldParent")
   newParentRequests  DepartmentChangeRequest[] @relation("NewParent")
-  projects           Project[]
 
   @@map("departments")
 }
@@ -160,10 +155,10 @@ model Branch {
   // company-wide SystemSetting, the same convention as the config block below).
   // A salary certificate issued by the Sohar office naming the Muscat CR number
   // is wrong in a way a bank will act on.
-  phone       String? @db.VarChar(50)
-  email       String? @db.VarChar(150)
-  crNumber    String? @map("cr_number") @db.VarChar(50)
-  vatNumber   String? @map("vat_number") @db.VarChar(50)
+  phone     String? @db.VarChar(50)
+  email     String? @db.VarChar(150)
+  crNumber  String? @map("cr_number") @db.VarChar(50)
+  vatNumber String? @map("vat_number") @db.VarChar(50)
 
   // Per-branch config (nullable => inherit global SystemSetting)
   timezone        String? @db.VarChar(100) // IANA tz
@@ -474,29 +469,21 @@ model Employee {
   trainingNominations TrainingNomination[] @relation("TrainingNominee")
 
   // Self-service letters and grievances.
-  letterRequests    LetterRequest[] @relation("LetterRequester")
+  letterRequests LetterRequest[] @relation("LetterRequester")
 
   // Documents generated ABOUT this employee, and their place in a bulk run.
   generatedDocuments GeneratedDocument[] @relation("GeneratedDocumentSubject")
   documentBatchItems DocumentBatchItem[] @relation("DocumentBatchSubject")
-  grievancesRaised  Grievance[]     @relation("GrievanceRaisedBy")
-  grievancesAgainst Grievance[]     @relation("GrievanceAgainst")
+  grievancesRaised   Grievance[]         @relation("GrievanceRaisedBy")
+  grievancesAgainst  Grievance[]         @relation("GrievanceAgainst")
 
   // NEW: Employee activities
   activities      EmployeeActivity[] @relation("EmployeeActivities")
   workSchedules   WorkSchedule[]     @relation("EmployeeWorkSchedules")
   faceDescriptors FaceDescriptor[]   @relation("EmployeeFaceDescriptors")
 
-  // Task Tracker relations
-  assignedTasks           Task[]               @relation("TaskAssignees")
-  reportedTasks           Task[]               @relation("ReportedTasks")
-  workLogs                WorkLog[]            @relation("WorkLogs")
   timesheets              Timesheet[]          @relation("Timesheets")
   payrollBatchMemberships PayrollBatchMember[]
-
-  // Project Management relations
-  ownedProjects      Project[]       @relation("ProjectOwner")
-  projectMemberships ProjectMember[] @relation("ProjectMemberEmployee")
 
   // `name` is the Prisma-side compound key; `map` is the actual DB index name —
   // without the latter Prisma would expect its own generated name and report drift.
@@ -525,7 +512,6 @@ model Team {
   department Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   teamLead   Employee?    @relation("TeamLead", fields: [teamLeadId], references: [id], onDelete: SetNull)
   members    TeamMember[]
-  projects   Project[]
 
   @@map("teams")
 }
@@ -2874,8 +2860,8 @@ model EmployeeDocument {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  uploader User?    @relation(fields: [uploadedBy], references: [id], onDelete: SetNull)
+  employee  Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  uploader  User?               @relation(fields: [uploadedBy], references: [id], onDelete: SetNull)
   /// The engine's trace row, when this vault entry was machine-generated.
   generated GeneratedDocument[]
 
@@ -4163,37 +4149,8 @@ model SystemSetting {
 }
 
 // =====================================================
-// TASK TRACKER + TIMESHEET MANAGEMENT
+// TIMESHEET MANAGEMENT
 // =====================================================
-
-enum TaskPriority {
-  LOW
-  MEDIUM
-  HIGH
-  CRITICAL
-}
-
-enum TaskStatus {
-  TODO
-  IN_PROGRESS
-  IN_REVIEW
-  COMPLETED
-  CANCELLED
-  BLOCKED
-}
-
-enum TaskActivityType {
-  CREATED
-  ASSIGNED
-  REASSIGNED
-  STATUS_CHANGED
-  EDITED
-  COMPLETED
-  COMMENTED
-  ATTACHMENT_ADDED
-  ATTACHMENT_REMOVED
-  NOTE_ADDED
-}
 
 enum TimesheetStatus {
   DRAFT
@@ -4202,213 +4159,9 @@ enum TimesheetStatus {
   REJECTED
 }
 
-// ===== Project Management (Work Hive port) =====
-
-enum ProjectStatus {
-  PLANNING
-  ACTIVE
-  ON_HOLD
-  COMPLETED
-  CANCELLED
-}
-
-enum ProjectPriority {
-  LOW
-  MEDIUM
-  HIGH
-  URGENT
-}
-
-enum ProjectVisibility {
-  PRIVATE
-  INTERNAL
-  PUBLIC
-}
-
-enum ProjectMemberRole {
-  OWNER
-  MANAGER
-  MEMBER
-  VIEWER
-}
-
-enum StatusCategory {
-  TODO
-  IN_PROGRESS
-  DONE
-}
-
-enum SprintStatus {
-  PLANNING
-  ACTIVE
-  COMPLETED
-  CANCELLED
-}
-
-enum TaskType {
-  TASK
-  BUG
-  EPIC
-  STORY
-  SUBTASK
-}
-
-enum DependencyType {
-  BLOCKS
-  BLOCKED_BY
-  RELATES_TO
-  DUPLICATES
-}
-
-model Task {
-  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  taskCode       String       @unique @map("task_code") @db.VarChar(20)
-  title          String       @db.VarChar(500)
-  description    String?      @db.Text
-  priority       TaskPriority @default(MEDIUM)
-  status         TaskStatus   @default(TODO)
-  reporterId     String?      @map("reporter_id") @db.Uuid
-  dueDate        DateTime?    @map("due_date") @db.Date
-  startDate      DateTime?    @map("start_date") @db.Date
-  completedDate  DateTime?    @map("completed_date") @db.Date
-  estimatedHours Decimal?     @map("estimated_hours") @db.Decimal(8, 2)
-  actualHours    Decimal      @default(0) @map("actual_hours") @db.Decimal(8, 2)
-  tags           String[]
-  isArchived     Boolean      @default(false) @map("is_archived")
-  isPrivate      Boolean      @default(false) @map("is_private")
-  locationName   String?      @map("location_name") @db.VarChar(500)
-  latitude       Decimal?     @db.Decimal(10, 7)
-  longitude      Decimal?     @db.Decimal(10, 7)
-  deletedAt      DateTime?    @map("deleted_at") @db.Timestamp(6)
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  // Project Management (nullable = legacy standalone task; set = workflow-driven project task)
-  projectId    String?  @map("project_id") @db.Uuid
-  statusId     String?  @map("status_id") @db.Uuid
-  sprintId     String?  @map("sprint_id") @db.Uuid
-  parentTaskId String?  @map("parent_task_id") @db.Uuid
-  type         TaskType @default(TASK)
-  storyPoints  Int?     @map("story_points")
-
-  assignees   Employee[]       @relation("TaskAssignees")
-  reporter    Employee?        @relation("ReportedTasks", fields: [reporterId], references: [id], onDelete: SetNull)
-  comments    TaskComment[]
-  attachments TaskAttachment[]
-  activities  TaskActivity[]
-  workLogs    WorkLog[]
-  timesheets  Timesheet[]
-
-  project        Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  workflowStatus ProjectTaskStatus? @relation(fields: [statusId], references: [id], onDelete: SetNull)
-  sprint         Sprint?            @relation(fields: [sprintId], references: [id], onDelete: SetNull)
-  parentTask     Task?              @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: SetNull)
-  childTasks     Task[]             @relation("TaskHierarchy")
-  labels         TaskLabel[]
-  blocks         TaskDependency[]   @relation("BlockingTask")
-  dependsOn      TaskDependency[]   @relation("DependentTask")
-
-  @@index([status])
-  @@index([priority])
-  @@index([dueDate])
-  @@index([isArchived])
-  @@index([isPrivate])
-  @@index([deletedAt])
-  @@index([projectId])
-  @@index([statusId])
-  @@index([sprintId])
-  @@index([parentTaskId])
-  @@map("tasks")
-}
-
-model TaskComment {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  taskId    String    @map("task_id") @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  comment   String    @db.Text
-  deletedAt DateTime? @map("deleted_at") @db.Timestamp(6)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user User @relation("TaskComments", fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([taskId])
-  @@index([userId])
-  @@map("task_comments")
-}
-
-model TaskAttachment {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  taskId     String    @map("task_id") @db.Uuid
-  fileName   String    @map("file_name") @db.VarChar(255)
-  fileUrl    String    @map("file_url") @db.Text
-  fileSize   BigInt?   @map("file_size")
-  mimeType   String?   @map("mime_type") @db.VarChar(100)
-  uploadedBy String    @map("uploaded_by") @db.Uuid
-  uploadedAt DateTime  @default(now()) @map("uploaded_at") @db.Timestamp(6)
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamp(6)
-
-  task     Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  uploader User @relation("TaskAttachments", fields: [uploadedBy], references: [id], onDelete: Restrict)
-
-  @@index([taskId])
-  @@map("task_attachments")
-}
-
-model TaskActivity {
-  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  taskId       String           @map("task_id") @db.Uuid
-  actorId      String?          @map("actor_id") @db.Uuid
-  activityType TaskActivityType @map("activity_type")
-  description  String           @db.Text
-  oldValue     Json?            @map("old_value")
-  newValue     Json?            @map("new_value")
-  metadata     Json?
-  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamp(6)
-
-  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  actor User? @relation("TaskActivities", fields: [actorId], references: [id], onDelete: SetNull)
-
-  @@index([taskId, createdAt(sort: Desc)])
-  @@index([activityType])
-  @@map("task_activities")
-}
-
-model WorkLog {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  taskId          String    @map("task_id") @db.Uuid
-  employeeId      String    @map("employee_id") @db.Uuid
-  startTime       DateTime  @map("start_time") @db.Timestamp(6)
-  endTime         DateTime? @map("end_time") @db.Timestamp(6)
-  duration        Decimal?  @db.Decimal(8, 2) // hours
-  notes           String?   @db.Text
-  // Stage attribution: which workflow status this time was logged against
-  statusId        String?   @map("status_id") @db.Uuid
-  statusName      String?   @map("status_name") @db.VarChar(100) // snapshot, survives rename/delete
-  // Timer state: null = stopped, timerPausedAt != null = paused
-  timerActive     Boolean   @default(false) @map("timer_active")
-  timerPausedAt   DateTime? @map("timer_paused_at") @db.Timestamp(6)
-  timerPausedSecs Int       @default(0) @map("timer_paused_secs") // accumulated paused seconds
-  deletedAt       DateTime? @map("deleted_at") @db.Timestamp(6)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  task     Task               @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  employee Employee           @relation("WorkLogs", fields: [employeeId], references: [id], onDelete: Cascade)
-  status   ProjectTaskStatus? @relation(fields: [statusId], references: [id], onDelete: SetNull)
-
-  @@index([taskId])
-  @@index([employeeId])
-  @@index([timerActive])
-  @@index([statusId])
-  @@map("work_logs")
-}
-
 model Timesheet {
   id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId      String          @map("employee_id") @db.Uuid
-  taskId          String?         @map("task_id") @db.Uuid
   workDate        DateTime        @map("work_date") @db.Date
   hoursWorked     Decimal         @map("hours_worked") @db.Decimal(5, 2)
   description     String?         @db.Text
@@ -4422,11 +4175,9 @@ model Timesheet {
   updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
   employee Employee @relation("Timesheets", fields: [employeeId], references: [id], onDelete: Cascade)
-  task     Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
   approver User?    @relation("ApprovedTimesheets", fields: [approvedBy], references: [id], onDelete: SetNull)
 
   @@index([employeeId])
-  @@index([taskId])
   @@index([status])
   @@index([workDate])
   @@map("timesheets")
@@ -4510,214 +4261,6 @@ model LeaveTypeBalance {
 
   @@unique([employeeId, year, leaveTypeKey])
   @@map("leave_type_balances")
-}
-
-// ===== Project Management models (Work Hive port) =====
-
-model Project {
-  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectCode  String            @unique @map("project_code") @db.VarChar(20)
-  name         String            @db.VarChar(150)
-  slug         String            @unique @db.VarChar(160)
-  taskPrefix   String?           @map("task_prefix") @db.VarChar(8)
-  description  String?           @db.Text
-  color        String            @default("#00358F") @db.VarChar(9)
-  avatar       String?           @db.Text
-  status       ProjectStatus     @default(PLANNING)
-  priority     ProjectPriority   @default(MEDIUM)
-  visibility   ProjectVisibility @default(PRIVATE)
-  startDate    DateTime?         @map("start_date") @db.Date
-  endDate      DateTime?         @map("end_date") @db.Date
-  workflowId   String?           @map("workflow_id") @db.Uuid
-  departmentId String?           @map("department_id") @db.Uuid
-  teamId       String?           @map("team_id") @db.Uuid
-  ownerId      String?           @map("owner_id") @db.Uuid
-  createdById  String?           @map("created_by_id") @db.Uuid
-  isArchived   Boolean           @default(false) @map("is_archived")
-  deletedAt    DateTime?         @map("deleted_at") @db.Timestamp(6)
-  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt    DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  workflow   Workflow?       @relation(fields: [workflowId], references: [id], onDelete: SetNull)
-  department Department?     @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  team       Team?           @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  owner      Employee?       @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  members    ProjectMember[]
-  roles      ProjectRole[]
-  sprints    Sprint[]
-  tasks      Task[]
-  labels     Label[]
-
-  @@index([status])
-  @@index([priority])
-  @@index([isArchived])
-  @@index([departmentId])
-  @@index([teamId])
-  @@index([deletedAt])
-  @@map("projects")
-}
-
-model ProjectMember {
-  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId  String            @map("project_id") @db.Uuid
-  employeeId String            @map("employee_id") @db.Uuid
-  role       ProjectMemberRole @default(MEMBER)
-  roleId     String?           @map("role_id") @db.Uuid
-  joinedAt   DateTime          @default(now()) @map("joined_at") @db.Timestamp(6)
-  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt  DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  employee    Employee     @relation("ProjectMemberEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
-  projectRole ProjectRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
-
-  @@unique([projectId, employeeId])
-  @@index([employeeId])
-  @@index([roleId])
-  @@map("project_members")
-}
-
-model ProjectRole {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId   String   @map("project_id") @db.Uuid
-  name        String   @db.VarChar(50)
-  slug        String   @db.VarChar(60)
-  description String?  @db.Text
-  color       String?  @db.VarChar(9)
-  isSystem    Boolean  @default(false) @map("is_system")
-  isDefault   Boolean  @default(false) @map("is_default")
-  permissions String[] @default([])
-  sortOrder   Int      @default(0) @map("sort_order")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  members ProjectMember[]
-
-  @@unique([projectId, slug])
-  @@index([projectId])
-  @@map("project_roles")
-}
-
-model Workflow {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String   @db.VarChar(150)
-  description String?  @db.Text
-  isDefault   Boolean  @default(false) @map("is_default")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  statuses    ProjectTaskStatus[]
-  transitions StatusTransition[]
-  projects    Project[]
-
-  @@map("workflows")
-}
-
-model ProjectTaskStatus {
-  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name       String         @db.VarChar(100)
-  color      String         @default("#64748B") @db.VarChar(9)
-  category   StatusCategory @default(TODO)
-  position   Int            @default(0)
-  isDefault  Boolean        @default(false) @map("is_default")
-  workflowId String         @map("workflow_id") @db.Uuid
-  deletedAt  DateTime?      @map("deleted_at") @db.Timestamp(6)
-  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt  DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  workflow        Workflow           @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  tasks           Task[]
-  workLogs        WorkLog[]
-  fromTransitions StatusTransition[] @relation("FromStatus")
-  toTransitions   StatusTransition[] @relation("ToStatus")
-
-  @@unique([workflowId, name])
-  @@index([workflowId])
-  @@map("task_workflow_statuses")
-}
-
-model StatusTransition {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workflowId   String   @map("workflow_id") @db.Uuid
-  fromStatusId String   @map("from_status_id") @db.Uuid
-  toStatusId   String   @map("to_status_id") @db.Uuid
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-
-  workflow   Workflow          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  fromStatus ProjectTaskStatus @relation("FromStatus", fields: [fromStatusId], references: [id], onDelete: Cascade)
-  toStatus   ProjectTaskStatus @relation("ToStatus", fields: [toStatusId], references: [id], onDelete: Cascade)
-
-  @@unique([workflowId, fromStatusId, toStatusId])
-  @@map("status_transitions")
-}
-
-model Sprint {
-  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name       String       @db.VarChar(150)
-  slug       String?      @db.VarChar(160)
-  goal       String?      @db.Text
-  status     SprintStatus @default(PLANNING)
-  isDefault  Boolean      @default(false) @map("is_default")
-  isArchived Boolean      @default(false) @map("is_archived")
-  startDate  DateTime?    @map("start_date") @db.Date
-  endDate    DateTime?    @map("end_date") @db.Date
-  projectId  String       @map("project_id") @db.Uuid
-  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt  DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  tasks   Task[]
-
-  @@unique([projectId, slug])
-  @@index([projectId])
-  @@index([status])
-  @@map("sprints")
-}
-
-model Label {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name      String   @db.VarChar(100)
-  color     String   @default("#64748B") @db.VarChar(9)
-  projectId String   @map("project_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  taskLabels TaskLabel[]
-
-  @@unique([projectId, name])
-  @@index([projectId])
-  @@map("labels")
-}
-
-model TaskLabel {
-  taskId    String   @map("task_id") @db.Uuid
-  labelId   String   @map("label_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-
-  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  label Label @relation(fields: [labelId], references: [id], onDelete: Cascade)
-
-  @@id([taskId, labelId])
-  @@index([labelId])
-  @@map("task_labels")
-}
-
-model TaskDependency {
-  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  type            DependencyType @default(BLOCKS)
-  dependentTaskId String         @map("dependent_task_id") @db.Uuid
-  blockingTaskId  String         @map("blocking_task_id") @db.Uuid
-  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
-
-  dependentTask Task @relation("DependentTask", fields: [dependentTaskId], references: [id], onDelete: Cascade)
-  blockingTask  Task @relation("BlockingTask", fields: [blockingTaskId], references: [id], onDelete: Cascade)
-
-  @@unique([dependentTaskId, blockingTaskId])
-  @@index([dependentTaskId])
-  @@index([blockingTaskId])
-  @@map("task_dependencies")
 }
 
 // =====================================================
@@ -5640,9 +5183,9 @@ model DocumentAsset {
   scope    String  @db.VarChar(10) // COMPANY | BRANCH
   branchId String? @map("branch_id") @db.Uuid
 
-  privateRef String @map("private_ref") @db.Text
-  mimeType   String @map("mime_type") @db.VarChar(100)
-  fileSize   BigInt @map("file_size")
+  privateRef  String @map("private_ref") @db.Text
+  mimeType    String @map("mime_type") @db.VarChar(100)
+  fileSize    BigInt @map("file_size")
   /// sha256. Doubles as the cache key for the inlined data: URI (immutable, so
   /// it never needs invalidating) and as proof that the artwork behind a
   /// published version never changed underneath it.
@@ -5736,7 +5279,7 @@ model GeneratedDocument {
   templateContentHash String? @map("template_content_hash") @db.VarChar(64)
 
   /// Whom it is about. NULL for company-wide artefacts (a payroll register).
-  employeeId String? @map("employee_id") @db.Uuid
+  employeeId  String? @map("employee_id") @db.Uuid
   /// Pointer at the record the document describes: a payrollItemId, a loanId, a
   /// settlementId. Interpreted by the type's resolver, never joined.
   subjectType String? @map("subject_type") @db.VarChar(40)
@@ -5796,7 +5339,7 @@ model DocumentBatch {
   // COMPLETED_WITH_ERRORS is a distinct state on purpose. A run that quietly
   // reports COMPLETED while eleven employees got nothing is the failure mode
   // this whole table exists to prevent.
-  status String @default("QUEUED") @db.VarChar(25)
+  status       String @default("QUEUED") @db.VarChar(25)
   // MERGED | INDIVIDUAL
   deliveryMode String @default("INDIVIDUAL") @map("delivery_mode") @db.VarChar(15)
 
@@ -5840,8 +5383,8 @@ model DocumentBatchItem {
   subjectId  String? @map("subject_id") @db.Uuid
 
   // PENDING | RENDERING | DONE | FAILED | SKIPPED
-  status   String @default("PENDING") @db.VarChar(15)
-  attempts Int    @default(0)
+  status    String  @default("PENDING") @db.VarChar(15)
+  attempts  Int     @default(0)
   /// The refusal, verbatim. A batch that silently drops people is worse than
   /// one that says which people and why.
   lastError String? @map("last_error") @db.Text

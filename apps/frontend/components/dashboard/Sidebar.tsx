@@ -292,9 +292,6 @@ export default function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarP
         if (pathname.startsWith('/dashboard/leaves/pending')) return false;
         return true;
       }
-      if (href === '/dashboard/projects' && pathname.startsWith('/dashboard/projects/')) {
-        return true;
-      }
       // Keep Finance ▸ HR Budgets lit on the variance detail page.
       if (href === '/dashboard/budgets' && pathname.startsWith('/dashboard/budgets/')) {
         return true;

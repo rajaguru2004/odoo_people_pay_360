@@ -1,11 +1,9 @@
 import * as bcrypt from 'bcrypt';
 import { E2EContext } from './e2e-app';
 import { Fixtures, setupFixtures } from './fixtures';
-import { presetRolesCreateData } from '../../src/projects/rbac/permissions.constants';
 
 /**
- * The Workplace phase's fixture set — Asset Register, Letter Requests and the
- * Project tracker (projects, roles, members, workflows).
+ * The Workplace phase's fixture set — Asset Register and Letter Requests.
  *
  * LAYERED on `utils/fixtures.ts` rather than replacing it. That base already
  * builds the exact tenancy skeleton these three modules are asserted against —
@@ -32,11 +30,7 @@ import { presetRolesCreateData } from '../../src/projects/rbac/permissions.const
  *     collapses request+issue inline (R4); `isActive:false` is refused by
  *     `request()` but NOT by `issue()` (R14); locale `ar` proves the
  *     `@@unique([key, locale])` pairing is a real dimension and not decoration.
- *  4. **Two projects sharing ONE workflow.** `projectIdFromStatus()` resolves a
- *     status to its workflow and then to *an arbitrary project using that
- *     workflow*. With one project per workflow the wrong-project guard check is
- *     invisible; with two it is the whole of finding R7.
- *  5. **A `isSensitive` profile-template field.** `customLetterFields()` drops
+ *  4. **A `isSensitive` profile-template field.** `customLetterFields()` drops
  *     sensitive fields OUTRIGHT rather than masking them. A fixture with only
  *     ordinary fields cannot tell "excluded" from "there was nothing to
  *     exclude". Note the consumer spec must flip `employee_profile_template_enabled`
@@ -90,11 +84,9 @@ export interface WorkplaceFixtures {
   /** ACTIVE, branch B — the subject every cross-branch case needs. */
   branchBEmployeeId: string;
 
-  // Project personas' employee rows.
-  ownerEmployeeId: string;
-  managerPresetEmployeeId: string;
-  memberEmployeeId: string;
-  viewerEmployeeId: string;
+  /** ACTIVE, a real login, unrelated to `holderId`/`leaverId`. */
+  colleagueEmployeeId: string;
+  /** ACTIVE, a real login, a second unrelated employee. */
   outsiderEmployeeId: string;
 
   // ── Users ────────────────────────────────────────────────────────────────
@@ -107,19 +99,10 @@ export interface WorkplaceFixtures {
   /** MANAGER heading `managedDept`. */
   manager: WorkplaceUser;
 
-  /** MANAGER in HRM; `ownerId` of every fixture project. */
-  projectOwner: WorkplaceUser;
-  /** EMPLOYEE in HRM; carries the `manager` PRESET role on every project. */
-  projectManager: WorkplaceUser;
-  /** EMPLOYEE in HRM; carries the `member` preset role. */
-  projectMember: WorkplaceUser;
-  /** EMPLOYEE in HRM; carries the `viewer` preset role. */
-  projectViewer: WorkplaceUser;
-  /**
-   * MANAGER in HRM, member of NO project. The principal finding R8 turns on:
-   * `POST /tasks/bulk-assign` is gated only by the global @Roles decorator.
-   */
-  projectOutsider: WorkplaceUser;
+  /** EMPLOYEE, a real login, standing in for "some other employee" in RBAC checks. */
+  colleague: WorkplaceUser;
+  /** MANAGER, a real login, a second unrelated principal for the same purpose. */
+  outsider: WorkplaceUser;
 
   // ── Assets ───────────────────────────────────────────────────────────────
   /** Branch A, AVAILABLE, never assigned. */
@@ -159,32 +142,6 @@ export interface WorkplaceFixtures {
   tplInactiveKey: string;
   tplInactiveId: string;
 
-  // ── Projects ─────────────────────────────────────────────────────────────
-  privateProjectId: string;
-  privateProjectSlug: string;
-  internalProjectId: string;
-  internalProjectSlug: string;
-  publicProjectId: string;
-  publicProjectSlug: string;
-
-  /** ONE workflow, TWO projects. The whole of finding R7. */
-  sharedWorkflowId: string;
-  sharedWorkflowProjectAId: string;
-  sharedWorkflowProjectASlug: string;
-  sharedWorkflowProjectBId: string;
-  sharedWorkflowProjectBSlug: string;
-  /** Status columns on `sharedWorkflowId`, ordered by position. */
-  sharedWorkflowStatusIds: string[];
-
-  /** Workflow + statuses backing `privateProjectId`. */
-  privateWorkflowId: string;
-  privateStatusIds: string[];
-
-  /** Preset role ids on `privateProjectId`, keyed by slug. */
-  privateRoleIds: Record<string, string>;
-  /** ProjectMember row ids on `privateProjectId`, keyed by persona. */
-  privateMemberIds: Record<'manager' | 'member' | 'viewer', string>;
-
   // ── Profile template (letter context) ────────────────────────────────────
   profileTemplateId: string;
   profileSectionId: string;
@@ -217,7 +174,7 @@ const daysAgo = (n: number) => {
   return d;
 };
 
-/** `project_code` is VarChar(20); the full runId does not fit beside a prefix. */
+/** Letter template keys are short VarChar columns; the full runId does not fit beside a prefix. */
 const shortTag = (runId: string) => runId.slice(-8);
 
 export async function setupWorkplaceFixtures(
@@ -278,20 +235,11 @@ export async function setupWorkplaceFixtures(
     data: mkEmployee('BRANCHB', { branchId: base.branchB }),
   });
 
-  const ownerEmp = await prisma.employee.create({
-    data: mkEmployee('POWNER', { departmentId: otherDept.id }),
-  });
-  const managerPresetEmp = await prisma.employee.create({
-    data: mkEmployee('PMANAGER', { departmentId: otherDept.id }),
-  });
-  const memberEmp = await prisma.employee.create({
-    data: mkEmployee('PMEMBER', { departmentId: otherDept.id }),
-  });
-  const viewerEmp = await prisma.employee.create({
-    data: mkEmployee('PVIEWER', { departmentId: otherDept.id }),
+  const colleagueEmp = await prisma.employee.create({
+    data: mkEmployee('COLLEAGUE', { departmentId: otherDept.id }),
   });
   const outsiderEmp = await prisma.employee.create({
-    data: mkEmployee('POUTSIDER', { departmentId: otherDept.id }),
+    data: mkEmployee('OUTSIDER', { departmentId: otherDept.id }),
   });
 
   // The headship is what `managedDepartmentIds` resolves from — without it the
@@ -321,22 +269,11 @@ export async function setupWorkplaceFixtures(
   const managerUser = await mkUser('WPLMGR', 'MANAGER', {
     employeeId: managerEmp.id,
   });
-  const ownerUser = await mkUser('WPLPOWNER', 'MANAGER', {
-    employeeId: ownerEmp.id,
-  });
-  const managerPresetUser = await mkUser('WPLPMGR', 'EMPLOYEE', {
-    employeeId: managerPresetEmp.id,
+  const colleagueUser = await mkUser('WPLCOLL', 'EMPLOYEE', {
+    employeeId: colleagueEmp.id,
     isGlobalBranchAccess: false,
   });
-  const memberUser = await mkUser('WPLPMEM', 'EMPLOYEE', {
-    employeeId: memberEmp.id,
-    isGlobalBranchAccess: false,
-  });
-  const viewerUser = await mkUser('WPLPVIEW', 'EMPLOYEE', {
-    employeeId: viewerEmp.id,
-    isGlobalBranchAccess: false,
-  });
-  const outsiderUser = await mkUser('WPLPOUT', 'MANAGER', {
+  const outsiderUser = await mkUser('WPLOUT', 'MANAGER', {
     employeeId: outsiderEmp.id,
   });
 
@@ -461,139 +398,6 @@ export async function setupWorkplaceFixtures(
     },
   });
 
-  // ── Workflows + projects ──────────────────────────────────────────────────
-  const STATUS_COLUMNS: Array<{
-    name: string;
-    category: 'TODO' | 'IN_PROGRESS' | 'DONE';
-    position: number;
-    isDefault: boolean;
-  }> = [
-    { name: 'To Do', category: 'TODO', position: 0, isDefault: true },
-    { name: 'In Progress', category: 'IN_PROGRESS', position: 1, isDefault: false },
-    { name: 'Done', category: 'DONE', position: 2, isDefault: false },
-  ];
-
-  const mkWorkflow = async (label: string) => {
-    const wf = await prisma.workflow.create({
-      data: {
-        name: `WPL ${label} ${runId}`,
-        description: `workplace fixture workflow ${runId}`,
-        isDefault: false,
-        statuses: { create: STATUS_COLUMNS },
-      },
-    });
-    const statuses = await prisma.projectTaskStatus.findMany({
-      where: { workflowId: wf.id },
-      orderBy: { position: 'asc' },
-      select: { id: true },
-    });
-    return { id: wf.id, statusIds: statuses.map((s) => s.id) };
-  };
-
-  const privateWorkflow = await mkWorkflow('Private');
-  const internalWorkflow = await mkWorkflow('Internal');
-  const publicWorkflow = await mkWorkflow('Public');
-  const sharedWorkflow = await mkWorkflow('Shared');
-
-  const mkProject = (
-    suffix: string,
-    visibility: 'PRIVATE' | 'INTERNAL' | 'PUBLIC',
-    workflowId: string,
-    over: Record<string, unknown> = {},
-  ): any => ({
-    // VarChar(20) and VarChar(160) respectively — hence the short tag on one.
-    projectCode: `WP${short}${suffix}`,
-    name: `WPL ${suffix} ${runId}`,
-    slug: `wpl-${suffix.toLowerCase()}-${runId}`,
-    taskPrefix: `W${suffix}`.slice(0, 8),
-    description: `workplace fixture project ${runId}`,
-    visibility,
-    status: 'ACTIVE',
-    priority: 'MEDIUM',
-    workflowId,
-    departmentId: otherDept.id,
-    ownerId: ownerEmp.id,
-    // Every project ships the four seeded presets, exactly as
-    // ProjectsService.create() does — a project without them cannot be used to
-    // assert a preset's permission set.
-    roles: { create: presetRolesCreateData() },
-    ...over,
-  });
-
-  const privateProject = await prisma.project.create({
-    data: mkProject('PRIV', 'PRIVATE', privateWorkflow.id),
-  });
-  const internalProject = await prisma.project.create({
-    data: mkProject('INT', 'INTERNAL', internalWorkflow.id),
-  });
-  const publicProject = await prisma.project.create({
-    data: mkProject('PUB', 'PUBLIC', publicWorkflow.id),
-  });
-  // Two projects, ONE workflow. `projectIdFromStatus()` resolves a status to
-  // whichever of these Prisma answers with first — finding R7.
-  const sharedProjectA = await prisma.project.create({
-    data: mkProject('SHRA', 'PRIVATE', sharedWorkflow.id),
-  });
-  const sharedProjectB = await prisma.project.create({
-    data: mkProject('SHRB', 'PRIVATE', sharedWorkflow.id),
-  });
-
-  const privateRoles = await prisma.projectRole.findMany({
-    where: { projectId: privateProject.id },
-    select: { id: true, slug: true },
-  });
-  const privateRoleIds: Record<string, string> = {};
-  for (const r of privateRoles) privateRoleIds[r.slug] = r.id;
-
-  const addMember = (
-    projectId: string,
-    employeeId: string,
-    role: 'OWNER' | 'MANAGER' | 'MEMBER' | 'VIEWER',
-    roleId?: string,
-  ) =>
-    prisma.projectMember.create({
-      data: { projectId, employeeId, role, roleId: roleId ?? null },
-    });
-
-  const privManagerMember = await addMember(
-    privateProject.id,
-    managerPresetEmp.id,
-    'MANAGER',
-    privateRoleIds.manager,
-  );
-  const privMemberMember = await addMember(
-    privateProject.id,
-    memberEmp.id,
-    'MEMBER',
-    privateRoleIds.member,
-  );
-  const privViewerMember = await addMember(
-    privateProject.id,
-    viewerEmp.id,
-    'VIEWER',
-    privateRoleIds.viewer,
-  );
-  await addMember(
-    privateProject.id,
-    ownerEmp.id,
-    'OWNER',
-    privateRoleIds.owner,
-  );
-
-  // `sharedProjectA` is the project the STATUS_MANAGE grant is held on;
-  // `sharedProjectB` is the board that grant must not be able to reach.
-  const sharedRolesA = await prisma.projectRole.findMany({
-    where: { projectId: sharedProjectA.id },
-    select: { id: true, slug: true },
-  });
-  const sharedManagerRoleA = sharedRolesA.find((r) => r.slug === 'manager');
-  await addMember(
-    sharedProjectA.id,
-    managerPresetEmp.id,
-    'MANAGER',
-    sharedManagerRoleA?.id,
-  );
-
   // ── Profile template driving the letter's `custom.*` context ──────────────
   const visibleFieldKey = `grade${short}`;
   const sensitiveFieldKey = `secret${short}`;
@@ -646,19 +450,6 @@ export async function setupWorkplaceFixtures(
     },
   });
 
-  const projectIds = [
-    privateProject.id,
-    internalProject.id,
-    publicProject.id,
-    sharedProjectA.id,
-    sharedProjectB.id,
-  ];
-  const workflowIds = [
-    privateWorkflow.id,
-    internalWorkflow.id,
-    publicWorkflow.id,
-    sharedWorkflow.id,
-  ];
   const employeeWhere = {
     OR: [
       { employeeCode: { contains: runId } },
@@ -687,10 +478,7 @@ export async function setupWorkplaceFixtures(
     managerEmployeeId: managerEmp.id,
     branchBEmployeeId: branchBEmp.id,
 
-    ownerEmployeeId: ownerEmp.id,
-    managerPresetEmployeeId: managerPresetEmp.id,
-    memberEmployeeId: memberEmp.id,
-    viewerEmployeeId: viewerEmp.id,
+    colleagueEmployeeId: colleagueEmp.id,
     outsiderEmployeeId: outsiderEmp.id,
 
     admin: {
@@ -716,31 +504,13 @@ export async function setupWorkplaceFixtures(
       email: managerUser.email,
       token: await login(ctx, managerUser.email),
     },
-    projectOwner: {
-      userId: ownerUser.id,
-      employeeId: ownerEmp.id,
-      email: ownerUser.email,
-      token: await login(ctx, ownerUser.email),
+    colleague: {
+      userId: colleagueUser.id,
+      employeeId: colleagueEmp.id,
+      email: colleagueUser.email,
+      token: await login(ctx, colleagueUser.email),
     },
-    projectManager: {
-      userId: managerPresetUser.id,
-      employeeId: managerPresetEmp.id,
-      email: managerPresetUser.email,
-      token: await login(ctx, managerPresetUser.email),
-    },
-    projectMember: {
-      userId: memberUser.id,
-      employeeId: memberEmp.id,
-      email: memberUser.email,
-      token: await login(ctx, memberUser.email),
-    },
-    projectViewer: {
-      userId: viewerUser.id,
-      employeeId: viewerEmp.id,
-      email: viewerUser.email,
-      token: await login(ctx, viewerUser.email),
-    },
-    projectOutsider: {
+    outsider: {
       userId: outsiderUser.id,
       employeeId: outsiderEmp.id,
       email: outsiderUser.email,
@@ -772,30 +542,6 @@ export async function setupWorkplaceFixtures(
     tplInactiveKey,
     tplInactiveId: tplInactive.id,
 
-    privateProjectId: privateProject.id,
-    privateProjectSlug: privateProject.slug,
-    internalProjectId: internalProject.id,
-    internalProjectSlug: internalProject.slug,
-    publicProjectId: publicProject.id,
-    publicProjectSlug: publicProject.slug,
-
-    sharedWorkflowId: sharedWorkflow.id,
-    sharedWorkflowProjectAId: sharedProjectA.id,
-    sharedWorkflowProjectASlug: sharedProjectA.slug,
-    sharedWorkflowProjectBId: sharedProjectB.id,
-    sharedWorkflowProjectBSlug: sharedProjectB.slug,
-    sharedWorkflowStatusIds: sharedWorkflow.statusIds,
-
-    privateWorkflowId: privateWorkflow.id,
-    privateStatusIds: privateWorkflow.statusIds,
-
-    privateRoleIds,
-    privateMemberIds: {
-      manager: privManagerMember.id,
-      member: privMemberMember.id,
-      viewer: privViewerMember.id,
-    },
-
     profileTemplateId: profileTemplate.id,
     profileSectionId: profileSection.id,
     visibleFieldKey,
@@ -806,76 +552,17 @@ export async function setupWorkplaceFixtures(
     /**
      * FK-ordered teardown, children first, and the base's `cleanup()` LAST.
      *
-     * The order is dictated by four RESTRICT / non-cascading edges, not by
+     * The order is dictated by RESTRICT / non-cascading edges, not by
      * tidiness:
-     *   - `TaskAttachment.uploadedBy` is RESTRICT on User, so attachments must
-     *     go before the base deletes users.
-     *   - `AssetAssignment.assignedById` is RESTRICT on User, same reason.
+     *   - `AssetAssignment.assignedById` is RESTRICT on User, so assignments
+     *     must go before the base deletes users.
      *   - `AssetItem.branchId` is RESTRICT on Branch, so assets must go before
      *     the base deletes branches.
-     *   - `Project.workflowId` is SET NULL, so a workflow deleted first would
-     *     silently orphan the projects instead of failing — projects go first.
      *
      * Everything is matched by id or by the run tag; nothing is matched by a
      * shape a real row could also have.
      */
     cleanup: async () => {
-      const taskWhere = { task: { projectId: { in: projectIds } } };
-
-      await prisma.taskDependency.deleteMany({
-        where: {
-          OR: [
-            { dependentTask: { projectId: { in: projectIds } } },
-            { blockingTask: { projectId: { in: projectIds } } },
-          ],
-        },
-      });
-      await prisma.taskComment.deleteMany({ where: taskWhere });
-      await prisma.taskAttachment.deleteMany({ where: taskWhere });
-      await prisma.taskActivity.deleteMany({ where: taskWhere });
-      await prisma.taskLabel.deleteMany({ where: taskWhere });
-      await prisma.label.deleteMany({
-        where: { projectId: { in: projectIds } },
-      });
-      await prisma.task.deleteMany({
-        where: { projectId: { in: projectIds } },
-      });
-      await prisma.sprint.deleteMany({
-        where: { projectId: { in: projectIds } },
-      });
-      await prisma.projectMember.deleteMany({
-        where: { projectId: { in: projectIds } },
-      });
-      // Membership rows for a fixture employee added to a project a SPEC
-      // created — those projects are the spec's to remove, but the rows pin
-      // the employee in place if they are left behind.
-      await prisma.projectMember.deleteMany({
-        where: { employee: employeeWhere },
-      });
-      await prisma.projectRole.deleteMany({
-        where: { projectId: { in: projectIds } },
-      });
-      await prisma.project.deleteMany({ where: { id: { in: projectIds } } });
-      // Any project a spec created against a fixture workflow, or owned by a
-      // fixture employee — otherwise the workflow delete below fails.
-      await prisma.project.deleteMany({
-        where: {
-          OR: [
-            { workflowId: { in: workflowIds } },
-            { owner: employeeWhere },
-            { slug: { contains: runId } },
-          ],
-        },
-      });
-
-      await prisma.statusTransition.deleteMany({
-        where: { workflowId: { in: workflowIds } },
-      });
-      await prisma.projectTaskStatus.deleteMany({
-        where: { workflowId: { in: workflowIds } },
-      });
-      await prisma.workflow.deleteMany({ where: { id: { in: workflowIds } } });
-
       // Assets: assignments (RESTRICT on the assigning user) before items,
       // items (RESTRICT on branch) before the base clears branches.
       await prisma.assetAssignment.deleteMany({

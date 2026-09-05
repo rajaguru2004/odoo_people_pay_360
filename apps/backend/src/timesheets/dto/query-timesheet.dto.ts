@@ -25,11 +25,6 @@ export class QueryTimesheetDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsUUID()
-  taskId?: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
   @IsDateString()
   startDate?: string;
 

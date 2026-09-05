@@ -5,23 +5,16 @@ import { PrismaService } from '../prisma/prisma.service';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Foreign-key field -> the sibling display fields we inject next to it. */
-const EMPLOYEE_KEYS = new Set([
-  'employeeId',
-  'managerId',
-  'assigneeId',
-  'reporterId',
-  'ownerId',
-]);
+const EMPLOYEE_KEYS = new Set(['employeeId', 'managerId']);
 const DEPARTMENT_KEYS = new Set(['departmentId', 'parentId']);
 const BRANCH_KEYS = new Set(['branchId', 'homeBranchId']);
-const PROJECT_KEYS = new Set(['projectId']);
 
 const MAX_IDS_PER_KIND = 200;
 const MAX_DEPTH = 8;
 
 /**
  * Makes MCP tool results human-readable: walks a result payload, collects the
- * foreign-key UUIDs (employee/department/branch/project), batch-resolves them
+ * foreign-key UUIDs (employee/department/branch), batch-resolves them
  * to names, and injects sibling display fields (`employeeName`,
  * `employeeCode`, `departmentName`, …) wherever the object doesn't already
  * carry them. The copilot (and any MCP client) then talks about
@@ -36,14 +29,14 @@ export class IdEnricherService {
 
   async enrich(payload: unknown): Promise<unknown> {
     try {
-      const ids = { employee: new Set<string>(), department: new Set<string>(), branch: new Set<string>(), project: new Set<string>() };
+      const ids = { employee: new Set<string>(), department: new Set<string>(), branch: new Set<string>() };
       collect(payload, ids, 0);
 
-      if (!ids.employee.size && !ids.department.size && !ids.branch.size && !ids.project.size) {
+      if (!ids.employee.size && !ids.department.size && !ids.branch.size) {
         return payload;
       }
 
-      const [employees, departments, branches, projects] = await runWithBranchBypass(() =>
+      const [employees, departments, branches] = await runWithBranchBypass(() =>
         Promise.all<any[]>([
           ids.employee.size
             ? this.prisma.employee.findMany({
@@ -69,12 +62,6 @@ export class IdEnricherService {
                 select: { id: true, name: true },
               })
             : [],
-          ids.project.size
-            ? this.prisma.project.findMany({
-                where: { id: { in: [...ids.project].slice(0, MAX_IDS_PER_KIND) } },
-                select: { id: true, name: true },
-              })
-            : [],
         ]),
       );
 
@@ -82,7 +69,6 @@ export class IdEnricherService {
         employee: new Map<string, any>(employees.map((e: any) => [e.id, e])),
         department: new Map<string, string>(departments.map((d: any) => [d.id, d.name])),
         branch: new Map<string, string>(branches.map((b: any) => [b.id, b.name])),
-        project: new Map<string, string>(projects.map((p: any) => [p.id, p.name])),
       };
 
       inject(payload, maps, 0);
@@ -99,7 +85,7 @@ export class IdEnricherService {
 
 function collect(
   node: unknown,
-  out: { employee: Set<string>; department: Set<string>; branch: Set<string>; project: Set<string> },
+  out: { employee: Set<string>; department: Set<string>; branch: Set<string> },
   depth: number,
 ): void {
   if (depth > MAX_DEPTH || node === null || typeof node !== 'object') return;
@@ -112,7 +98,6 @@ function collect(
       if (EMPLOYEE_KEYS.has(key)) out.employee.add(value);
       else if (DEPARTMENT_KEYS.has(key)) out.department.add(value);
       else if (BRANCH_KEYS.has(key)) out.branch.add(value);
-      else if (PROJECT_KEYS.has(key)) out.project.add(value);
     } else if (value && typeof value === 'object') {
       collect(value, out, depth + 1);
     }
@@ -125,7 +110,6 @@ function inject(
     employee: Map<string, { fullName: string; employeeCode: string; position: string | null; department: { name: string } | null }>;
     department: Map<string, string>;
     branch: Map<string, string>;
-    project: Map<string, string>;
   },
   depth: number,
 ): void {
@@ -152,9 +136,6 @@ function inject(
         if (name && obj[`${base}Name`] === undefined) obj[`${base}Name`] = name;
       } else if (BRANCH_KEYS.has(key)) {
         const name = maps.branch.get(value);
-        if (name && obj[`${base}Name`] === undefined) obj[`${base}Name`] = name;
-      } else if (PROJECT_KEYS.has(key)) {
-        const name = maps.project.get(value);
         if (name && obj[`${base}Name`] === undefined) obj[`${base}Name`] = name;
       }
     } else if (value && typeof value === 'object') {

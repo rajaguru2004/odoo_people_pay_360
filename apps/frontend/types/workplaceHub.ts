@@ -6,7 +6,6 @@ export interface WorkplaceHubSummary {
   assets: WorkplaceAssets;
   clearances: WorkplaceClearances;
   letters: WorkplaceLetters;
-  projects: WorkplaceProjects;
   trendKind: 'month';
   /** Twelve months of the letter desk; segments are `issued|outstanding`. */
   trend: HubTrendBucket[];
@@ -63,23 +62,4 @@ export interface WorkplaceLetters {
   avgIssueTurnaroundDays: number | null;
   /** Always false: `LetterRequest` has no `rejectedAt` column. */
   rejectTurnaroundMeasurable: boolean;
-}
-
-export interface WorkplaceProjects {
-  total: number;
-  /** All five `ProjectStatus` values — `/projects/stats` returns only four. */
-  byStatus: Record<'PLANNING' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'CANCELLED', number>;
-  overdue: number;
-  dueIn30Days: number;
-  /**
-   * How many live projects carry no end date at all. Ships beside `overdue`
-   * because without it a zero reads as full coverage rather than no coverage.
-   */
-  withoutEndDate: number;
-  /**
-   * Always false. `Project` is absent from `branch-scope.map.ts` by design,
-   * while assets and letters are scoped — so these figures do not narrow with
-   * the branch selector and the panel has to say so.
-   */
-  projectsAreBranchScoped: boolean;
 }

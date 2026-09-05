@@ -74,7 +74,7 @@ export class ToolExecutorService {
       const result = await def.execute(this.stripConfirm(args), user);
       await this.auditWrite(def, args, user, 'SUCCESS', started);
       const maxItems = this.limitFrom(args) ?? (await this.settings.get()).mcpMaxItems;
-      // Resolve raw foreign-key ids (employee/department/branch/project) to
+      // Resolve raw foreign-key ids (employee/department/branch) to
       // names AFTER trimming, so we only look up what is actually returned.
       return this.ok(await this.enricher.enrich(toToolJson(result, { maxItems })));
     } catch (e) {

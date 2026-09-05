@@ -48,10 +48,8 @@ const SCREENS: Array<{ name: string; path: string; height?: number }> = [
   { name: '34-my-grievances', path: '/dashboard/my-grievances', height: 1200 },
 
   // Work
-  { name: '40-projects', path: '/dashboard/projects', height: 1200 },
   { name: '41-my-timesheets', path: '/dashboard/my-timesheets', height: 1200 },
   { name: '42-timesheets-new', path: '/dashboard/timesheets/new', height: 1200 },
-  { name: '43-work-logs', path: '/dashboard/work-logs', height: 1200 },
 
   // Account
   { name: '50-profile', path: '/dashboard/profile', height: 1500 },

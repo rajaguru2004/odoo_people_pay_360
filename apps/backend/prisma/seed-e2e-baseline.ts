@@ -20,10 +20,6 @@
  */
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import {
-  presetRolesCreateData,
-  OWNER_ROLE_SLUG,
-} from '../src/projects/rbac/permissions.constants';
 import { LETTER_TEMPLATE_DEFAULTS } from '../src/letters/letter-defaults';
 
 const prisma = new PrismaClient();
@@ -918,11 +914,10 @@ async function seedScheduleBaseline(): Promise<void> {
  * 0.00 claim on every local trip.
  */
 /**
- * Workplace baseline — Asset Register, Letter Requests and Projects.
+ * Workplace baseline — Asset Register and Letter Requests.
  *
- * The browser suite must not have to build a project in order to test a
- * project, nor create an asset before it can assign one. Everything here is
- * upserted on a natural key so a re-run is a no-op.
+ * The browser suite must not have to create an asset before it can assign one.
+ * Everything here is upserted on a natural key so a re-run is a no-op.
  *
  * What each row is FOR:
  *  - `E2E-AST-FREE` is assignable; `E2E-AST-HELD` is already out with EMP001,
@@ -932,8 +927,6 @@ async function seedScheduleBaseline(): Promise<void> {
  *    branch-scoped read provably narrower than an unscoped one.
  *  - one PENDING and one ISSUED letter, so the HR queue is never empty and the
  *    verification endpoint always has a real serial to resolve.
- *  - one project carrying all four preset roles with a member in each, because
- *    the permission matrix is meaningless with an empty membership.
  */
 async function seedWorkplaceBaseline(): Promise<void> {
   const ho = await prisma.branch.findUnique({ where: { code: 'HO' } });
@@ -1098,70 +1091,7 @@ async function seedWorkplaceBaseline(): Promise<void> {
     });
   }
 
-  // ── Projects ──────────────────────────────────────────────────────────────
-  const workflow = await prisma.workflow.findFirst({ where: { isDefault: true } });
-
-  const existing = await prisma.project.findUnique({ where: { slug: 'e2e-baseline-project' } });
-  const project =
-    existing ??
-    (await prisma.project.create({
-      data: {
-        projectCode: 'PROJ-9001',
-        name: 'E2E Baseline Project',
-        slug: 'e2e-baseline-project',
-        description: 'Seeded so the browser suite never has to build a project first.',
-        status: 'ACTIVE',
-        priority: 'MEDIUM',
-        visibility: 'INTERNAL',
-        workflowId: workflow?.id ?? null,
-        ownerId: emp1 ?? null,
-        roles: { create: presetRolesCreateData() },
-      },
-    }));
-
-  // A private one, so "invisible to a non-member" has a subject that is not
-  // simply absent from the database.
-  await prisma.project
-    .upsert({
-      where: { slug: 'e2e-baseline-private' },
-      update: {},
-      create: {
-        projectCode: 'PROJ-9002',
-        name: 'E2E Baseline Private Project',
-        slug: 'e2e-baseline-private',
-        status: 'ACTIVE',
-        visibility: 'PRIVATE',
-        workflowId: workflow?.id ?? null,
-        ownerId: mgr1 ?? null,
-        roles: { create: presetRolesCreateData() },
-      },
-    })
-    .catch(() => undefined);
-
-  // One member per preset role. Without this the permission matrix has nothing
-  // to project and every RBAC assertion is vacuous.
-  const roles = await prisma.projectRole.findMany({ where: { projectId: project.id } });
-  const roleBySlug = new Map(roles.map((r) => [r.slug, r.id]));
-  const memberships: Array<{ employeeId: string | undefined; slug: string; legacy: 'OWNER' | 'MANAGER' | 'MEMBER' | 'VIEWER' }> = [
-    { employeeId: emp1, slug: OWNER_ROLE_SLUG, legacy: 'OWNER' },
-    { employeeId: mgr1, slug: 'manager', legacy: 'MANAGER' },
-    { employeeId: emp2, slug: 'member', legacy: 'MEMBER' },
-  ];
-  for (const m of memberships) {
-    if (!m.employeeId) continue;
-    await prisma.projectMember.upsert({
-      where: { projectId_employeeId: { projectId: project.id, employeeId: m.employeeId } },
-      update: { roleId: roleBySlug.get(m.slug) ?? null, role: m.legacy },
-      create: {
-        projectId: project.id,
-        employeeId: m.employeeId,
-        roleId: roleBySlug.get(m.slug) ?? null,
-        role: m.legacy,
-      },
-    });
-  }
-
-  console.log('✅ Workplace baseline: assets, letters and projects seeded.');
+  console.log('✅ Workplace baseline: assets and letters seeded.');
 }
 
 /**

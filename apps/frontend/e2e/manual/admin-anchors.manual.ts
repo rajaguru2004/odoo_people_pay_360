@@ -50,7 +50,7 @@ const PATHS = [
   '/dashboard/advance-loans', '/dashboard/advance-loans/reports', '/dashboard/budgets',
   '/dashboard/talent', '/dashboard/appraisal', '/dashboard/training',
   '/dashboard/rewards-disciplines', '/dashboard/grievances',
-  '/dashboard/workplace', '/dashboard/assets', '/dashboard/letters', '/dashboard/projects',
+  '/dashboard/workplace', '/dashboard/assets', '/dashboard/letters',
   '/dashboard/system', '/dashboard/settings', '/dashboard/audit-logs',
 ];
 

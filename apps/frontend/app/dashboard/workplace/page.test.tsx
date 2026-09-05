@@ -6,11 +6,9 @@ import WorkplaceHubPage from './page';
 /**
  * The Workplace hub, rebuilt onto the Time & Attendance template.
  *
- * Two rules this page has to keep straight, and they pull in opposite
- * directions. A FAILED read shows an em dash, because a zero would be a claim.
- * An EMPTY result shows its real value, because "no project is overdue" is
- * true — but it ships with how many projects carry no end date, or a zero there
- * reads as full coverage rather than as no coverage.
+ * The rule this page has to keep straight: a FAILED read shows an em dash,
+ * because a zero would be a claim. An EMPTY result shows its real value,
+ * because "nothing is waiting" is a fact the read actually established.
  */
 
 vi.mock('@/lib/axios', () => ({ default: { get: vi.fn() } }));
@@ -73,14 +71,6 @@ const payload = {
     avgIssueTurnaroundDays: 2.4,
     rejectTurnaroundMeasurable: false,
   },
-  projects: {
-    total: 12,
-    byStatus: { PLANNING: 2, ACTIVE: 8, ON_HOLD: 1, COMPLETED: 1, CANCELLED: 0 },
-    overdue: 2,
-    dueIn30Days: 3,
-    withoutEndDate: 4,
-    projectsAreBranchScoped: false,
-  },
   trendKind: 'month',
   trend: Array.from({ length: 12 }, (_, i) => ({
     key: `2026-${String(i + 1).padStart(2, '0')}`,
@@ -100,15 +90,13 @@ beforeEach(() => {
 });
 
 describe('the workplace hub', () => {
-  it('renders five KPI cards, one per concern', async () => {
+  it('renders three KPI cards, one per concern', async () => {
     renderWithProviders(<WorkplaceHubPage />, { role: 'ADMIN' });
     await waitFor(() => expect(screen.getByText('Assets with staff')).toBeTruthy());
     for (const label of [
       'Assets with staff',
       'Assets needing attention',
       'Pending letter requests',
-      'Active projects',
-      'Projects overdue',
     ]) {
       expect(screen.getByText(label)).toBeTruthy();
     }
@@ -135,45 +123,6 @@ describe('the workplace hub', () => {
       expect(screen.getByText('2 leavers still hold company property')).toBeTruthy(),
     );
     expect(screen.getByText('Kabir Gupta')).toBeTruthy();
-  });
-
-  it('shows zero overdue projects with how many have no end date to miss', async () => {
-    axiosGet.mockResolvedValue({
-      data: { ...payload, projects: { ...payload.projects, overdue: 0, withoutEndDate: 4 } },
-    } as never);
-    renderWithProviders(<WorkplaceHubPage />, { role: 'ADMIN' });
-
-    await waitFor(() => expect(screen.getByText('Projects overdue')).toBeTruthy());
-    // 0 is correct here: the query succeeded and found nothing. The em-dash
-    // contract covers failed reads, not empty results.
-    expect(screen.getByText('4 projects have no end date')).toBeTruthy();
-  });
-
-  it('draws all five project statuses, including the two /projects/stats drops', async () => {
-    renderWithProviders(<WorkplaceHubPage />, { role: 'ADMIN' });
-    // Waiting on the panel TITLE is not enough — `PanelHeader` renders before
-    // the fetch resolves, so the assertions below would run against the empty
-    // state and pass or fail for the wrong reason.
-    await waitFor(() => {
-      const missing = ['Planning', 'Active', 'On hold', 'Completed'].filter(
-        (label) => screen.queryAllByText(label).length === 0,
-      );
-      expect(missing).toEqual([]);
-    });
-    // CANCELLED is at zero and is deliberately not drawn — a legend row for a
-    // status with no rows is noise, and the total below already accounts for it.
-    expect(screen.queryAllByText('Cancelled')).toHaveLength(0);
-  });
-
-  it('declares that project figures do not narrow with the branch', async () => {
-    renderWithProviders(<WorkplaceHubPage />, { role: 'ADMIN' });
-    await waitFor(() =>
-      expect(
-        screen.getByText(
-          'Project figures are company-wide and do not narrow with the branch selector.',
-        ),
-      ).toBeTruthy(),
-    );
   });
 
   it('declares that rejection turnaround is not measurable', async () => {

@@ -20,7 +20,7 @@ describe('ModuleNavTiles', () => {
     renderWithProviders(<ModuleNavTiles moduleKey="workplace" />, { role: 'ADMIN' });
 
     expect(hrefs()).toEqual(
-      expect.arrayContaining(['/dashboard/assets', '/dashboard/letters', '/dashboard/projects']),
+      expect.arrayContaining(['/dashboard/assets', '/dashboard/letters']),
     );
   });
 

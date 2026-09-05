@@ -7,14 +7,13 @@
  * Flow: onboarding → attendance (check-in/out + lunch) → corrections → leave
  * (requests + balances) → contract lifecycle → salary → overtime → reimbursement
  * → salary advance & loan (request + approval + payroll recovery across cycles)
- * → rewards/discipline → org (dept/branch/holiday/team) → calendar → projects &
- * tasks (statuses/sprints/labels/comments/attachments/timesheets/work-logs) →
+ * → rewards/discipline → org (dept/branch/holiday/team) → calendar → timesheets →
  * payroll state machine (run → item edit → submit → approve → reject → lock →
  * finalize → revision → bulk-approve → payslip) → dashboards/exports/audit/etc.
  *
  *   API_BASE_URL   default http://localhost:${PORT|3001}
  *
- * Users/branch/workflow seeded + torn down via Prisma (same DB the server uses),
+ * Users/branch seeded + torn down via Prisma (same DB the server uses),
  * tagged with a unique runId — never touches real data. Run: npm run test:e2e:full
  *
  * ── Intentionally NOT exercised (with reason) — keep this list current ──
@@ -25,9 +24,9 @@
  *    require a real detectable face image + loaded face-api models. Capture-* are
  *    skipped too (they mutate attendance with dummy data).
  *  • File I/O infra: all /upload/* (avatar/contract/document/logo), multipart
- *    POST /employees/:id/avatar|documents, POST /task-attachments/upload/:taskId,
+ *    POST /employees/:id/avatar|documents,
  *    leave/reimbursement attachment UPLOADS, /employees/import/preview|confirm —
- *    need disk/MinIO/S3 + xlsx fixtures. The URL-register attachment path IS covered.
+ *    need disk/MinIO/S3 + xlsx fixtures.
  *  • Embeddings: POST/PUT/DELETE /knowledge + GET /knowledge/search — first call
  *    downloads a ~23MB local model; slow/flaky in CI. Read-only knowledge covered.
  *  • Global-state mutators: POST /system-settings, /system-settings/apply-preset,
@@ -159,20 +158,6 @@ describe(`Full HR lifecycle @ ${BASE_URL}`, () => {
     const allogin = await api.post('/auth/login', { email: mail('al'), password: PW });
     if (allogin.status !== 201) throw new Error(`al login ${allogin.status}: ${JSON.stringify(allogin.data)}`);
     S.alEmpToken = allogin.data.data.accessToken;
-
-    // Dedicated PM workflow (kanban statuses) so project/status/sprint writes stay
-    // isolated to THIS run and don't pollute the shared default workflow.
-    const wf = await prisma.workflow.create({
-      data: {
-        name: `LIFE-WF-${runId}`, description: 'lifecycle test workflow',
-        statuses: { create: [
-          { name: 'To Do', color: '#64748B', category: 'TODO', position: 0, isDefault: true },
-          { name: 'In Progress', color: '#00358F', category: 'IN_PROGRESS', position: 1 },
-          { name: 'Done', color: '#16A34A', category: 'DONE', position: 2 },
-        ] },
-      },
-    });
-    S.workflowId = wf.id;
   }, 180000);
 
   afterAll(async () => {
@@ -180,21 +165,7 @@ describe(`Full HR lifecycle @ ${BASE_URL}`, () => {
     const empIds = [S.empId, S.mgrId, S.attId, S.alEmpId].filter(Boolean);
     const userIds = [S.admin?.id, S.empUserId, S.hr?.id, S.alEmpUserId].filter(Boolean);
     try {
-      // Projects/tasks (task delete cascades comments/attachments/dependencies).
-      if (S.projectId) {
-        await q(() => prisma.workLog.deleteMany({ where: { employeeId: { in: empIds } } }));
-        await q(() => prisma.timesheet.deleteMany({ where: { employeeId: { in: empIds } } }));
-        await q(() => prisma.task.deleteMany({ where: { projectId: S.projectId } }));
-        await q(() => prisma.sprint.deleteMany({ where: { projectId: S.projectId } }));
-        await q(() => prisma.label.deleteMany({ where: { projectId: S.projectId } }));
-        await q(() => prisma.projectMember.deleteMany({ where: { projectId: S.projectId } }));
-        await q(() => prisma.projectRole.deleteMany({ where: { projectId: S.projectId } }));
-        await q(() => prisma.project.deleteMany({ where: { id: S.projectId } }));
-      }
-      if (S.workflowId) {
-        await q(() => prisma.projectTaskStatus.deleteMany({ where: { workflowId: S.workflowId } }));
-        await q(() => prisma.workflow.deleteMany({ where: { id: S.workflowId } }));
-      }
+      await q(() => prisma.timesheet.deleteMany({ where: { employeeId: { in: empIds } } }));
       // Teams, calendar, notifications, library.
       await q(() => prisma.teamMember.deleteMany({ where: { team: { code: { contains: runId } } } }));
       await q(() => prisma.team.deleteMany({ where: { code: { contains: runId } } }));
@@ -920,135 +891,14 @@ describe(`Full HR lifecycle @ ${BASE_URL}`, () => {
     });
   });
 
-  // ── Projects, tasks & time tracking ──────────────────────────────────────────
-  describe('Projects & tasks', () => {
-    it('creates a project on the isolated workflow', async () => {
-      const create = await P('/projects', { name: `LIFE-PROJ-${runId}`, workflowId: S.workflowId, memberIds: [S.empId] });
-      if (create.status !== 201) {
-        console.warn(`  ⚠ project suite skipped (${create.status}): ${JSON.stringify(create.data?.message)}`);
-        return;
-      }
-      expect(create.status).toBe(201);
-      S.projectId = idOf(create);
-      S.projectSlug = create.data.data.slug;
-    });
-    it('serves project reads (stats/list/by-slug/charts/permissions/activity/members)', async () => {
-      if (!S.projectId) return;
-      for (const p of [
-        '/projects/stats',
-        '/projects?page=1&limit=10',
-        `/projects/by-slug/${S.projectSlug}`,
-        `/projects/${S.projectSlug}/charts`,
-        `/projects/${S.projectId}`,
-        `/projects/${S.projectId}/my-permissions`,
-        `/projects/${S.projectId}/activity`,
-        `/projects/${S.projectId}/members`,
-      ]) {
-        expect((await G(p)).status).toBe(200);
-      }
-    });
-    it('manages project roles', async () => {
-      if (!S.projectId) return;
-      expect((await G('/project-roles/catalog')).status).toBe(200);
-      expect((await G(`/projects/${S.projectId}/roles`)).status).toBe(200);
-      const create = await P(`/projects/${S.projectId}/roles`, { name: `QA-${runId}`.slice(0, 50), permissions: ['TASK_EDIT'] });
-      expect(create.status).toBe(201);
-      const roleId = idOf(create);
-      expect((await PT(`/projects/${S.projectId}/roles/${roleId}`, { description: 'quality' })).status).toBe(200);
-      expect((await D(`/projects/${S.projectId}/roles/${roleId}`)).status).toBe(200);
-    });
-    it('manages project statuses (create/reorder/update/delete)', async () => {
-      if (!S.projectId) return;
-      const list = await G(`/project-statuses?projectId=${S.projectId}`);
-      expect(list.status).toBe(200);
-      S.statusIds = (list.data.data ?? []).map((s: any) => s.id);
-      const create = await P('/project-statuses', { projectId: S.projectId, name: `Backlog-${runId}`.slice(0, 40) });
-      expect(create.status).toBe(201);
-      const newStatusId = idOf(create);
-      const reorder = await PT('/project-statuses/reorder', { items: [{ id: newStatusId, position: 9 }] });
-      expect(reorder.status).toBe(200);
-      expect((await PT(`/project-statuses/${newStatusId}`, { color: '#111111' })).status).toBe(200);
-      expect((await D(`/project-statuses/${newStatusId}`)).status).toBe(200); // no tasks → deletable
-    });
-    it('manages sprints (create/start/complete/delete)', async () => {
-      if (!S.projectId) return;
-      expect((await G(`/sprints?projectId=${S.projectId}`)).status).toBe(200);
-      const create = await P('/sprints', { projectId: S.projectId, name: `Sprint 1 ${runId}` });
-      expect(create.status).toBe(201);
-      const sid = idOf(create);
-      expect((await G(`/sprints/${sid}`)).status).toBe(200);
-      expect((await PT(`/sprints/${sid}`, { goal: 'ship it' })).status).toBe(200);
-      expect((await PT(`/sprints/${sid}/start`)).status).toBe(200);
-      expect((await PT(`/sprints/${sid}/complete`)).status).toBe(200);
-      expect((await D(`/sprints/${sid}`)).status).toBe(200);
-    });
-    it('manages labels', async () => {
-      if (!S.projectId) return;
-      const create = await P('/labels', { name: `bug-${runId}`.slice(0, 40), projectId: S.projectId });
-      expect(create.status).toBe(201);
-      const id = idOf(create);
-      expect((await G(`/labels?projectId=${S.projectId}`)).status).toBe(200);
-      expect((await PT(`/labels/${id}`, { color: '#ff0000' })).status).toBe(200);
-      expect((await D(`/labels/${id}`)).status).toBe(200);
-    });
-    it('creates tasks and drives task operations', async () => {
-      if (!S.projectId) return;
-      const create = await P('/tasks', { title: `LIFE-TASK-${runId}`, projectId: S.projectId });
-      expect(create.status).toBe(201);
-      S.taskId = idOf(create);
-      const create2 = await P('/tasks', { title: `LIFE-TASK2-${runId}`, projectId: S.projectId });
-      S.taskId2 = idOf(create2);
-
-      for (const p of [
-        '/tasks/stats',
-        '/tasks/my-tasks',
-        '/tasks?page=1&limit=10',
-        `/tasks/kanban?projectId=${S.projectId}`,
-        `/tasks/${S.taskId}`,
-        `/tasks/${S.taskId}/subtasks`,
-        `/tasks/${S.taskId}/dependencies`,
-      ]) {
-        expect((await G(p)).status).toBe(200);
-      }
-
-      expect((await PT(`/tasks/${S.taskId}`, { description: 'edited' })).status).toBe(200);
-      expect((await P(`/tasks/${S.taskId}/assign`, { assigneeId: S.empId })).status).toBe(201);
-      expect((await P(`/tasks/${S.taskId}/status`, { status: 'IN_PROGRESS' })).status).toBe(201);
-      const statuses = await G(`/project-statuses?projectId=${S.projectId}`);
-      const moveTo = statuses.data.data?.[1]?.id ?? statuses.data.data?.[0]?.id;
-      if (moveTo) expect((await P(`/tasks/${S.taskId}/move-status`, { statusId: moveTo })).status).toBe(201);
-      expect((await P('/tasks/bulk-assign', { taskIds: [S.taskId], assigneeId: S.empId })).status).toBe(201);
-
-      const sub = await P(`/tasks/${S.taskId}/subtasks`, { title: `subtask-${runId}`, projectId: S.projectId });
-      expect(sub.status).toBe(201);
-      if (S.taskId2) {
-        const dep = await P(`/tasks/${S.taskId}/dependencies`, { blockingTaskId: S.taskId2, type: 'BLOCKS' });
-        expect(dep.status).toBe(201);
-        expect((await D(`/tasks/dependencies/${idOf(dep)}`)).status).toBe(200);
-      }
-      expect((await P(`/tasks/${S.taskId}/archive`, {})).status).toBe(201);
-    });
-    it('adds task comments and a URL-registered attachment', async () => {
-      if (!S.taskId) return;
-      const c = await P('/task-comments', { taskId: S.taskId, comment: `E2E comment ${runId}` }, S.empToken);
-      expect(c.status).toBe(201);
-      const cid = idOf(c);
-      expect((await G(`/task-comments/task/${S.taskId}`, S.empToken)).status).toBe(200);
-      expect((await PT(`/task-comments/${cid}`, { comment: 'edited comment' })).status).toBe(200);
-
-      const att = await P('/task-attachments', { taskId: S.taskId, fileName: 'note.txt', fileUrl: 'https://example.com/note.txt' });
-      expect(att.status).toBe(201);
-      expect((await G(`/task-attachments/task/${S.taskId}`)).status).toBe(200);
-      expect((await D(`/task-attachments/${idOf(att)}`)).status).toBe(200);
-      expect((await D(`/task-comments/${cid}`, S.empToken)).status).toBe(200);
-    });
-    it('serves the task dashboards', async () => {
-      expect((await G('/task-dashboard/employee', S.empToken)).status).toBe(200);
-      expect((await G('/task-dashboard/manager', S.mgrToken)).status).toBe(200);
-    });
-    it('logs timesheets against a task (draft → submit → approve/reject)', async () => {
-      if (!S.taskId) return;
-      const t1 = await P('/timesheets', { taskId: S.taskId, workDate: '2026-07-06', hoursWorked: 7.5 }, S.empToken);
+  // ── Timesheets ────────────────────────────────────────────────────────────
+  describe('Timesheets', () => {
+    it('logs timesheets (draft → submit → approve/reject)', async () => {
+      const t1 = await P(
+        '/timesheets',
+        { workDate: '2026-07-06', hoursWorked: 7.5, description: `LIFE-TS-${runId}` },
+        S.empToken,
+      );
       expect(t1.status).toBe(201);
       const t1id = idOf(t1);
       expect((await G('/timesheets/my', S.empToken)).status).toBe(200);
@@ -1062,54 +912,21 @@ describe(`Full HR lifecycle @ ${BASE_URL}`, () => {
       expect((await P(`/timesheets/${t1id}/submit`, {}, S.empToken)).status).toBe(201);
       expect((await P(`/timesheets/${t1id}/approve`, { comment: 'ok' })).status).toBe(201);
 
-      const t2 = await P('/timesheets', { taskId: S.taskId, workDate: '2026-07-05', hoursWorked: 4 }, S.empToken);
+      const t2 = await P(
+        '/timesheets',
+        { workDate: '2026-07-05', hoursWorked: 4, description: `LIFE-TS2-${runId}` },
+        S.empToken,
+      );
       const t2id = idOf(t2);
       await P(`/timesheets/${t2id}/submit`, {}, S.empToken);
-      expect((await P(`/timesheets/${t2id}/reject`, { rejectionReason: 'wrong task' })).status).toBe(201);
+      expect((await P(`/timesheets/${t2id}/reject`, { rejectionReason: 'hours look wrong' })).status).toBe(201);
 
-      const t3 = await P('/timesheets', { taskId: S.taskId, workDate: '2026-07-04', hoursWorked: 2 }, S.empToken);
+      const t3 = await P(
+        '/timesheets',
+        { workDate: '2026-07-04', hoursWorked: 2, description: `LIFE-TS3-${runId}` },
+        S.empToken,
+      );
       expect((await D(`/timesheets/${idOf(t3)}`, S.empToken)).status).toBe(200); // delete a draft
-    });
-    it('records work logs and runs the timer lifecycle', async () => {
-      if (!S.taskId) return;
-      const w = await P('/work-logs', { taskId: S.taskId, startTime: '2026-07-06T09:00:00.000Z', endTime: '2026-07-06T11:30:00.000Z' }, S.empToken);
-      expect(w.status).toBe(201);
-      const wid = idOf(w);
-      expect((await G('/work-logs/my', S.empToken)).status).toBe(200);
-      expect((await G('/work-logs/timer/status', S.empToken)).status).toBe(200);
-      expect((await G(`/work-logs/task/${S.taskId}`, S.empToken)).status).toBe(200);
-      expect((await PT(`/work-logs/${wid}`, { notes: 'refined' }, S.empToken)).status).toBe(200);
-      expect((await D(`/work-logs/${wid}`, S.empToken)).status).toBe(200);
-
-      expect((await P('/work-logs/timer/start', { taskId: S.taskId }, S.empToken)).status).toBe(201);
-      expect((await P('/work-logs/timer/pause', {}, S.empToken)).status).toBe(201);
-      expect((await P('/work-logs/timer/resume', {}, S.empToken)).status).toBe(201);
-      expect((await P('/work-logs/timer/stop', {}, S.empToken)).status).toBe(201);
-    });
-    it('hard-deletes a throwaway task', async () => {
-      if (!S.projectId) return;
-      const create = await P('/tasks', { title: `LIFE-TASKDEL-${runId}`, projectId: S.projectId });
-      expect(create.status).toBe(201);
-      expect((await D(`/tasks/${idOf(create)}`)).status).toBe(200); // distinct from archive
-    });
-    it('updates the project, manages a member, and archives/unarchives it', async () => {
-      if (!S.projectId) return;
-      expect((await PT(`/projects/${S.projectId}`, { description: 'edited project' })).status).toBe(200);
-
-      const add = await P(`/projects/${S.projectId}/members`, { employeeId: S.mgrId, role: 'MEMBER' });
-      expect(add.status).toBe(201);
-      const memberId = add.data.data?.[0]?.id; // addMember returns { data: ProjectMember[] }
-      if (memberId) {
-        expect((await PT(`/projects/${S.projectId}/members/${memberId}`, { role: 'VIEWER' })).status).toBe(200);
-        expect((await D(`/projects/${S.projectId}/members/${memberId}`)).status).toBe(200);
-      }
-
-      expect((await P(`/projects/${S.projectId}/archive`, {})).status).toBe(201);
-      expect((await P(`/projects/${S.projectId}/unarchive`, {})).status).toBe(201);
-    });
-    it('deletes the project (soft) to close the suite', async () => {
-      if (!S.projectId) return;
-      expect((await D(`/projects/${S.projectId}`)).status).toBe(200);
     });
   });
 

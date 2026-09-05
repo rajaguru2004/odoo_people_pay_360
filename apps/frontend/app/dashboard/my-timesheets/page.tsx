@@ -129,7 +129,7 @@ export default function MyTimesheetsPage() {
                       </div>
                       {day.items.map((ts: any) => (
                         <div key={ts.id} className="flex items-center justify-between text-xs text-text-body py-2 border-t border-surface-border-light font-semibold">
-                          <span>{ts.task ? `[${ts.task.taskCode}] ${ts.task.title}` : ts.description || 'General'}</span>
+                          <span>{ts.description || 'General'}</span>
                           <div className="flex items-center gap-3">
                             <TimesheetStatusBadge status={ts.status} size="sm" />
                             <span className="font-mono text-text-heading">{ts.hoursWorked}h</span>
@@ -150,7 +150,6 @@ export default function MyTimesheetsPage() {
                       <div key={ts.id} className="bg-surface-card border border-surface-border rounded-[--radius-card] p-4 flex justify-between shadow-sm">
                         <div>
                           <p className="text-sm font-bold text-text-heading">{ts.description || 'General'}</p>
-                          {ts.task && <p className="text-xs text-brand-primary font-bold mt-0.5">[{ts.task.taskCode}] {ts.task.title}</p>}
                         </div>
                         <div className="flex items-center gap-3">
                           <TimesheetStatusBadge status={ts.status} size="sm" />

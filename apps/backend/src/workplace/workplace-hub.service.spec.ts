@@ -4,10 +4,9 @@ import { WorkplaceHubService } from './workplace-hub.service';
  * The Workplace hub aggregate.
  *
  * These cases pin what the module can honestly say and what it cannot: custody
- * at a past date is exact because the assignment table is append-only, letter
- * turnaround is real on the issue side and unmeasurable on the reject side, and
- * "no project is overdue" only means something alongside how many projects have
- * an end date at all.
+ * at a past date is exact because the assignment table is append-only, and
+ * letter turnaround is real on the issue side and unmeasurable on the reject
+ * side.
  */
 describe('WorkplaceHubService', () => {
   const NOW = new Date('2026-08-25T09:00:00.000Z');
@@ -18,8 +17,6 @@ describe('WorkplaceHubService', () => {
   let assignmentRows: any[];
   let letterRows: any[];
   let issuedRows: any[];
-  let projectGroups: any[];
-  let projectCounts: Record<string, number>;
   let warrantyCounts: { expired: number; expiring60: number };
   let valueAtRisk: number;
 
@@ -63,15 +60,6 @@ describe('WorkplaceHubService', () => {
         { templateKey: 'SALARY_CERTIFICATE', _count: { _all: 6 } },
         { templateKey: 'NOC', _count: { _all: 2 } },
       ]),
-    },
-    project: {
-      groupBy: jest.fn(async () => projectGroups),
-      count: jest.fn(async ({ where }: any) => {
-        if (where?.endDate === null) return projectCounts.withoutEndDate;
-        if (where?.endDate?.lt) return projectCounts.overdue;
-        if (where?.endDate?.gte) return projectCounts.dueIn30Days;
-        return projectCounts.total;
-      }),
     },
   };
 
@@ -134,11 +122,6 @@ describe('WorkplaceHubService', () => {
       { createdAt: new Date('2026-08-01T00:00:00Z'), issuedAt: new Date('2026-08-05T00:00:00Z') },
       { createdAt: new Date('2026-07-10T00:00:00Z'), issuedAt: new Date('2026-07-12T00:00:00Z') },
     ];
-    projectGroups = [
-      { status: 'ACTIVE', _count: { _all: 2 } },
-      { status: 'PLANNING', _count: { _all: 1 } },
-    ];
-    projectCounts = { total: 3, overdue: 1, dueIn30Days: 1, withoutEndDate: 1 };
     warrantyCounts = { expired: 2, expiring60: 5 };
     valueAtRisk = 4200;
 
@@ -201,34 +184,6 @@ describe('WorkplaceHubService', () => {
     const { data } = await service.getHubSummary();
     // Zero days would read as instant service.
     expect(data.letters.avgIssueTurnaroundDays).toBeNull();
-  });
-
-  it('reports all five project statuses, including the two /projects/stats drops', async () => {
-    const { data } = await service.getHubSummary();
-    expect(Object.keys(data.projects.byStatus)).toEqual([
-      'PLANNING',
-      'ACTIVE',
-      'ON_HOLD',
-      'COMPLETED',
-      'CANCELLED',
-    ]);
-    expect(data.projects.byStatus.CANCELLED).toBe(0);
-  });
-
-  it('ships overdue alongside how many projects have no end date at all', async () => {
-    const { data } = await service.getHubSummary();
-    expect(data.projects.overdue).toBe(1);
-    // Without this, "0 overdue" on a database where no project carries an end
-    // date reads as full coverage.
-    expect(data.projects.withoutEndDate).toBe(1);
-  });
-
-  it('declares that project figures are not branch-scoped', async () => {
-    const { data } = await service.getHubSummary();
-    // `Project` is absent from branch-scope.map.ts by design, while assets and
-    // letters are scoped. The page says so rather than letting the reader
-    // assume all four narrowed together.
-    expect(data.projects.projectsAreBranchScoped).toBe(false);
   });
 
   it('never lets the letter backlog segment go negative', async () => {

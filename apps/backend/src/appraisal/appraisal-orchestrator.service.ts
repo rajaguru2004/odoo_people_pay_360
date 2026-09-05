@@ -44,9 +44,6 @@ const DEFAULT_PLAN_TOOLS = [
   'attendance_employee_summary',
   'leave_employee_summary',
   'overtime_employee_summary',
-  'task_employee_stats',
-  'project_contribution_get',
-  'worklog_employee_summary',
   'timesheet_employee_summary',
   'reimbursement_employee_summary',
   'conduct_records_get',
@@ -59,9 +56,6 @@ const TOOL_FRIENDLY: Record<string, string> = {
   attendance_employee_summary: 'attendance',
   leave_employee_summary: 'leave',
   overtime_employee_summary: 'overtime',
-  task_employee_stats: 'tasks',
-  project_contribution_get: 'projects',
-  worklog_employee_summary: 'work hours',
   timesheet_employee_summary: 'timesheets',
   reimbursement_employee_summary: 'expense claims',
   conduct_records_get: 'conduct records',
@@ -725,7 +719,7 @@ function fallbackSummary(emp: DiscoveredEmployee, scores: ScoreSet): string {
   const overall = computeOverall(scores, DEFAULT_WEIGHTS);
   return (
     `${emp.fullName} scored ${overall}/100 overall for the period based on recorded attendance, ` +
-    `tasks, projects and conduct data. (Automated metric-based evaluation — the language model was ` +
+    `timesheet and conduct data. (Automated metric-based evaluation — the language model was ` +
     `unavailable for a narrative summary.)`
   );
 }

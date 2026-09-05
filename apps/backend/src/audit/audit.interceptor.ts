@@ -123,8 +123,6 @@ export class AuditInterceptor implements NestInterceptor {
       Discipline: 'discipline',
       SalaryComponent: 'salaryComponent',
       Timesheet: 'timesheet',
-      Task: 'task',
-      WorkLog: 'workLog',
       User: 'user',
       Holiday: 'holiday',
       Team: 'team',

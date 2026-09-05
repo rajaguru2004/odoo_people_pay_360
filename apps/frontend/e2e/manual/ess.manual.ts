@@ -472,19 +472,6 @@ test('work, team and alerts', async ({ page }) => {
   });
 
   await shot(page, {
-    name: 'projects',
-    caption: 'Projects you are a member of',
-    url: '/dashboard/projects',
-    height: 1300,
-    callouts: [
-      { selector: 'testid=project-stat-total', label: 'How many projects you are on' },
-      { selector: 'testid=project-search', label: 'Find a project by name' },
-      { selector: 'testid=project-status-filter', label: 'Filter by status' },
-      { selector: '[data-testid^="project-card-"]', label: 'One project — open it for its tasks', pad: 6 },
-    ],
-  });
-
-  await shot(page, {
     name: 'my-timesheets',
     caption: 'My Timesheets — hours you have booked',
     url: '/dashboard/my-timesheets',

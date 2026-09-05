@@ -3,7 +3,6 @@ import axiosInstance from '@/lib/axios';
 export interface Timesheet {
   id: string;
   employeeId: string;
-  taskId?: string;
   workDate: string;
   hoursWorked: number;
   description?: string;
@@ -12,12 +11,10 @@ export interface Timesheet {
   approvedAt?: string;
   rejectionReason?: string;
   employee?: { id: string; fullName: string; employeeCode: string; department?: { name: string } };
-  task?: { id: string; taskCode: string; title: string };
   approver?: { id: string; email: string; employee?: { fullName: string } };
 }
 
 export interface CreateTimesheetData {
-  taskId?: string;
   workDate: string;
   hoursWorked: number;
   description?: string;
@@ -26,7 +23,6 @@ export interface CreateTimesheetData {
 export interface TimesheetQueryParams {
   status?: string;
   employeeId?: string;
-  taskId?: string;
   startDate?: string;
   endDate?: string;
   page?: number;

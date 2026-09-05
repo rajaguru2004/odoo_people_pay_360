@@ -5,19 +5,15 @@ import { bearer } from './utils/settings';
 /**
  * `GET /workplace/hub-summary` — the Workplace module hub's aggregate.
  *
- * It replaced four browser-side requests and, more importantly, it stops the
- * page drawing a project mix bar that silently omits two of the five statuses
- * because `/projects/stats` returns only four of them. The invariants:
+ * It replaced four browser-side requests. The invariants:
  *
  *   WPHUB-01  role gate — ADMIN/HR in, MANAGER and EMPLOYEE out, anonymous 401
  *   WPHUB-02  the payload has every section the page reads
- *   WPHUB-03  every AssetStatus and every ProjectStatus is present, zero-filled
+ *   WPHUB-03  every AssetStatus is present, zero-filled
  *   WPHUB-04  custody at a past date is a real count, not an estimate
  *   WPHUB-05  the letter desk is measured on issuedAt, and the reject side
  *             declares itself unmeasurable
- *   WPHUB-06  overdue projects travel with how many have no end date at all
- *   WPHUB-07  assets and letters narrow with the branch; projects do not, and
- *             the payload says so rather than letting the reader assume
+ *   WPHUB-07  assets and letters narrow with the branch
  *
  * Cases are invariant-shaped, not count-shaped: the endpoint reads the whole
  * database inside the caller's envelope with no per-run filter.
@@ -74,7 +70,7 @@ describe('Workplace — module hub summary (e2e)', () => {
     it('WPHUB-02 carries every section the page reads', async () => {
       const data = await dataOf();
       expect(Object.keys(data).sort()).toEqual(
-        ['assets', 'clearances', 'letters', 'projects', 'trend', 'trendKind', 'window'].sort(),
+        ['assets', 'clearances', 'letters', 'trend', 'trendKind', 'window'].sort(),
       );
       expect(data.trendKind).toBe('month');
     });
@@ -88,29 +84,6 @@ describe('Workplace — module hub summary (e2e)', () => {
       );
       const summed = (Object.values(assets.byStatus) as any[]).reduce((a: number, n: any) => a + n, 0);
       expect(summed).toBe(assets.total);
-    });
-
-    it('WPHUB-03b reports all five project statuses, including the two /projects/stats drops', async () => {
-      const { projects } = await dataOf();
-      expect(Object.keys(projects.byStatus)).toEqual([
-        'PLANNING',
-        'ACTIVE',
-        'ON_HOLD',
-        'COMPLETED',
-        'CANCELLED',
-      ]);
-      const summed = (Object.values(projects.byStatus) as any[]).reduce(
-        (a: number, n: any) => a + n,
-        0,
-      );
-      expect(summed).toBe(projects.total);
-
-      const stats = await ctx.http().get('/projects/stats').set(bearer(fx.admin.token));
-      expect(stats.status).toBe(200);
-      // The endpoint the old hub read has no PLANNING and no CANCELLED, which is
-      // why its mix bar could not add up to the total beside it.
-      expect(stats.body.data).not.toHaveProperty('planning');
-      expect(stats.body.data).not.toHaveProperty('cancelled');
     });
   });
 
@@ -193,28 +166,8 @@ describe('Workplace — module hub summary (e2e)', () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  describe('projects', () => {
-    it('WPHUB-06 ships overdue alongside how many projects have no end date', async () => {
-      const { projects } = await dataOf();
-      expect(projects.overdue).toBeGreaterThanOrEqual(0);
-      // Without this, "0 overdue" on a database where no project carries an end
-      // date reads as full coverage rather than as no coverage.
-      expect(projects.withoutEndDate).toEqual(expect.any(Number));
-      const live =
-        projects.byStatus.PLANNING + projects.byStatus.ACTIVE + projects.byStatus.ON_HOLD;
-      expect(projects.overdue).toBeLessThanOrEqual(live);
-      expect(projects.withoutEndDate).toBeLessThanOrEqual(live);
-    });
-
-    it('WPHUB-07 declares that project figures are not branch-scoped', async () => {
-      const { projects } = await dataOf();
-      expect(projects.projectsAreBranchScoped).toBe(false);
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
   describe('branch scoping', () => {
-    it('WPHUB-07b narrows assets and letters with the branch, and leaves projects alone', async () => {
+    it('WPHUB-07b narrows assets and letters with the branch', async () => {
       const all = await dataOf(fx.admin.token);
       const scoped = await dataOf(fx.admin.token, fx.branchA);
 
@@ -228,11 +181,6 @@ describe('Workplace — module hub summary (e2e)', () => {
         0,
       );
       expect(scopedLetters).toBeLessThanOrEqual(allLetters);
-
-      // `Project` is absent from `branch-scope.map.ts` by design, so the
-      // project figures are identical whatever branch is selected. This is the
-      // asymmetry the payload flags and the panel prints.
-      expect(scoped.projects.total).toBe(all.projects.total);
     });
 
     it('WPHUB-07c a branch-scoped HR user sees no more than the global admin', async () => {

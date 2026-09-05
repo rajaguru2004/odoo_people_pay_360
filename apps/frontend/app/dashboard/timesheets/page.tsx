@@ -165,7 +165,7 @@ export default function TimesheetsPage() {
             <table className="hidden w-full md:table">
               <thead>
                 <tr className="border-b border-surface-border bg-surface-page">
-                  {['Employee', 'Date', 'Hours', 'Task', 'Status', 'Actions'].map((h) => (
+                  {['Employee', 'Date', 'Hours', 'Status', 'Actions'].map((h) => (
                     <th key={h} className="px-4 py-3.5 text-left text-xs font-bold text-text-muted uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
@@ -187,7 +187,6 @@ export default function TimesheetsPage() {
                     </td>
                     <td className="px-4 py-4 text-sm text-text-body">{formatWallClockDate(ts.workDate)}</td>
                     <td className="px-4 py-4 text-sm font-mono font-bold text-status-success">{ts.hoursWorked}h</td>
-                    <td className="px-4 py-4 text-xs text-text-muted font-semibold">{ts.task ? `[${ts.task.taskCode}] ${ts.task.title}` : '—'}</td>
                     <td className="px-4 py-4">
                       <TimesheetStatusBadge status={ts.status} size="sm" />
                     </td>
@@ -220,7 +219,6 @@ export default function TimesheetsPage() {
                       label: 'Hours',
                       value: <span className="font-mono font-bold text-status-success">{ts.hoursWorked}h</span>,
                     },
-                    { label: 'Task', full: true, value: ts.task ? `[${ts.task.taskCode}] ${ts.task.title}` : '—' },
                   ]}
                   footer={<RowActions ts={ts} />}
                 />

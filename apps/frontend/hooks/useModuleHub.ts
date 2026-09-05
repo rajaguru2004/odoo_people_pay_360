@@ -14,10 +14,7 @@ import type { HubDelta } from '@/types/moduleHub';
  * hub removes both problems, so the hook that fetches it is the same three
  * lines every time and lives here rather than three times.
  *
- * `branchId` is in the query key because a branch switch has to re-fetch. For
- * Workplace that is only PARTLY true — `Project` is deliberately not
- * branch-scoped — which is why the payload carries `projectsAreBranchScoped`
- * and the panel says so, instead of the key quietly implying otherwise.
+ * `branchId` is in the query key because a branch switch has to re-fetch.
  */
 export function useModuleHub<T>(name: string, path: string) {
   const branchId = useBranchStore((s) => s.selectedBranchId) ?? undefined;
@@ -47,11 +44,11 @@ export function useModuleHub<T>(name: string, path: string) {
  * A `KpiStat.delta`, or nothing.
  *
  * Returns `undefined` — so no badge is drawn — when the server could not
- * establish a baseline, and when the change is exactly zero. Three hub figures
- * genuinely have no history to reconstruct from (asset status, project status,
- * and the pending queues, since neither `Reimbursement` nor `LetterRequest`
- * carries a `rejectedAt`). Those cards say so in their footnote rather than
- * showing a badge that reads as "unchanged".
+ * establish a baseline, and when the change is exactly zero. Some hub figures
+ * genuinely have no history to reconstruct from (asset status, and the
+ * pending queues, since neither `Reimbursement` nor `LetterRequest` carries a
+ * `rejectedAt`). Those cards say so in their footnote rather than showing a
+ * badge that reads as "unchanged".
  */
 export function toDelta(
   delta: HubDelta | null | undefined,

@@ -767,7 +767,7 @@ describe('Workplace — Letter Requests (e2e)', () => {
     });
 
     it('LET-API-28 a colleague is refused (403)', async () => {
-      const res = await download(fx.projectMember.token, issuedOwnLetterId);
+      const res = await download(fx.colleague.token, issuedOwnLetterId);
       expect(res.status).toBe(403);
       expect(String(res.body.message)).toMatch(
         /Not permitted to download this letter/,
