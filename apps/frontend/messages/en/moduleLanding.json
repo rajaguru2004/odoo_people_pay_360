@@ -18,6 +18,10 @@
     "title": "Schedules",
     "subtitle": "Who is rostered, where the gaps are and what the roster contradicts."
   },
+  "payroll": {
+    "title": "Payroll",
+    "subtitle": "What the month costs, who is waiting on a decision and who cannot be paid yet."
+  },
   "desc": {
     "branches": "Every location the company operates from.",
     "allDepartments": "The full department list, with heads and headcount.",
@@ -39,6 +43,12 @@
     "settings": "Company details, branding and the defaults every screen reads.",
     "workingSchedule": "The whole workforce against the month, one row each.",
     "shiftCalendar": "One person's shifts, week by week.",
-    "shiftManagement": "Roster a shift, edit one, or lay a pattern over a range."
+    "shiftManagement": "Roster a shift, edit one, or lay a pattern over a range.",
+    "payrollRuns": "Every run, its period and where it has got to.",
+    "runPayroll": "Open a run for a period and see what it would refuse.",
+    "payslips": "Every payslip produced, searchable by person or run.",
+    "salaryStructures": "What each employee is paid, line by line.",
+    "salaryComponents": "The catalogue every structure line is built from.",
+    "payrollReports": "The register, cost by department, statutory totals and year to date."
   }
 }

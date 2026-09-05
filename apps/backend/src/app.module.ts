@@ -20,6 +20,9 @@ import { WorkSchedulesModule } from './work-schedules/work-schedules.module';
 import { SchedulesModule } from './schedules/schedules.module';
 import { HolidaysModule } from './holidays/holidays.module';
 import { FaceEnrollmentsModule } from './face-enrollments/face-enrollments.module';
+import { SalaryComponentsModule } from './salary-components/salary-components.module';
+import { SalaryStructuresModule } from './salary-structures/salary-structures.module';
+import { PayrollModule } from './payroll/payroll.module';
 import { SystemSettingsModule } from './system-settings/system-settings.module';
 
 @Module({
@@ -43,6 +46,9 @@ import { SystemSettingsModule } from './system-settings/system-settings.module';
     SchedulesModule,
     HolidaysModule,
     FaceEnrollmentsModule,
+    SalaryComponentsModule,
+    SalaryStructuresModule,
+    PayrollModule,
     SystemSettingsModule,
   ],
   controllers: [AppController],
