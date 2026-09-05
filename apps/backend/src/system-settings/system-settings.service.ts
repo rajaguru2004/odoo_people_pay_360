@@ -62,6 +62,8 @@ const DEFAULTS: Record<string, string> = {
   attendance_day_end: '20:00',
   attendance_geofence_default_radius_m: '150',
   face_recognition_min_quality: '0.6',
+  /** Distance below which two face templates are the same person. */
+  face_recognition_match_threshold: '0.6',
 };
 
 @Injectable()

@@ -8,6 +8,7 @@ import type {
   BulkAttendanceResult,
   CheckInPayload,
   CreateAttendancePayload,
+  EmployeeAttendanceHistory,
   MonthlyAttendanceReport,
   MonthlyReportQuery,
   TodayBoard,
@@ -63,10 +64,17 @@ class AttendanceService {
     });
   }
 
+  /**
+   * One person's history WITH its totals — not a bare list of rows.
+   *
+   * The counts travel with the records because the server derives them from the
+   * working calendar; counting the rows on the client would disagree with the
+   * report screens on any day the calendar says nobody was expected.
+   */
   forEmployee(
     employeeId: string,
     params: { startDate?: string; endDate?: string } = {},
-  ): Promise<ApiResponse<Attendance[]>> {
+  ): Promise<ApiResponse<EmployeeAttendanceHistory>> {
     return axiosInstance.get(`/attendances/employee/${employeeId}`, { params });
   }
 

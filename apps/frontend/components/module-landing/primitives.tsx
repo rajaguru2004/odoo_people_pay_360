@@ -188,6 +188,7 @@ export function PeriodNav({
   label,
   onPrev,
   onNext,
+  canGoPrev = true,
   canGoNext = true,
   onReset,
   resetLabel,
@@ -196,6 +197,16 @@ export function PeriodNav({
   label: string;
   onPrev: () => void;
   onNext: () => void;
+  /**
+   * False while there is no window to step FROM.
+   *
+   * A caller that pages by anchors handed back with the data has nothing to
+   * move to until the first payload lands, so a press before then is dropped.
+   * A live control that quietly does nothing is worse than a dim one: the
+   * reader presses it, the label does not change, and there is no way to tell a
+   * slow answer from a broken button.
+   */
+  canGoPrev?: boolean;
   canGoNext?: boolean;
   /** Shown only once the view has been paged off the current period. */
   onReset?: () => void;
@@ -207,7 +218,13 @@ export function PeriodNav({
 
   return (
     <div className="inline-flex items-center gap-1">
-      <button type="button" onClick={onPrev} className={arrow} aria-label="Previous period">
+      <button
+        type="button"
+        onClick={onPrev}
+        disabled={!canGoPrev}
+        className={arrow}
+        aria-label="Previous period"
+      >
         <ChevronLeft size={16} strokeWidth={2.5} aria-hidden className="rtl:rotate-180" />
       </button>
       <span

@@ -21,6 +21,22 @@ import { SchedulesModule } from './schedules/schedules.module';
 import { HolidaysModule } from './holidays/holidays.module';
 import { FaceEnrollmentsModule } from './face-enrollments/face-enrollments.module';
 import { SystemSettingsModule } from './system-settings/system-settings.module';
+import { ApprovalsModule } from './approvals/approvals.module';
+import { LeaveRequestsModule } from './leave-requests/leave-requests.module';
+import { LeaveBalancesModule } from './leave-balances/leave-balances.module';
+import { LeaveAttachmentsModule } from './leave-attachments/leave-attachments.module';
+import { OvertimeModule } from './overtime/overtime.module';
+import { OvertimePolicyModule } from './overtime-policy/overtime-policy.module';
+import { PayrollsModule } from './payrolls/payrolls.module';
+import { EmployeeProfileModule } from './employee-profile/employee-profile.module';
+import { LibraryItemsModule } from './library-items/library-items.module';
+import { SupervisorsModule } from './supervisors/supervisors.module';
+import { CalendarModule } from './calendar/calendar.module';
+import { AssetsModule } from './assets/assets.module';
+import { TrainingModule } from './training/training.module';
+import { GrievancesModule } from './grievances/grievances.module';
+import { LettersModule } from './letters/letters.module';
+import { DocumentVaultModule } from './document-vault/document-vault.module';
 
 @Module({
   imports: [
@@ -44,6 +60,22 @@ import { SystemSettingsModule } from './system-settings/system-settings.module';
     HolidaysModule,
     FaceEnrollmentsModule,
     SystemSettingsModule,
+    ApprovalsModule,
+    LeaveRequestsModule,
+    LeaveBalancesModule,
+    LeaveAttachmentsModule,
+    OvertimeModule,
+    OvertimePolicyModule,
+    PayrollsModule,
+    EmployeeProfileModule,
+    LibraryItemsModule,
+    SupervisorsModule,
+    CalendarModule,
+    AssetsModule,
+    TrainingModule,
+    GrievancesModule,
+    LettersModule,
+    DocumentVaultModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -65,6 +65,7 @@ async function bootstrap() {
     .addTag('Auth', 'Authentication endpoints')
     .addTag('Users', 'User management')
     .addTag('Employees', 'Employee management')
+    .addTag('Employee Profile', 'The record as its own owner maintains it')
     .addTag('Departments', 'Department management')
     .addTag('Branches', 'Branch, working calendar and geofence setup')
     .addTag('Organization', 'Organisation hub aggregates')
@@ -78,8 +79,35 @@ async function bootstrap() {
       'Rostered shifts that deviate from the branch calendar',
     )
     .addTag('Holidays', 'Company-wide and branch-specific non-working days')
-    .addTag('Face Enrolments', 'Face templates registered for recognition')
+    .addTag(
+      'Face Enrolments',
+      'Face templates registered for recognition, and verifying against them',
+    )
+    .addTag('Payroll', 'Payslips an employee may read about their own pay')
+    .addTag(
+      'Approval Workflows',
+      'Configurable approval chains, the approver inbox and its history',
+    )
+    .addTag('Leave Requests', 'Applying for leave and deciding it')
+    .addTag('Leave Balances', 'Entitlement, allocation and what has been taken')
+    .addTag('Leave Attachments', 'Certificates filed against a leave request')
+    .addTag(
+      'Overtime',
+      'Overtime requests, tier splitting and approver corrections',
+    )
+    .addTag(
+      'Overtime Policies',
+      'Overtime rate cards and the policy inheritance chain',
+    )
     .addTag('System Settings', 'Branding and platform configuration')
+    .addTag('Calendar', 'The employee’s own work calendar')
+    .addTag('Supervisors', 'The supervisor link behind My Team')
+    .addTag('Document Vault', 'Everything an employee holds, in one place')
+    .addTag('Letters', 'Letter templates, requests and issued documents')
+    .addTag('Assets', 'The asset register, custody and offboarding clearance')
+    .addTag('Training', 'Courses, sessions and nominations')
+    .addTag('Grievances', 'Employee concerns and how they are handled')
+    .addTag('Library Items', 'Admin-editable pick lists')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

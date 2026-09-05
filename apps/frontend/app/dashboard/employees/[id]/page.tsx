@@ -272,7 +272,10 @@ function AttendanceSection({ employeeId }: { employeeId: string }) {
   }, []);
 
   const { data, isLoading, isError } = useEmployeeAttendance(employeeId, range);
-  const rows = data?.data ?? [];
+  // The endpoint answers with the range and its totals around the rows, so the
+  // records are one level in. Reading `data.data` directly hands this reduce an
+  // object rather than an array.
+  const rows = data?.data?.records ?? [];
 
   const totals = rows.reduce(
     (acc, row) => {
