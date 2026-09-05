@@ -1,7 +1,6 @@
 'use client';
 
 import EmployeeDashboard from '@/components/dashboard/EmployeeDashboard';
-import MyCornerPanel from '@/components/dashboard/MyCornerPanel';
 import ApprovalsQueue from '@/components/dashboard/ApprovalsQueue';
 import ExpiringSoonPanel from '@/components/dashboard/ExpiringSoonPanel';
 import HeadcountByDepartmentChart from '@/components/dashboard/HeadcountByDepartmentChart';
@@ -135,16 +134,6 @@ function ManagementDashboard() {
           />
         </div>
       )}
-
-      {/* Present for every role and entitlement-free: it answers about the
-          caller and nobody else, which is why it sits above the company-wide
-          row rather than inside it. */}
-      <MyCornerPanel
-        me={data?.me}
-        currency={currency}
-        loading={loading}
-        failed={failed}
-      />
 
       {/* `buildDashboardKpis(undefined)` already produces the full skeleton set
           and already drops a card for every section that did not arrive, so the
