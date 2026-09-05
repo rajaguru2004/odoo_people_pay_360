@@ -19,6 +19,8 @@ export interface User {
       id: string;
       name: string;
     };
+
+
   };
   /** Employee's personal IANA TZ forwarded to top-level for convenience */
   timezone?: string | null;
