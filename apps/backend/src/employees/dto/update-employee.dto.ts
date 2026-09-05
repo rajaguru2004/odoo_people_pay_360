@@ -164,18 +164,6 @@ export class UpdateEmployeeDto {
 
   @ApiProperty({
     required: false,
-    nullable: true,
-    description:
-      "Identity inside the branch's external attendance provider; null unlinks it.",
-  })
-  @IsOptional()
-  @ValidateIf((_o, v) => v !== null)
-  @IsString()
-  @MaxLength(100)
-  attendanceExternalId?: string | null;
-
-  @ApiProperty({
-    required: false,
     description:
       'EMPLOYMENT_TYPE library label. When that library item carries a pay ' +
       'basis it DERIVES salaryType; sending a conflicting salaryType is rejected.',

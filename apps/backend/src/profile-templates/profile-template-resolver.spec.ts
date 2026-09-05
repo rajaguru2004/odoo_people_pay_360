@@ -4,7 +4,7 @@
  * `findOne(id, actor)` projects per-field visibility, and the controller passes
  * an actor on every request — whether or not the feature is enabled. The shipped
  * baseline marks baseSalary, salaryType, overtimePolicyId and
- * attendanceExternalId as ADMIN/HR_MANAGER-only and hidden from self.
+ * overtimePolicyId as ADMIN/HR_MANAGER-only and hidden from self.
  *
  * So while `legacy()` copied those role gates through verbatim, turning the
  * feature OFF did not restore prior behaviour: a MANAGER reading a direct
@@ -22,7 +22,6 @@ const RESTRICTED = [
   'baseSalary',
   'salaryType',
   'overtimePolicyId',
-  'attendanceExternalId',
 ];
 
 function resolverWith(enabled: boolean) {

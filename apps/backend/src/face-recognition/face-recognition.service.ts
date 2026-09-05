@@ -90,11 +90,12 @@ export class FaceRecognitionService implements OnModuleInit {
       await this.tf.ready();
       this.logger.log(`TensorFlow.js backend: ${this.tf.getBackend()}`);
 
+      // Resolved from the package itself, never from `process.cwd()` +
+      // node_modules: npm workspaces hoists dependencies to the MONOREPO root,
+      // so apps/backend/node_modules/@vladmandic does not exist and a cwd-based
+      // join sends loadFromDisk at a path that is never there.
       const modelsPath = path.join(
-        process.cwd(),
-        'node_modules',
-        '@vladmandic',
-        'face-api',
+        path.dirname(require.resolve('@vladmandic/face-api/package.json')),
         'model',
       );
 

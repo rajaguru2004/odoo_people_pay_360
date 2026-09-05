@@ -281,7 +281,7 @@ export class UploadService implements OnModuleInit {
         responseType: 'arraybuffer',
         timeout: 8000,
       });
-      const contentType: string = response.headers['content-type'] || '';
+      const contentType = String(response.headers['content-type'] ?? '');
       const isSvg =
         contentType.includes('svg') || url.toLowerCase().endsWith('.svg');
       return this.generateFaviconFromBuffer(Buffer.from(response.data), isSvg);

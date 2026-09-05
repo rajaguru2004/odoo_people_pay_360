@@ -1374,7 +1374,6 @@ export class EmployeesService {
           // SupervisorsService in create()/update(), which owns the cycle,
           // active-supervisor and branch checks plus the audit trail.
           dateFormat: dto.dateFormat,
-          attendanceExternalId: dto.attendanceExternalId,
           status: dto.status ?? 'ACTIVE',
           // Template-driven fields the admin added. Already validated by the
           // caller; omitted entirely when there are none so the column stays

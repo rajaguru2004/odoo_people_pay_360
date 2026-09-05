@@ -233,7 +233,6 @@ export const BASELINE_FIELDS: FieldPreset[] = [
   // preferences
   { fieldKey: 'timezone', sectionKey: 'preferences', label: 'Timezone', displayOrder: 10, selfEditable: true, helpText: 'IANA timezone, e.g. Asia/Muscat. Empty inherits the company setting.' },
   { fieldKey: 'dateFormat', sectionKey: 'preferences', label: 'Date Format', displayOrder: 20, options: DATE_FORMAT_OPTIONS, selfEditable: true },
-  { fieldKey: 'attendanceExternalId', sectionKey: 'preferences', label: 'Attendance Device ID', displayOrder: 30, visibleToRoles: ['ADMIN', 'HR_MANAGER'], selfVisible: false, helpText: 'Identity inside the branch attendance provider. Usually auto-matched on employee code.' },
 
   // education
   { fieldKey: 'highestEducation', sectionKey: 'education', label: 'Highest Education', displayOrder: 10, options: EDUCATION_OPTIONS, selfEditable: true, includeInCompletion: true },
