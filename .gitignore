@@ -42,6 +42,9 @@ lerna-debug.log*
 *.swo
 *~
 
+# Agent Instructions
+AGENT_INSTRUCTIONS.md
+
 # OS
 Thumbs.db
 
