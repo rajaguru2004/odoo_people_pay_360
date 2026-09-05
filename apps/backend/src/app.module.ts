@@ -17,6 +17,7 @@ import { LegalDocumentsModule } from './legal-documents/legal-documents.module';
 import { AttendancesModule } from './attendances/attendances.module';
 import { AttendanceCorrectionsModule } from './attendance-corrections/attendance-corrections.module';
 import { WorkSchedulesModule } from './work-schedules/work-schedules.module';
+import { SchedulesModule } from './schedules/schedules.module';
 import { HolidaysModule } from './holidays/holidays.module';
 import { FaceEnrollmentsModule } from './face-enrollments/face-enrollments.module';
 import { SystemSettingsModule } from './system-settings/system-settings.module';
@@ -39,6 +40,7 @@ import { SystemSettingsModule } from './system-settings/system-settings.module';
     AttendancesModule,
     AttendanceCorrectionsModule,
     WorkSchedulesModule,
+    SchedulesModule,
     HolidaysModule,
     FaceEnrollmentsModule,
     SystemSettingsModule,
