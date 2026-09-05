@@ -16,9 +16,14 @@ test.describe('People hub', () => {
   test('reports the active workforce as a real figure', async ({ page }) => {
     await page.goto('/dashboard/people');
 
-    // Eighteen of the twenty seeded people are active; one is on leave and one
-    // has been terminated.
-    await expect(page.getByTestId('kpi-active')).toContainText('18');
+    // The seed creates twenty-one people, of whom one is on leave and one has
+    // been terminated — so nineteen are active. The number matters less than
+    // the fact that it IS a number: a hub that cannot reach its aggregate
+    // renders an em dash here rather than inventing a zero, and that is what
+    // this assertion is really guarding.
+    const card = page.getByTestId('kpi-active');
+    await expect(card).toContainText('19');
+    await expect(card).not.toContainText('—');
   });
 
   test('offers a tile per child route', async ({ page }) => {

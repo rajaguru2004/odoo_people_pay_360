@@ -113,8 +113,13 @@ test.describe('Department change requests', () => {
       page.getByRole('heading', { name: /change requests/i }),
     ).toBeVisible();
 
-    // The seed leaves two pending: a head for Administration and a reparent of
-    // Maintenance.
+    // Filtered to Pending rather than counting the whole table. The seed
+    // guarantees exactly these two — a head for Administration and a reparent
+    // of Maintenance — whereas the total also carries whatever history the API
+    // suite has left behind, and an assertion a sibling suite can move is an
+    // assertion that fails for the wrong reason.
+    await page.getByRole('button', { name: 'Pending', exact: true }).click();
+
     const rows = page.getByTestId('change-request-row');
     await expect(rows).toHaveCount(2);
     await expect(page.getByText('Administration')).toBeVisible();
