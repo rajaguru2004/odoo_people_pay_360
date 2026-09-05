@@ -27,7 +27,9 @@ export function withFullName<T extends NameParts>(
 export function withFullName<T extends NameParts>(
   person: T | null | undefined,
 ): (T & { fullName: string }) | null;
-export function withFullName<T extends NameParts>(person: T | null | undefined) {
+export function withFullName<T extends NameParts>(
+  person: T | null | undefined,
+) {
   if (!person) return null;
   return { ...person, fullName: joinName(person) };
 }

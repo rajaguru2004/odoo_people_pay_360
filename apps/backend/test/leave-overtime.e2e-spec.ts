@@ -326,7 +326,9 @@ describe('Leave, overtime and approvals (e2e)', () => {
 
   describe('leave accrual', () => {
     it('refuses an employee the accrual history', async () => {
-      await employee.auth(http().get('/leave-balances/accrual/history')).expect(403);
+      await employee
+        .auth(http().get('/leave-balances/accrual/history'))
+        .expect(403);
     });
 
     it('serves HR the seeded periods with their fractional days', async () => {
@@ -374,7 +376,10 @@ describe('Leave, overtime and approvals (e2e)', () => {
         .auth(http().get(`/leave-balances/employee/${employeeId}`))
         .expect(200);
 
-      await hr.auth(http().post('/leave-balances/accrual/run')).send({}).expect(201);
+      await hr
+        .auth(http().post('/leave-balances/accrual/run'))
+        .send({})
+        .expect(201);
 
       const after = await employee
         .auth(http().get(`/leave-balances/employee/${employeeId}`))
@@ -451,6 +456,78 @@ describe('Leave, overtime and approvals (e2e)', () => {
 
     it('refuses an employee the company-wide overtime list', async () => {
       await employee.auth(http().get('/overtime')).expect(403);
+    });
+  });
+
+  describe('the overtime policy chain', () => {
+    /** The seeded daily-wage plant operator, and a salaried colleague. */
+    let dailyWageId: string;
+    let salariedId: string;
+
+    beforeAll(async () => {
+      const res = await admin
+        .auth(http().get('/employees?limit=100'))
+        .expect(200);
+      const rows = res.body.data as {
+        id: string;
+        employeeCode: string;
+      }[];
+      dailyWageId = rows.find((r) => r.employeeCode === 'EMP-0012')!.id;
+      salariedId = rows.find((r) => r.employeeCode === 'EMP-0005')!.id;
+    });
+
+    it('resolves a daily-wage employee through the employment-type tier', async () => {
+      const res = await hr
+        .auth(http().get(`/overtime-policies/resolve/${dailyWageId}`))
+        .expect(200);
+
+      expect(res.body.data.source).toBe('EMPLOYMENT_TYPE');
+      expect(res.body.data.employmentType).toBe('Daily Wage');
+      expect(res.body.data.effectivePolicyName).toBe('Daily wage');
+    });
+
+    it('falls through to the company default for everybody else', async () => {
+      const res = await hr
+        .auth(http().get(`/overtime-policies/resolve/${salariedId}`))
+        .expect(200);
+
+      expect(res.body.data.source).toBe('COMPANY_DEFAULT');
+      expect(res.body.data.employmentType).toBeNull();
+      expect(res.body.data.effectivePolicyName).toBe('Company default');
+    });
+
+    it('gives the two tiers visibly different rates', async () => {
+      // If every tier produced the same number, a resolver that silently fell
+      // through to the default would pass this suite unnoticed.
+      const [dailyWage, salaried] = await Promise.all([
+        hr.auth(http().get(`/overtime-policies/resolve/${dailyWageId}`)),
+        hr.auth(http().get(`/overtime-policies/resolve/${salariedId}`)),
+      ]);
+      expect(dailyWage.body.data.effectivePolicyId).not.toBe(
+        salaried.body.data.effectivePolicyId,
+      );
+
+      const [dailyWagePolicy, defaultPolicy] = await Promise.all([
+        hr.auth(
+          http().get(
+            `/overtime-policies/${dailyWage.body.data.effectivePolicyId}`,
+          ),
+        ),
+        hr.auth(
+          http().get(
+            `/overtime-policies/${salaried.body.data.effectivePolicyId}`,
+          ),
+        ),
+      ]);
+      expect(dailyWagePolicy.body.data.rules.regularRate).not.toBe(
+        defaultPolicy.body.data.rules.regularRate,
+      );
+    });
+
+    it('refuses an employee the resolver', async () => {
+      await employee
+        .auth(http().get(`/overtime-policies/resolve/${dailyWageId}`))
+        .expect(403);
     });
   });
 

@@ -9,7 +9,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { GrievancesService } from './grievances.service';
 import { CreateGrievanceDto } from './dto/create-grievance.dto';
@@ -73,9 +78,12 @@ export class GrievancesController {
   @Get(':id')
   @ApiOperation({
     summary: 'One grievance and its trail',
-    description: "Internal handler notes are omitted for the complainant.",
+    description: 'Internal handler notes are omitted for the complainant.',
   })
-  findOne(@CurrentUser() user: Principal, @Param('id', ParseUUIDPipe) id: string) {
+  findOne(
+    @CurrentUser() user: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.grievances.findOne(id, user);
   }
 
@@ -102,7 +110,10 @@ export class GrievancesController {
 
   @Post(':id/withdraw')
   @ApiOperation({ summary: 'Withdraw your own grievance' })
-  withdraw(@CurrentUser() user: Principal, @Param('id', ParseUUIDPipe) id: string) {
+  withdraw(
+    @CurrentUser() user: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.grievances.withdraw(id, user);
   }
 }

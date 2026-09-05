@@ -205,6 +205,9 @@ export class ClearanceService {
       orderBy: { assignedAt: 'asc' },
     });
 
-    return rows.map((row) => ({ ...row, employee: withFullName(row.employee) }));
+    return rows.map((row) => ({
+      ...row,
+      employee: withFullName(row.employee),
+    }));
   }
 }

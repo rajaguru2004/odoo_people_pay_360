@@ -9,12 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { Principal } from '../auth/auth.service';
 
 export type VaultKind =
-  | 'PERSONAL'
-  | 'LETTER'
-  | 'LEGAL'
-  | 'CONTRACT'
-  | 'PAYSLIP'
-  | 'CERTIFICATE';
+  'PERSONAL' | 'LETTER' | 'LEGAL' | 'CONTRACT' | 'PAYSLIP' | 'CERTIFICATE';
 
 export interface VaultItem {
   id: string;
@@ -64,7 +59,9 @@ export class DocumentVaultService {
     if (!value) return null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return Math.ceil((new Date(value).getTime() - today.getTime()) / 86_400_000);
+    return Math.ceil(
+      (new Date(value).getTime() - today.getTime()) / 86_400_000,
+    );
   }
 
   /**

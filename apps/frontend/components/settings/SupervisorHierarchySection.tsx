@@ -74,7 +74,7 @@ function SupervisorAssignments() {
 
   const employees = useMemo(() => people.data?.data ?? [], [people.data]);
   // Two hops: the response envelope, then the `{ count, data }` the route answers with.
-  const team = useMemo(() => reports.data?.data?.data ?? [], [reports.data]);
+  const team = useMemo(() => reports.data?.data ?? [], [reports.data]);
   const teamIds = useMemo(() => new Set(team.map((row) => row.id)), [team]);
 
   // Somebody already on this supervisor's list, or the supervisor themselves,

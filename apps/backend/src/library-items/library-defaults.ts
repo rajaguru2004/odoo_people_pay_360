@@ -91,12 +91,54 @@ export const EMPLOYMENT_TYPE_DEFAULTS: {
 ];
 
 export const LEAVE_TYPE_DEFAULTS = [
-  { label: 'Annual Leave', defaultDays: 12, isPaid: true, requiresNoticeDays: 3, affectsBalance: true, genderRestriction: null },
-  { label: 'Sick Leave', defaultDays: 30, isPaid: true, requiresNoticeDays: 0, affectsBalance: true, genderRestriction: null },
-  { label: 'Unpaid Leave', defaultDays: 0, isPaid: false, requiresNoticeDays: 0, affectsBalance: false, genderRestriction: null },
-  { label: 'Maternity Leave', defaultDays: 90, isPaid: true, requiresNoticeDays: 0, affectsBalance: true, genderRestriction: 'FEMALE' },
-  { label: 'Paternity Leave', defaultDays: 15, isPaid: true, requiresNoticeDays: 0, affectsBalance: true, genderRestriction: 'MALE' },
-  { label: 'Bereavement Leave', defaultDays: 5, isPaid: true, requiresNoticeDays: 0, affectsBalance: true, genderRestriction: null },
+  {
+    label: 'Annual Leave',
+    defaultDays: 12,
+    isPaid: true,
+    requiresNoticeDays: 3,
+    affectsBalance: true,
+    genderRestriction: null,
+  },
+  {
+    label: 'Sick Leave',
+    defaultDays: 30,
+    isPaid: true,
+    requiresNoticeDays: 0,
+    affectsBalance: true,
+    genderRestriction: null,
+  },
+  {
+    label: 'Unpaid Leave',
+    defaultDays: 0,
+    isPaid: false,
+    requiresNoticeDays: 0,
+    affectsBalance: false,
+    genderRestriction: null,
+  },
+  {
+    label: 'Maternity Leave',
+    defaultDays: 90,
+    isPaid: true,
+    requiresNoticeDays: 0,
+    affectsBalance: true,
+    genderRestriction: 'FEMALE',
+  },
+  {
+    label: 'Paternity Leave',
+    defaultDays: 15,
+    isPaid: true,
+    requiresNoticeDays: 0,
+    affectsBalance: true,
+    genderRestriction: 'MALE',
+  },
+  {
+    label: 'Bereavement Leave',
+    defaultDays: 5,
+    isPaid: true,
+    requiresNoticeDays: 0,
+    affectsBalance: true,
+    genderRestriction: null,
+  },
 ];
 
 /** Upsert a label-only library, never touching a row that already exists. */
@@ -126,7 +168,11 @@ export async function seedLibraryDefaults(db: PrismaClient): Promise<void> {
   await seedSimple(db, LibraryType.VISA_TYPE, VISA_TYPE_DEFAULTS);
   await seedSimple(db, LibraryType.ASSET_CATEGORY, ASSET_CATEGORY_DEFAULTS);
   await seedSimple(db, LibraryType.COURSE_CATEGORY, COURSE_CATEGORY_DEFAULTS);
-  await seedSimple(db, LibraryType.GRIEVANCE_CATEGORY, GRIEVANCE_CATEGORY_DEFAULTS);
+  await seedSimple(
+    db,
+    LibraryType.GRIEVANCE_CATEGORY,
+    GRIEVANCE_CATEGORY_DEFAULTS,
+  );
 
   for (const item of EMPLOYMENT_TYPE_DEFAULTS) {
     await db.libraryItem.upsert({

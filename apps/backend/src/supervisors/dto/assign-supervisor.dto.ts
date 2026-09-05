@@ -12,7 +12,10 @@ export class AssignSupervisorDto {
 }
 
 export class BulkAssignSupervisorDto {
-  @ApiProperty({ type: [String], description: 'Employees to route to one supervisor' })
+  @ApiProperty({
+    type: [String],
+    description: 'Employees to route to one supervisor',
+  })
   @IsArray()
   @ArrayMinSize(1)
   @IsUUID('all', { each: true })

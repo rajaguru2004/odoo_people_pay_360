@@ -49,5 +49,11 @@
   "myAssets": "My assets",
   "myTraining": "My training",
   "myGrievances": "My grievances",
-  "toggleSection": "Toggle {section}"
+  "toggleSection": "Toggle {section}",
+  "talent": "Talent",
+  "workplace": "Workplace",
+  "training": "Training",
+  "grievances": "Grievances",
+  "assets": "Assets",
+  "letters": "Letters"
 }

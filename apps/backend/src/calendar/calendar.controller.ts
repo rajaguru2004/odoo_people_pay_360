@@ -51,7 +51,10 @@ export class CalendarController {
 
   @Get('stats')
   @ApiOperation({ summary: 'One month of one calendar, as four figures' })
-  async stats(@CurrentUser() user: Principal, @Query() query: CalendarStatsDto) {
+  async stats(
+    @CurrentUser() user: Principal,
+    @Query() query: CalendarStatsDto,
+  ) {
     const employeeId = await this.calendar.resolveCalendarTarget(
       user,
       query.employeeId,

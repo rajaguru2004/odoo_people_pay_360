@@ -10,11 +10,7 @@ import { DateTime } from 'luxon';
  * precedence, exercised without a database.
  */
 export type CalendarDayKind =
-  | 'work'
-  | 'leave'
-  | 'holiday'
-  | 'weekly-off'
-  | 'open';
+  'work' | 'leave' | 'holiday' | 'weekly-off' | 'open';
 
 export interface DayInputs {
   /** `YYYY-MM-DD`. */
@@ -83,14 +79,24 @@ export function resolveCalendarDay(input: DayInputs): ResolvedDay {
 
   const offDays = input.weeklyOffDays ?? [];
   if (offDays.includes(isoWeekdayOf(date))) {
-    return { date, kind: 'weekly-off', label: 'Weekly off', isWorkingDay: false };
+    return {
+      date,
+      kind: 'weekly-off',
+      label: 'Weekly off',
+      isWorkingDay: false,
+    };
   }
 
   // A rostered row explicitly marked non-working lands here rather than in
   // `work`: the roster is saying "not today", and it is not a rest day the
   // branch calendar knows about.
   if (input.hasSchedule) {
-    return { date, kind: 'weekly-off', label: 'Not working', isWorkingDay: false };
+    return {
+      date,
+      kind: 'weekly-off',
+      label: 'Not working',
+      isWorkingDay: false,
+    };
   }
 
   return { date, kind: 'open', label: '—', isWorkingDay: true };

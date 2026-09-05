@@ -55,7 +55,9 @@ export class SecureFilesController {
   }
 
   @Get(':kind/:id')
-  @ApiOperation({ summary: 'Download a private file the caller is entitled to' })
+  @ApiOperation({
+    summary: 'Download a private file the caller is entitled to',
+  })
   async download(
     @CurrentUser() user: Principal,
     @Param('kind') kind: string,

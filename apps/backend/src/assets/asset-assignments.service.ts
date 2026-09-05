@@ -327,7 +327,10 @@ export class AssetAssignmentsService {
       orderBy: { assignedAt: 'desc' },
     });
 
-    return rows.map((row) => ({ ...row, employee: withFullName(row.employee) }));
+    return rows.map((row) => ({
+      ...row,
+      employee: withFullName(row.employee),
+    }));
   }
 
   /**

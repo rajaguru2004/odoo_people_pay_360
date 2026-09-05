@@ -390,9 +390,12 @@ function AssetRegister() {
               </thead>
               <tbody className="divide-y divide-surface-border-light">
                 {rows.map((asset) => {
+                  // Gated on the capability as well as the state: a reason
+                  // for a control this role never sees is an explanation of
+                  // something that is not on the page.
                   const assignBlocked =
-                    !asset.currentHolder && asset.status !== 'AVAILABLE';
-                  const deleteBlocked = Boolean(asset.currentHolder);
+                    canWrite && !asset.currentHolder && asset.status !== 'AVAILABLE';
+                  const deleteBlocked = canDelete && Boolean(asset.currentHolder);
                   const assignReasonId = `asset-assign-reason-${asset.assetTag}`;
                   const deleteReasonId = `asset-delete-reason-${asset.assetTag}`;
 

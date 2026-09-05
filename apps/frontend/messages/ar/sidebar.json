@@ -49,5 +49,11 @@
   "myAssets": "عهدتي",
   "myTraining": "تدريبي",
   "myGrievances": "شكاواي",
-  "toggleSection": "إظهار أو إخفاء {section}"
+  "toggleSection": "إظهار أو إخفاء {section}",
+  "talent": "المواهب",
+  "workplace": "مكان العمل",
+  "training": "التدريب",
+  "grievances": "الشكاوى",
+  "assets": "الأصول",
+  "letters": "الخطابات"
 }

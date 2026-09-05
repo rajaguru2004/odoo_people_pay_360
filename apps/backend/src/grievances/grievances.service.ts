@@ -224,7 +224,9 @@ export class GrievancesService {
       }
     }
 
-    const statusChanged = Boolean(dto.status && dto.status !== grievance.status);
+    const statusChanged = Boolean(
+      dto.status && dto.status !== grievance.status,
+    );
     const updated = await this.prisma.grievance.update({
       where: { id },
       data: {
@@ -254,8 +256,14 @@ export class GrievancesService {
         entityType: 'Grievance',
         entityId: id,
         metadata: {
-          from: { status: grievance.status, assignedToId: grievance.assignedToId },
-          to: { status: dto.status ?? null, assignedToId: dto.assignedToId ?? null },
+          from: {
+            status: grievance.status,
+            assignedToId: grievance.assignedToId,
+          },
+          to: {
+            status: dto.status ?? null,
+            assignedToId: dto.assignedToId ?? null,
+          },
         },
       },
     });

@@ -13,6 +13,11 @@ const prismaMock = () => ({
 
 type PrismaMock = ReturnType<typeof prismaMock>;
 
+/** The first argument a mocked Prisma call received, typed for the assertion. */
+function firstArg<T>(mock: jest.Mock): T {
+  return (mock.mock.calls as T[][])[0][0];
+}
+
 const OPEN_ASSIGNMENT = {
   id: 'assignment-1',
   assignedAt: new Date('2026-01-15T00:00:00.000Z'),
@@ -94,9 +99,9 @@ describe('ClearanceService', () => {
     it('refuses an unknown employee rather than answering "clear to go"', async () => {
       prisma.employee.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.getClearanceStatus('nobody', admin),
-      ).rejects.toThrow('Employee not found');
+      await expect(service.getClearanceStatus('nobody', admin)).rejects.toThrow(
+        'Employee not found',
+      );
     });
 
     it('keeps a manager out of another department', async () => {
@@ -128,12 +133,16 @@ describe('ClearanceService', () => {
 
     it('passes when nothing is out', async () => {
       prisma.assetAssignment.findMany.mockResolvedValue([]);
-      await expect(service.assertCleared('employee-1')).resolves.toBeUndefined();
+      await expect(
+        service.assertCleared('employee-1'),
+      ).resolves.toBeUndefined();
     });
 
     it('lets a site that does not track assets switch the block off', async () => {
       settings.get.mockResolvedValue('false');
-      await expect(service.assertCleared('employee-1')).resolves.toBeUndefined();
+      await expect(
+        service.assertCleared('employee-1'),
+      ).resolves.toBeUndefined();
       expect(prisma.assetAssignment.findMany).not.toHaveBeenCalled();
     });
 
@@ -158,9 +167,9 @@ describe('ClearanceService', () => {
         reason: 'Laptop written off after the fire',
       });
 
-      const row = prisma.auditLog.create.mock.calls[0][0] as {
+      const row = firstArg<{
         data: { action: string; metadata: { openAssets: unknown[] } };
-      };
+      }>(prisma.auditLog.create);
       expect(row.data.action).toBe('CLEARANCE_OVERRIDDEN');
       // Recorded even though it was overridden: what was owed is the half an
       // auditor is most likely to be looking for once the person has gone.
