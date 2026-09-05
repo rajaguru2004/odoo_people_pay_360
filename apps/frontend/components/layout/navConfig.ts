@@ -3,6 +3,7 @@ import {
   CalendarRange,
   Clock,
   LayoutDashboard,
+  Palmtree,
   Settings,
   Users,
   Wallet,
@@ -188,6 +189,56 @@ export const adminMenuItems: NavGroup[] = [
     ],
   },
   {
+    // Leave and overtime sit in ONE module because they are the same trade:
+    // hours the company owes against hours it has bought. Splitting them would
+    // put "who is away" and "who worked late" on two rails, and the person
+    // planning next week needs both answers at once.
+    //
+    // The hub lives at /dashboard/leave while the screens it owns are under
+    // /dashboard/leaves and /dashboard/overtime, so `basePath` keeps the group
+    // owning its own prefix while the children claim theirs.
+    icon: Palmtree,
+    labelKey: 'leaveOvertime',
+    href: '/dashboard/leave',
+    basePath: '/dashboard/leave',
+    roles: ['ADMIN', 'HR_MANAGER', 'PAYROLL_OFFICER'],
+    // GET /leave-requests/hub-summary is ADMIN, HR and MANAGER: it answers by
+    // name and by reason, and a sick note is not a payroll fact.
+    hubRoles: ['ADMIN', 'HR_MANAGER', 'MANAGER'],
+    permissions: ['VIEW_LEAVE', 'VIEW_OVERTIME'],
+    children: [
+      {
+        labelKey: 'leaveRequests',
+        href: '/dashboard/leaves',
+        roles: ['ADMIN', 'HR_MANAGER', 'MANAGER'],
+      },
+      {
+        labelKey: 'pendingLeave',
+        href: '/dashboard/leaves/pending',
+        roles: ['ADMIN', 'HR_MANAGER', 'MANAGER'],
+      },
+      {
+        labelKey: 'leaveBalances',
+        href: '/dashboard/leaves/balances',
+        roles: ['ADMIN', 'HR_MANAGER'],
+      },
+      { labelKey: 'leaveTypes', href: '/dashboard/leave/types', roles: ['ADMIN', 'HR_MANAGER'] },
+      {
+        labelKey: 'leaveAllocations',
+        href: '/dashboard/leave/allocations',
+        roles: ['ADMIN', 'HR_MANAGER'],
+      },
+      // Overtime IS a payroll fact, which is why a payroll officer reads these
+      // two and none of the leave screens above.
+      { labelKey: 'overtimeRequests', href: '/dashboard/overtime' },
+      {
+        labelKey: 'overtimePolicies',
+        href: '/dashboard/overtime/policies',
+        roles: ['ADMIN', 'HR_MANAGER'],
+      },
+    ],
+  },
+  {
     icon: Wallet,
     labelKey: 'payroll',
     href: '/dashboard/payroll',
@@ -276,6 +327,22 @@ export const departmentHeadMenuItems: NavGroup[] = [
     ],
   },
   {
+    icon: Palmtree,
+    labelKey: 'leaveOvertime',
+    href: '/dashboard/leave',
+    basePath: '/dashboard/leave',
+    roles: ['MANAGER'],
+    permissions: ['VIEW_LEAVE'],
+    // A department head decides their team's requests and reads their balances;
+    // the library and the allocation runs stay with HR, because those change
+    // what the whole company is entitled to.
+    children: [
+      { labelKey: 'leaveRequests', href: '/dashboard/leaves' },
+      { labelKey: 'pendingLeave', href: '/dashboard/leaves/pending' },
+      { labelKey: 'overtimeRequests', href: '/dashboard/overtime' },
+    ],
+  },
+  {
     icon: Wallet,
     labelKey: 'payroll',
     href: '/dashboard/payroll',
@@ -300,6 +367,23 @@ export const employeeMenuItems: NavGroup[] = [
     href: '/dashboard',
     roles: ['EMPLOYEE'],
     permissions: ['VIEW_DASHBOARD'],
+  },
+  {
+    // Flat, and pointed at the SELF screens. The company-wide lists answer by
+    // name across the workforce and the server refuses them to this role, so a
+    // rail entry for one would be a link straight to /403.
+    icon: Palmtree,
+    labelKey: 'myLeave',
+    href: '/dashboard/my-leaves',
+    roles: ['EMPLOYEE'],
+    permissions: ['VIEW_OWN_LEAVE'],
+  },
+  {
+    icon: Clock,
+    labelKey: 'myOvertime',
+    href: '/dashboard/my-overtime',
+    roles: ['EMPLOYEE'],
+    permissions: ['VIEW_OWN_OVERTIME'],
   },
   {
     icon: Wallet,

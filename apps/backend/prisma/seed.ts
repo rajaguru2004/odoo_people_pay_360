@@ -26,6 +26,9 @@ import {
   DepartmentChangeType,
   EmployeeStatus,
   LegalDocumentCategory,
+  LibraryType,
+  OvertimeDayType,
+  OvertimeType,
   PrismaClient,
   RequestStatus,
   SalaryComponentType,
@@ -37,6 +40,10 @@ import {
   WorkType,
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+// The leave-type and employment-type pick lists come from the module that owns
+// them rather than being restated here — see seedLeaveLibraries below.
+import { seedLibraryDefaults } from '../src/library-items/library-defaults';
+import { OVERTIME_SETTING_DEFAULTS } from '../src/overtime-policy/overtime-config';
 
 const prisma = new PrismaClient();
 
@@ -78,6 +85,17 @@ const SETTINGS: Record<string, string> = {
   attendance_day_end: '20:00',
   attendance_geofence_default_radius_m: '150',
   face_recognition_min_quality: '0.6',
+
+  // Leave and overtime. Written as rows rather than left to the module's own
+  // in-code defaults so the settings screen shows an administrator every value
+  // the overtime engine is actually using, instead of a form full of blanks
+  // that silently behave as something.
+  // Blank entries are skipped: an empty `overtime_sunday_late_rate` row means
+  // "inherit the flat double rate", and writing it as an empty string would put
+  // a blank field on the settings screen that reads as unconfigured.
+  ...Object.fromEntries(
+    Object.entries(OVERTIME_SETTING_DEFAULTS).filter(([, v]) => v !== ''),
+  ),
 };
 
 async function seedSettings() {
@@ -962,6 +980,535 @@ async function seedTerminationRequest(
   console.log('  ✔ 1 termination awaiting approval');
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. LEAVE & OVERTIME
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The pick lists leave depends on.
+ *
+ * Delegated to the module's own defaults file rather than restated here. Two
+ * lists that are meant to agree and are written twice do not agree for long, and
+ * the one that drifts is always the seed.
+ */
+async function seedLeaveLibraries() {
+  await seedLibraryDefaults(prisma);
+  const count = await prisma.libraryItem.count();
+  console.log(`  ✔ ${count} library items (leave types, employment types)`);
+}
+
+/**
+ * A company default policy, plus one targeted at daily-wage staff.
+ *
+ * The default mirrors the global settings, which is what makes the policy engine
+ * a no-op until somebody writes a targeted policy. The daily-wage one exists
+ * because the two rules worth demonstrating — `IGNORE` holidays and a flat
+ * eligibility gate — cannot be shown with a single policy on the screen.
+ */
+async function seedOvertimePolicies() {
+  const globalRules = {
+    eligible: true,
+    holidayBehavior: 'STANDARD',
+    lateThreshold: '22:00',
+    regularRate: 1.25,
+    lateRate: 1.5,
+    doubleOtEnabled: true,
+    doubleRate: 2,
+    doubleOtAllowAnytime: true,
+    sunday: { regularRate: 2, lateRate: 2, lateThreshold: '22:00' },
+    holiday: { regularRate: 2, lateRate: 2, lateThreshold: '22:00' },
+    shiftEndTime: '17:00',
+    dayEndBoundary: null,
+    foodAllowanceEnabled: true,
+    foodAllowanceAmount: 3,
+    foodAllowanceThreshold: '22:00',
+    doubleFoodAllowanceAnyTime: false,
+    maxHoursPerDay: 4,
+    maxHoursPerDoubleDay: 12,
+    maxHoursPerMonth: 30,
+    maxHoursPerYear: 200,
+  };
+
+  await prisma.overtimePolicy.upsert({
+    where: { name: 'Company Default' },
+    // Empty: the service seeds this on boot too, and overwriting it here would
+    // revert an administrator's edit every time the container restarts.
+    update: {},
+    create: {
+      name: 'Company Default',
+      description:
+        'Mirrors the global overtime settings. Every employee not covered by an override or an employment-type policy resolves to this.',
+      isActive: true,
+      isDefault: true,
+      schemaVersion: 1,
+      rules: globalRules,
+    },
+  });
+
+  await prisma.overtimePolicy.upsert({
+    where: { name: 'Daily Wage OT' },
+    update: {},
+    create: {
+      name: 'Daily Wage OT',
+      description:
+        'Daily-wage staff are already paid per day worked, so a public holiday is an ordinary day rather than a premium tier.',
+      isActive: true,
+      isDefault: false,
+      employmentType: 'Daily Wage',
+      schemaVersion: 1,
+      rules: {
+        ...globalRules,
+        holidayBehavior: 'IGNORE',
+        regularRate: 1.5,
+        lateRate: 1.75,
+        maxHoursPerDay: 5,
+      },
+    },
+  });
+
+  console.log('  ✔ 2 overtime policies (Company Default, Daily Wage OT)');
+}
+
+/** Employment types, so the middle tier of the policy chain resolves for somebody. */
+async function seedEmploymentTypes(employees: Record<string, string>) {
+  const ASSIGNMENTS: Record<string, string> = {
+    'EMP-0012': 'Daily Wage',
+    'EMP-0013': 'Daily Wage',
+    'EMP-0015': 'Daily Wage',
+  };
+  for (const [code, type] of Object.entries(ASSIGNMENTS)) {
+    await prisma.employee.update({
+      where: { id: employees[code] },
+      data: { employmentType: type },
+    });
+  }
+  console.log(`  ✔ ${Object.keys(ASSIGNMENTS).length} employees on Daily Wage`);
+}
+
+/**
+ * A year of entitlement for everybody still employed.
+ *
+ * Allocations only. `used` is set by the approved leave seeded below, so the two
+ * cannot disagree: the balance a screen shows is arrived at the same way the
+ * application arrives at it.
+ */
+async function seedLeaveBalances(employees: Record<string, string>) {
+  const year = new Date().getUTCFullYear();
+  const types = await prisma.libraryItem.findMany({
+    where: {
+      libraryType: LibraryType.LEAVE_TYPE,
+      isActive: true,
+      affectsBalance: true,
+    },
+  });
+
+  let rows = 0;
+  for (const person of PEOPLE) {
+    if (person.status === EmployeeStatus.TERMINATED) continue;
+    const employeeId = employees[person.code];
+    const gender = person.gender.toUpperCase();
+
+    const annual = types.find((t) => t.label === 'Annual Leave');
+    const sick = types.find((t) => t.label === 'Sick Leave');
+
+    await prisma.leaveBalance.upsert({
+      where: { employeeId_year: { employeeId, year } },
+      update: {},
+      create: {
+        employeeId,
+        year,
+        annualLeave: annual?.defaultDays ?? 30,
+        sickLeave: sick?.defaultDays ?? 30,
+        // A handful of people carry days in, so the balances screen has a
+        // non-zero column to draw and the "remaining" sum is not simply the
+        // allocation.
+        carriedOver: person.code === 'EMP-0011' ? 5 : 0,
+      },
+    });
+
+    for (const type of types) {
+      // A gender-restricted type is not allocated to somebody who can never take
+      // it: 98 days of maternity on a male employee inflates every company total
+      // with leave nobody can use.
+      if (
+        type.genderRestriction &&
+        type.genderRestriction.toUpperCase() !== gender
+      ) {
+        continue;
+      }
+      await prisma.leaveTypeBalance.upsert({
+        where: {
+          employeeId_year_leaveTypeKey: {
+            employeeId,
+            year,
+            leaveTypeKey: type.label,
+          },
+        },
+        update: {},
+        create: {
+          employeeId,
+          year,
+          leaveTypeKey: type.label,
+          allocated: type.defaultDays ?? 0,
+          carriedOver:
+            person.code === 'EMP-0011' && type.label === 'Annual Leave' ? 5 : 0,
+        },
+      });
+      rows += 1;
+    }
+  }
+
+  console.log(`  ✔ leave balances for ${year} (${rows} type rows)`);
+}
+
+/**
+ * Leave in every state the queue can be in, including one absence happening now.
+ *
+ * Deliberately covers all four statuses. A demo where every request is pending
+ * cannot show that the status filter works, and a hub whose donut has one slice
+ * cannot show that its four slices sum to the caption above them.
+ *
+ * Approved rows deduct their own days and write their own ON_LEAVE attendance,
+ * exactly as the approval endpoint would — a seeded approval that skipped either
+ * would leave the balances screen and the attendance board contradicting the
+ * leave list.
+ */
+async function seedLeaveRequests(
+  employees: Record<string, string>,
+  branches: Record<string, string>,
+  adminUserId: string,
+) {
+  const year = new Date().getUTCFullYear();
+
+  interface SeedLeave {
+    employee: string;
+    branch: string;
+    leaveType: string;
+    /** Days from today. Negative is past, positive is future. */
+    from: number;
+    to: number;
+    status: RequestStatus;
+    reason: string;
+    note?: string;
+  }
+
+  const REQUESTS: SeedLeave[] = [
+    // Happening right now, so the hub's "on leave today" card has a name in it.
+    {
+      employee: 'EMP-0018',
+      branch: 'SOH',
+      leaveType: 'Annual Leave',
+      from: -2,
+      to: 3,
+      status: RequestStatus.APPROVED,
+      reason: 'Family wedding in Salalah.',
+      note: 'Approved. Storekeeping covered by Hassan.',
+    },
+    // Waiting on somebody. This is the row the approval walkthrough uses.
+    {
+      employee: 'EMP-0005',
+      branch: 'HQ',
+      leaveType: 'Annual Leave',
+      from: 12,
+      to: 16,
+      status: RequestStatus.PENDING,
+      reason: 'Annual holiday — flights already booked.',
+    },
+    {
+      employee: 'EMP-0012',
+      branch: 'SOH',
+      leaveType: 'Sick Leave',
+      from: -6,
+      to: -5,
+      status: RequestStatus.APPROVED,
+      reason: 'Doctor signed me off for two days.',
+    },
+    {
+      employee: 'EMP-0007',
+      branch: 'HQ',
+      leaveType: 'Annual Leave',
+      from: 20,
+      to: 27,
+      status: RequestStatus.PENDING,
+      reason: 'Visiting family overseas.',
+    },
+    {
+      employee: 'EMP-0013',
+      branch: 'SOH',
+      leaveType: 'Annual Leave',
+      from: 5,
+      to: 9,
+      status: RequestStatus.REJECTED,
+      reason: 'Two weeks off over the shutdown.',
+      note: 'Two operators are already off that week. Please re-file for the following one.',
+    },
+    {
+      employee: 'EMP-0009',
+      branch: 'HQ',
+      leaveType: 'Unpaid Leave',
+      from: 30,
+      to: 32,
+      status: RequestStatus.CANCELLED,
+      reason: 'Personal matter — no longer needed.',
+    },
+    {
+      employee: 'EMP-0016',
+      branch: 'HQ',
+      leaveType: 'Bereavement Leave',
+      from: -14,
+      to: -12,
+      status: RequestStatus.APPROVED,
+      reason: 'Family bereavement.',
+    },
+  ];
+
+  let created = 0;
+  for (const r of REQUESTS) {
+    const employeeId = employees[r.employee];
+    const startDate = daysFromToday(r.from);
+    const endDate = daysFromToday(r.to);
+
+    const existing = await prisma.leaveRequest.findFirst({
+      where: { employeeId, startDate },
+    });
+    if (existing) continue;
+
+    const workingDates = workingDatesFor(
+      startDate,
+      endDate,
+      r.branch,
+      await holidayKeys(),
+    );
+    // A request whose every day is already a rest day would be refused by the
+    // application, so the seed must not create one either.
+    if (workingDates.length === 0) continue;
+
+    const decided = r.status !== RequestStatus.PENDING;
+    await prisma.leaveRequest.create({
+      data: {
+        employeeId,
+        leaveType: r.leaveType,
+        startDate,
+        endDate,
+        totalDays: workingDates.length,
+        reason: r.reason,
+        status: r.status,
+        approverId: decided ? adminUserId : null,
+        approvedAt: decided ? daysFromToday(r.from - 2) : null,
+        rejectedReason: r.note ?? null,
+      },
+    });
+    created += 1;
+
+    if (r.status !== RequestStatus.APPROVED) continue;
+
+    // Spend the balance, exactly as approving it would.
+    const type = await prisma.libraryItem.findFirst({
+      where: { libraryType: LibraryType.LEAVE_TYPE, label: r.leaveType },
+    });
+    if (type?.affectsBalance) {
+      const balance = await prisma.leaveTypeBalance.findUnique({
+        where: {
+          employeeId_year_leaveTypeKey: {
+            employeeId,
+            year,
+            leaveTypeKey: r.leaveType,
+          },
+        },
+      });
+      if (balance) {
+        await prisma.leaveTypeBalance.update({
+          where: { id: balance.id },
+          data: { used: balance.used + workingDates.length },
+        });
+      }
+      if (r.leaveType === 'Annual Leave' || r.leaveType === 'Sick Leave') {
+        const headline = await prisma.leaveBalance.findUnique({
+          where: { employeeId_year: { employeeId, year } },
+        });
+        if (headline) {
+          await prisma.leaveBalance.update({
+            where: { id: headline.id },
+            data:
+              r.leaveType === 'Annual Leave'
+                ? { usedAnnual: headline.usedAnnual + workingDates.length }
+                : { usedSick: headline.usedSick + workingDates.length },
+          });
+        }
+      }
+    }
+
+    // And write the attendance. `skipDuplicates` because the attendance seed has
+    // already filled the last thirty days: a day somebody actually clocked keeps
+    // its own record, which is the same rule the approval endpoint follows.
+    await prisma.attendance.createMany({
+      data: workingDates.map((date) => ({
+        employeeId,
+        date,
+        branchId: branches[r.branch],
+        status: AttendanceStatus.ON_LEAVE,
+        source: AttendanceSource.SYSTEM,
+        workHours: 0,
+        notes: `Approved ${r.leaveType}`,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  console.log(`  ✔ ${created} leave requests (approved, pending, rejected, cancelled)`);
+}
+
+/**
+ * Overtime across the tiers that pay it.
+ *
+ * Every window starts after 17:00, because overtime that begins inside the
+ * working day would be refused by the application — a seed that creates rows the
+ * app would reject is a seed that hides a broken rule.
+ *
+ * The split figures are the ones the engine produces for a 22:00 late threshold:
+ * a 17:30–23:00 shift is 4.5h regular plus 1h late, not 5.5h at one rate.
+ */
+async function seedOvertimeRequests(
+  employees: Record<string, string>,
+  adminUserId: string,
+) {
+  interface SeedOvertime {
+    employee: string;
+    daysBack: number;
+    startHour: number;
+    startMinute: number;
+    endHour: number;
+    status: RequestStatus;
+    reason: string;
+  }
+
+  const REQUESTS: SeedOvertime[] = [
+    { employee: 'EMP-0011', daysBack: 3, startHour: 17, startMinute: 30, endHour: 23, status: RequestStatus.APPROVED, reason: 'Line 3 changeover ran past the shift.' },
+    { employee: 'EMP-0012', daysBack: 4, startHour: 18, startMinute: 0, endHour: 21, status: RequestStatus.APPROVED, reason: 'Covered a late delivery inspection.' },
+    { employee: 'EMP-0014', daysBack: 2, startHour: 17, startMinute: 30, endHour: 20, status: RequestStatus.PENDING, reason: 'Pump seal replacement could not wait until morning.' },
+    { employee: 'EMP-0015', daysBack: 1, startHour: 19, startMinute: 0, endHour: 23, status: RequestStatus.PENDING, reason: 'Switchgear fault on the night line.' },
+    { employee: 'EMP-0007', daysBack: 6, startHour: 18, startMinute: 0, endHour: 22, status: RequestStatus.APPROVED, reason: 'Production database migration window.' },
+    { employee: 'EMP-0019', daysBack: 8, startHour: 17, startMinute: 30, endHour: 19, status: RequestStatus.REJECTED, reason: 'Stayed to finish paperwork.' },
+  ];
+
+  let created = 0;
+  for (const r of REQUESTS) {
+    const employeeId = employees[r.employee];
+    const date = daysFromToday(-r.daysBack);
+
+    const existing = await prisma.overtimeRequest.findUnique({
+      where: { employeeId_date: { employeeId, date } },
+    });
+    if (existing) continue;
+
+    // Wall clock tagged UTC, which is how the engine reads these back.
+    const startTime = new Date(
+      date.getTime() + r.startHour * 3_600_000 + r.startMinute * 60_000,
+    );
+    const endTime = new Date(date.getTime() + r.endHour * 3_600_000);
+    const totalHours =
+      (endTime.getTime() - startTime.getTime()) / 3_600_000;
+
+    // The 22:00 split, computed the same way the engine computes it.
+    const lateBoundary = new Date(date.getTime() + 22 * 3_600_000);
+    const regularHours =
+      Math.max(
+        0,
+        Math.min(endTime.getTime(), lateBoundary.getTime()) -
+          startTime.getTime(),
+      ) / 3_600_000;
+    const lateHours = totalHours - regularHours;
+    const decided = r.status !== RequestStatus.PENDING;
+
+    await prisma.overtimeRequest.create({
+      data: {
+        employeeId,
+        date,
+        startTime,
+        endTime,
+        hours: round2(totalHours),
+        regularHours: round2(regularHours),
+        lateHours: round2(lateHours),
+        dayType: OvertimeDayType.WEEKDAY,
+        otType: lateHours > 0 ? OvertimeType.LATE : OvertimeType.REGULAR,
+        // Granted only when the window actually ran past the food threshold,
+        // which is the rule the engine applies.
+        foodAllowance: lateHours > 0 ? 3 : 0,
+        reason: r.reason,
+        status: r.status,
+        approverId: decided ? adminUserId : null,
+        approvedAt: decided ? new Date(date.getTime() + 26 * 3_600_000) : null,
+        rejectedReason:
+          r.status === RequestStatus.REJECTED
+            ? 'Paperwork is part of the working day, not overtime.'
+            : null,
+      },
+    });
+    created += 1;
+  }
+
+  console.log(`  ✔ ${created} overtime requests across the tiers`);
+}
+
+// ── Seed-local calendar helpers ─────────────────────────────────────────────
+//
+// The application answers these through WorkingDaysService, which needs a Nest
+// container. The seed reproduces the same two rules — the branch weekly rest and
+// the holiday table — so the days it writes match the days the app would price.
+
+/** Head Office rests Friday and Saturday; Sohar rests Friday only. */
+const SEED_WEEKLY_OFF: Record<string, number[]> = { HQ: [5, 6], SOH: [5] };
+
+let holidayKeyCache: Set<string> | null = null;
+
+async function holidayKeys(): Promise<Set<string>> {
+  if (holidayKeyCache) return holidayKeyCache;
+  const rows = await prisma.holiday.findMany({ select: { date: true } });
+  holidayKeyCache = new Set(rows.map((h) => h.date.toISOString().slice(0, 10)));
+  return holidayKeyCache;
+}
+
+function workingDatesFor(
+  start: Date,
+  end: Date,
+  branchCode: string,
+  holidays: Set<string>,
+): Date[] {
+  const off = SEED_WEEKLY_OFF[branchCode] ?? [5, 6];
+  const dates: Date[] = [];
+  for (
+    let cursor = new Date(start);
+    cursor.getTime() <= end.getTime();
+    cursor = new Date(cursor.getTime() + 86_400_000)
+  ) {
+    const key = cursor.toISOString().slice(0, 10);
+    if (!off.includes(isoWeekdayOf(cursor)) && !holidays.has(key)) {
+      dates.push(new Date(cursor));
+    }
+  }
+  return dates;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * The administrator's user id, which is who seeded decisions are attributed to.
+ *
+ * A decided request with a null approver reads as "decided by nobody", and the
+ * detail screen has a blank where the reviewer's name belongs.
+ */
+async function adminUserIdFor(adminEmail: string): Promise<string> {
+  const admin = await prisma.user.findUnique({
+    where: { email: adminEmail },
+    select: { id: true },
+  });
+  if (!admin) throw new Error(`Seed could not find the admin account ${adminEmail}`);
+  return admin.id;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -985,6 +1532,14 @@ async function main() {
   await seedAttendance(employees, branches);
   await seedCorrections(employees);
   await seedChangeRequests(departments, employees, adminEmail);
+
+  await seedLeaveLibraries();
+  await seedOvertimePolicies();
+  await seedEmploymentTypes(employees);
+  await seedLeaveBalances(employees);
+  const adminUserId = await adminUserIdFor(adminEmail);
+  await seedLeaveRequests(employees, branches, adminUserId);
+  await seedOvertimeRequests(employees, adminUserId);
 
   console.log('✅ Seed complete.');
 }

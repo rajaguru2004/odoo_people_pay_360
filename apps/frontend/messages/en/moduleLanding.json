@@ -39,6 +39,19 @@
     "settings": "Company details, branding and the defaults every screen reads.",
     "workingSchedule": "The whole workforce against the month, one row each.",
     "shiftCalendar": "One person's shifts, week by week.",
-    "shiftManagement": "Roster a shift, edit one, or lay a pattern over a range."
+    "shiftManagement": "Roster a shift, edit one, or lay a pattern over a range.",
+    "leaveRequests": "Every leave request, filtered by status and date.",
+    "pendingLeave": "Requests waiting on a decision.",
+    "leaveBalances": "What each employee is entitled to, and what is left.",
+    "leaveTypes": "The types leave may be filed against, and their rules.",
+    "leaveAllocations": "Accruals, bulk grants and the record of both.",
+    "overtimeRequests": "Hours worked outside the shift, and how they are paid.",
+    "overtimePolicies": "The rate sets, and which employees each one governs.",
+    "myLeave": "Your own balance and requests.",
+    "myOvertime": "The overtime you have logged."
+  },
+  "leaveOvertime": {
+    "title": "Leave & overtime",
+    "subtitle": "What is owed, what is waiting on a decision, and who is working late."
   }
 }
