@@ -27,6 +27,7 @@
     "e2e:down": "bash scripts/e2e-db.sh down",
     "db:push": "npm run prisma:push --prefix apps/backend",
     "db:seed": "npm run prisma:seed --prefix apps/backend",
+    "db:seed:bangalore": "npm run prisma:seed:bangalore --prefix apps/backend",
     "db:studio": "npm run prisma:studio --prefix apps/backend",
     "test:critical": "npm run test && npm run test:e2e",
     "lint": "npm run lint --prefix apps/frontend && npm run lint --prefix apps/backend"

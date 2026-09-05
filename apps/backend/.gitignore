@@ -41,6 +41,9 @@ lerna-debug.log*
 
 # Uploads
 /uploads
+# Private storage — letterhead artwork and generated documents. Same reason as
+# /uploads, and more so: these are the files the public bucket must never hold.
+/private-uploads
 
 # Local-only env for the browser test suite (never commit credentials)
 .env.test
