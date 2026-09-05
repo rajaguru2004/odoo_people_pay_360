@@ -271,6 +271,10 @@ export const ROUTES: RouteSpec[] = [
   { path: '/dashboard/payroll/approvals', guarded: true, allowed: ADMIN_HR },
   // MANAGE_SALARY_COMPONENTS: admin, hr.
   { path: '/dashboard/payroll/salary-structure', guarded: true, allowed: ADMIN_HR },
+  // VIEW_ALL_PAYROLL: admin, hr. The analytics page reads company-wide cost by
+  // department and by employee, so it answers the same question the payslip
+  // list does and carries the same guard.
+  { path: '/dashboard/payroll/analytics', guarded: true, allowed: ADMIN_HR },
 
   // ── People ops ────────────────────────────────────────────────────────────
   { path: '/dashboard/appraisal', guarded: true, allowed: ADMIN_HR },

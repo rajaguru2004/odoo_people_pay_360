@@ -176,8 +176,23 @@ export const formatAmountWithSymbol = (amount: number, maximumFractionDigits = 0
   return `${prefix}${sep}${new Intl.NumberFormat('en-US', { maximumFractionDigits }).format(amount)}`;
 };
 
-export const formatCurrency = (amount: number): string => {
-  return formatCurrencyWithConfig(amount, activeCurrency, activeCurrencySymbol, activeCurrencyDisplay);
+/**
+ * Money, using the system-settings currency.
+ *
+ * `currency` is an optional override for callers that already know the currency
+ * of the figure they hold — a payroll run carries its own, and the dashboard
+ * charts read it off the response rather than off global settings. Omitted, the
+ * configured currency applies, so every existing caller is unaffected.
+ */
+export const formatCurrency = (
+  amount: number | string | null | undefined,
+  currency?: string,
+): string => {
+  const value = typeof amount === 'string' ? Number(amount) : amount;
+  if (value === null || value === undefined || Number.isNaN(value)) return '—';
+  return currency
+    ? formatCurrencyWithConfig(value, currency, currency, 'code')
+    : formatCurrencyWithConfig(value, activeCurrency, activeCurrencySymbol, activeCurrencyDisplay);
 };
 
 /**
@@ -212,7 +227,13 @@ export const formatCurrencyWithConfig = (
   }
 };
 
-export const formatNumber = (num: number, decimals: number = 0): string => {
+export const formatNumber = (
+  num: number | null | undefined,
+  decimals: number = 0,
+): string => {
+  // An absent figure is not zero. A dashboard tile reading "0" where nothing was
+  // measured is a claim about the data; the em dash says we have none.
+  if (num === null || num === undefined || Number.isNaN(num)) return '—';
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
@@ -220,7 +241,11 @@ export const formatNumber = (num: number, decimals: number = 0): string => {
 };
 
 // Percentage formatter
-export const formatPercent = (value: number, decimals: number = 1): string => {
+export const formatPercent = (
+  value: number | null | undefined,
+  decimals: number = 1,
+): string => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—';
   return `${formatNumber(value, decimals)}%`;
 };
 
@@ -257,4 +282,114 @@ export const formatWorkHours = (hours: number): string => {
 // Month/Year formatter
 export const formatMonthYear = (month: number, year: number): string => {
   return `Month ${month}/${year}`;
+};
+
+// ---------------------------------------------------------------------------
+// Dashboard / payroll-analytics helpers.
+//
+// Ported with the dashboard visuals. They are additive: nothing above changed
+// behaviour, so every existing caller of this module is unaffected.
+// ---------------------------------------------------------------------------
+
+/** "Aisha Al Balushi" from the parts, tolerating a missing half. */
+export const fullName = (
+  person?: { firstName?: string | null; lastName?: string | null } | null,
+): string => {
+  if (!person) return '—';
+  return [person.firstName, person.lastName].filter(Boolean).join(' ') || '—';
+};
+
+/** "AB" — the avatar fallback. */
+export const initials = (
+  person?: { firstName?: string | null; lastName?: string | null } | null,
+): string => {
+  if (!person) return '?';
+  const first = person.firstName?.trim()?.[0] ?? '';
+  const last = person.lastName?.trim()?.[0] ?? '';
+  return (first + last).toUpperCase() || '?';
+};
+
+/**
+ * The magnitude at which a money figure stops being printed in full.
+ *
+ * Below a thousand there is nothing to abbreviate, and above it the exact
+ * figure costs a KPI card more width than it has. Fixed rather than measured so
+ * the same amount renders identically in a test, on a phone and in a screenshot.
+ */
+const COMPACT_FROM = 1_000;
+
+/** Magnitude suffixes only; the digits themselves come from `Intl`. */
+const compactDigits = (value: number, locale: string): string =>
+  new Intl.NumberFormat(locale, {
+    notation: 'compact',
+    compactDisplay: 'short',
+    // One decimal, and no forced trailing zero: 23.6K, but 1M rather than 1.0M.
+    maximumFractionDigits: 1,
+  }).format(value);
+
+/**
+ * Money, shortened to a magnitude suffix once it is genuinely long — "23.6K"
+ * for 23,567, "1.2M" for 1,240,000.
+ *
+ * Anything under `COMPACT_FROM` is handed straight to `formatCurrency`, so the
+ * exact case keeps the configured currency's own formatting: only the
+ * magnitude, never the precision, is what abbreviating gives up.
+ *
+ * Compact notation rounds, so 999,999 prints as "1M". That is the point of a
+ * compact figure — the caller is expected to keep the exact one reachable
+ * (`StatCard` puts it in a `title`), because the card is a glance and the
+ * reconciliation happens on the payslip.
+ */
+export const formatCurrencyCompact = (
+  amount: number | string | null | undefined,
+  currency?: string,
+  locale = 'en-US',
+): string => {
+  const value = typeof amount === 'string' ? Number(amount) : amount;
+  if (value === null || value === undefined || Number.isNaN(value)) return '—';
+  if (Math.abs(value) < COMPACT_FROM) return formatCurrency(value, currency);
+
+  // A code always wants a space after it ("INR 1.2M"); a glyph never does ("₹1.2M").
+  const prefix = currency
+    ? `${currency} `
+    : activeCurrencyDisplay === 'code'
+      ? `${activeCurrency} `
+      : activeCurrencySymbol;
+  return `${prefix}${compactDigits(value, locale)}`;
+};
+
+/** The first number in a string: "INR 23,567.12" → "23,567.12". */
+const NUMBER_RUN = /-?\d[\d,]*(?:\.\d+)?/;
+
+/**
+ * A numeric run is only a QUANTITY if a formatter has been at it — a thousands
+ * separator or a decimal point.
+ *
+ * Without this, a bare run of four digits is over `COMPACT_FROM` and "Jun 2026"
+ * abbreviates to "Jun 2K". Hub cards really do carry period labels, run
+ * references and employee codes in the same slot as money, so the shortener has
+ * to tell a magnitude from an identifier, and the punctuation the formatter
+ * added is the only evidence in the string that it was ever a sum.
+ */
+const FORMATTED_QUANTITY = /[,.]/;
+
+/**
+ * Shorten a figure that has ALREADY been formatted — "INR 23,567.12" becomes
+ * "INR 23.6K", "1,234,567" becomes "1.2M".
+ *
+ * `KpiStat.value` reaches a card as a finished string: the hub that built it
+ * knew the currency and the card does not. This rewrites only the numeric run
+ * and leaves everything around it — the currency code, the sign, a trailing
+ * `%` — exactly where the original formatter put it.
+ */
+export const compactFigureText = (text: string, locale = 'en-US'): string => {
+  const match = NUMBER_RUN.exec(text);
+  if (!match || !FORMATTED_QUANTITY.test(match[0])) return text;
+
+  const value = Number(match[0].replace(/,/g, ''));
+  if (Number.isNaN(value) || Math.abs(value) < COMPACT_FROM) return text;
+
+  const before = text.slice(0, match.index);
+  const after = text.slice(match.index + match[0].length);
+  return before + compactDigits(value, locale) + after;
 };

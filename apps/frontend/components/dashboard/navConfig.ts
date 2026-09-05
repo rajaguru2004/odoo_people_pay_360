@@ -192,6 +192,15 @@ export const adminMenuItems: NavGroup[] = [
       { labelKey: 'payrollBatches', href: '/dashboard/payroll/batches' },
       { labelKey: 'payrollApprovals', href: '/dashboard/payroll/approvals' },
       { labelKey: 'salaryStructures', href: '/dashboard/payroll/salary-structure' },
+      // Narrowed because the page's ProtectedRoute asks for VIEW_ALL_PAYROLL,
+      // which is ADMIN and HR_MANAGER only — the group above is built for
+      // MANAGER too, and offering them a company-wide cost breakdown here would
+      // hand them a /403 the moment they clicked it.
+      {
+        labelKey: 'payrollAnalytics',
+        href: '/dashboard/payroll/analytics',
+        roles: ['ADMIN', 'HR_MANAGER'],
+      },
     ],
   },
   {

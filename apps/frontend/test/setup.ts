@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
 import { MotionGlobalConfig } from 'framer-motion';
+import { cloneElement, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { routerMock, navigationState, resetRouterMock } from './router-mock';
 
 // App Router hooks throw outside a real router tree, and most screens call
@@ -80,3 +81,47 @@ if (!window.URL.createObjectURL) {
   window.URL.createObjectURL = vi.fn(() => 'blob:mock');
   window.URL.revokeObjectURL = vi.fn();
 }
+
+// ---------------------------------------------------------------------------
+// Chart harness — added with the dashboard/payroll analytics visuals.
+// ---------------------------------------------------------------------------
+
+const MOCK_CHART_WIDTH = 400;
+const MOCK_CHART_HEIGHT = 300;
+
+/**
+ * Recharts' `ResponsiveContainer` measures its parent and renders nothing at
+ * 0×0 — which is every element in jsdom, since jsdom has no layout engine and
+ * `ResizeObserver` is a no-op here. Left alone, every chart test would assert
+ * against an empty SVG and pass for the wrong reason.
+ *
+ * The real container does not merely WRAP its child: it clones it with explicit
+ * `width` and `height` props, which is how the chart inside learns its size.
+ * A mock that only renders a sized `<div>` leaves the chart at its default zero
+ * and it still draws no marks — so the clone is the part that matters, and it
+ * is why a test can find a bar, a legend entry or an axis label at all.
+ *
+ * `components/charts/chartRendering.test.tsx` guards exactly this, because the
+ * distinction is otherwise invisible: a chart test asserting on the panel, the
+ * legend or the table twin passes either way.
+ *
+ * Written with `createElement` rather than JSX so this file stays `.ts` and the
+ * vitest config keeps pointing at it.
+ */
+vi.mock('recharts', async () => {
+  const actual = await vi.importActual<typeof import('recharts')>('recharts');
+  return {
+    ...actual,
+    ResponsiveContainer: ({ children }: { children: ReactNode }) =>
+      createElement(
+        'div',
+        { style: { width: MOCK_CHART_WIDTH, height: MOCK_CHART_HEIGHT } },
+        isValidElement(children)
+          ? cloneElement(children as ReactElement<{ width?: number; height?: number }>, {
+              width: MOCK_CHART_WIDTH,
+              height: MOCK_CHART_HEIGHT,
+            })
+          : children,
+      ),
+  };
+});

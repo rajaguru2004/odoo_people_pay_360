@@ -1,262 +1,258 @@
 'use client';
 
-import { useState, Suspense, lazy } from 'react';
-import { useTranslations } from 'next-intl';
-import OverviewCards from '@/components/dashboard/OverviewCards';
-import QuickActions from '@/components/dashboard/QuickActions';
 import EmployeeDashboard from '@/components/dashboard/EmployeeDashboard';
+import MyCornerPanel from '@/components/dashboard/MyCornerPanel';
+import ApprovalsQueue from '@/components/dashboard/ApprovalsQueue';
+import ExpiringSoonPanel from '@/components/dashboard/ExpiringSoonPanel';
+import HeadcountByDepartmentChart from '@/components/dashboard/HeadcountByDepartmentChart';
+import TodayAttendanceDonut from '@/components/dashboard/TodayAttendanceDonut';
+import WorkforceTrendChart from '@/components/dashboard/WorkforceTrendChart';
+import { buildDashboardKpis } from '@/components/dashboard/dashboardKpis';
+import DepartmentCostChart from '@/components/payroll/dashboard/DepartmentCostChart';
+import NetSalaryTrendChart from '@/components/payroll/dashboard/NetSalaryTrendChart';
+import { KpiRow } from '@/components/module-landing/StatCard';
+import { SegmentedTimeFilter } from '@/components/module-landing/primitives';
+import { useDashboardOverview } from '@/hooks/useDashboardOverview';
+import { usePageHeader } from '@/hooks/usePageHeader';
 import { useAuthStore } from '@/store/authStore';
-import { LayoutDashboard, Users, Clock } from 'lucide-react';
-import { motion } from 'framer-motion';
-import DashboardV2Page from '../dashboard-v2/page';
-import { useBrandingStore } from '@/store/brandingStore';
+import type { DashboardSection } from '@/types/dashboardOverview';
 
+/** The two windows the aggregate offers, as the segmented control spells them. */
+const WINDOW_LABEL = { 6: '6M', 12: '12M' } as const;
 
-const DepartmentDistribution = lazy(() => import('@/components/dashboard/DepartmentDistribution'));
-const RecentActivities = lazy(() => import('@/components/dashboard/RecentActivities'));
-const CriticalAlertsHub = lazy(() => import('@/components/dashboard/CriticalAlertsHub'));
-const EmployeeGrowthChart = lazy(() => import('@/components/dashboard/EmployeeGrowthChart'));
-const AbsenteeismRate = lazy(() => import('@/components/dashboard/AbsenteeismRate'));
-const PayrollCostByDepartment = lazy(() => import('@/components/dashboard/PayrollCostByDepartment'));
-const TodaySnapshot = lazy(() => import('@/components/dashboard/TodaySnapshot'));
-const VisaExpiryWidget = lazy(() => import('@/components/dashboard/VisaExpiryWidget'));
+/**
+ * The company's standing today, from the one `/dashboard/overview` aggregate.
+ *
+ * Composition only. Every figure on this screen is built by a panel that owns
+ * its own rules about nulls, capped samples and provisional counts; this file's
+ * whole job is to decide WHICH panels are entitled to be on the page, and to
+ * hand each one its slice of a single response.
+ */
+function ManagementDashboard() {
+  const { overview, months, setMonths, loading, refetching, failed } =
+    useDashboardOverview();
 
-// Skeleton matching new kpi-card aesthetic
-const ChartSkeleton = () => (
-  <div className="surface-panel p-6 animate-pulse">
-    <div className="flex items-center justify-between mb-5">
-      <div className="space-y-2">
-        <div className="h-4 bg-surface-page rounded-lg w-32" />
-        <div className="h-3 bg-surface-page rounded w-20" />
-      </div>
-      <div className="w-11 h-11 rounded-xl bg-surface-page" />
-    </div>
-    <div className="h-48 bg-surface-page rounded-xl" />
-  </div>
-);
+  /**
+   * The one rule everything below turns on.
+   *
+   * Nothing reads `overview` directly for a figure. The moment the read fails
+   * the payload is dropped entirely, so every panel falls to its own em dash
+   * rather than to a zero — an empty company and an unreachable endpoint are
+   * different claims, and a card printing 0 for both has told the reader
+   * something false about one of them.
+   *
+   * The `failed` check does real work even while a payload is present:
+   * `placeholderData` deliberately keeps the last good response on screen so a
+   * 6 → 12 switch does not blank the page, which means `overview` existing is
+   * not evidence that any of it is current.
+   */
+  const data = failed ? undefined : overview;
 
-interface DashboardGreetingProps {
-  selectedDate: string;
-  setSelectedDate: (date: string) => void;
-}
+  /**
+   * Entitlement, never truthiness.
+   *
+   * `sections` is the server's statement of which blocks this caller may see,
+   * and a block they may not see is ABSENT rather than zeroed. So an absent
+   * section means "not entitled", and the panel is not drawn at all — never
+   * drawn zeroed, and never drawn as an em-dash apology, because both of those
+   * tell an employee that a company-wide figure exists and this page merely
+   * failed to fetch it.
+   *
+   * `show` is the loading-pass exception: before the first response nothing has
+   * been refused yet, so the shell is drawn and the panel skeletons through its
+   * own `loading` prop. The page narrows to the entitled set exactly once, when
+   * the response lands.
+   */
+  const has = (section: DashboardSection) =>
+    data?.sections.includes(section) ?? false;
+  const show = (section: DashboardSection) => loading || has(section);
 
-function DashboardGreeting({ selectedDate, setSelectedDate }: DashboardGreetingProps) {
-  const { user } = useAuthStore();
-  const displayName = user?.employee?.fullName?.split(' ')[0] || user?.email?.split('@')[0] || 'Admin';
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const showWorkforce = show('workforce');
+  const showAttendance = show('attendance');
+  const showApprovals = show('approvals');
+  const showPayroll = show('payroll');
+  const showCompliance = show('compliance');
+
+  // Currency is frame rather than a figure: it names the units the payroll
+  // panels print in. The fallback is only ever in force during the skeleton
+  // pass, where no money is rendered yet.
+  const currency = data?.currency ?? 'OMR';
+
+  // `DepartmentCostChart` drills into the payslip list with `?period=`, which
+  // is a machine value — `YYYY-MM` — not the human `periodLabel` the panels
+  // print. Taking it off the last run's `periodStart` keeps that link pointing
+  // at the period the block actually answered for, and with no locked run there
+  // is no period to filter by, so the drill correctly goes unfiltered.
+  const payrollPeriod = data?.payroll?.lastRun?.periodStart.slice(0, 7);
+
+  // The colour scale keys on department id, so it needs the full list to seed
+  // from or a hue moves the moment a row is dropped. Nothing filters these rows
+  // on this page, so the rows ARE the full list — this seeds the palette, it
+  // does not reshape the data.
+  const departmentOptions = data?.payroll?.byDepartment.map((row) => ({
+    value: row.id ?? '',
+    label: row.name,
+  }));
+
+  // Handed to every chart together: `refetching` is what holds the previous
+  // render up while a window change is in flight, so switching 6 → 12 does not
+  // blank half the page under the pointer that just clicked it.
+  const chart = { loading, refetching };
+
+  // The window control is offered only where something on the page answers for
+  // a window. A manager who receives attendance and approvals but neither trend
+  // would otherwise get a switcher that re-queries and changes nothing visible.
+  const showWindow = showWorkforce || showPayroll;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-      className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4"
-    >
-      {/* Left: Greeting */}
-      <div>
-        {/* Dashboard label */}
-        <div className="flex items-center gap-2 mb-2">
-          <LayoutDashboard size={14} className="text-brand-primary" strokeWidth={2.5} />
-          <span className="text-xs font-bold text-text-muted uppercase tracking-[0.1em]">Dashboard</span>
-        </div>
-        <h1 className="text-3xl md:text-4xl font-extrabold text-text-heading tracking-tight leading-none">
-          {greeting}, <span className="text-brand-primary">{displayName}!</span> 👋
-        </h1>
-        <p className="text-sm text-text-muted mt-2 font-medium">
-          Here's a snapshot of your organization's activity today.
+    <div className="space-y-6">
+      {failed && (
+        // Said out loud, in the tokens the analytics page already uses for it.
+        // A dashboard that quietly renders nothing is indistinguishable from a
+        // company with nothing in it.
+        <p
+          role="status"
+          className="rounded-xl border border-status-error/30 bg-status-error-bg px-4 py-3 text-[13px] text-status-error"
+        >
+          The dashboard could not be read. Nothing below is showing a number it
+          could not verify.
         </p>
-      </div>
+      )}
 
-      {/* Right: Action buttons (Commented out as requested)
-      <div className="flex items-center gap-3 shrink-0">
-        <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-surface-border bg-surface-card text-text-body text-sm font-semibold hover:border-brand-primary/40 hover:text-brand-primary hover:bg-brand-primary/5 transition-all duration-200 shadow-sm">
-          <Download size={14} strokeWidth={2.5} className="shrink-0" />
-          <span className="hidden sm:inline">Export Report</span>
-        </button>
-        <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-primary text-text-on-brand text-sm font-bold hover:bg-brand-primary-dark transition-all duration-200 shadow-lg shadow-brand-primary/25">
-          <Sliders size={14} strokeWidth={2.5} className="shrink-0" />
-          <span className="hidden sm:inline">Custom View</span>
-        </button>
-      </div>
-      */}
-    </motion.div>
-  );
-}
+      {showWindow && (
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {/* One window drives the WHOLE payload — it is a single query, so the
+              trend charts can never end up answering for different periods.
+              Saying so here stops the control reading as a filter belonging to
+              whichever chart it happens to sit nearest. */}
+          <span className="text-[12px] text-text-muted">
+            Every trend below covers the last
+          </span>
+          <SegmentedTimeFilter
+            options={[WINDOW_LABEL[6], WINDOW_LABEL[12]]}
+            value={WINDOW_LABEL[months]}
+            onChange={(value) => setMonths(value === WINDOW_LABEL[12] ? 12 : 6)}
+          />
+        </div>
+      )}
 
-/** Section header with thick left accent bar + uppercase label */
-function SectionHeader({
-  label,
-  icon: Icon,
-  colorClass,
-  dividerClass,
-}: {
-  label: string;
-  icon?: React.ElementType;
-  colorClass: string;
-  dividerClass: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 mb-1">
-      <div className={`h-6 w-1.5 rounded-full ${colorClass}`} />
-      {Icon && <Icon size={15} className={colorClass.replace('bg-', 'text-')} strokeWidth={2.5} />}
-      <h2 className={`text-xs font-extrabold uppercase tracking-[0.12em] ${colorClass.replace('bg-', 'text-')}`}>
-        {label}
-      </h2>
-      <div className={`flex-1 h-px ${dividerClass}`} />
+      {/* Present for every role and entitlement-free: it answers about the
+          caller and nobody else, which is why it sits above the company-wide
+          row rather than inside it. */}
+      <MyCornerPanel
+        me={data?.me}
+        currency={currency}
+        loading={loading}
+        failed={failed}
+      />
+
+      {/* `buildDashboardKpis(undefined)` already produces the full skeleton set
+          and already drops a card for every section that did not arrive, so the
+          row's gating lives there rather than being written a second time
+          here. */}
+      <KpiRow stats={buildDashboardKpis(data)} loading={loading} />
+
+      {(showWorkforce || showAttendance) && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          {showWorkforce && (
+            // Spans the row when the donut beside it was not offered: a panel
+            // holding two thirds of a grid with a hole where the rest should be
+            // reads as something that failed to load rather than as something
+            // this reader was never entitled to.
+            <div
+              className={showAttendance ? 'lg:col-span-8' : 'lg:col-span-12'}
+            >
+              <WorkforceTrendChart
+                trend={data?.workforce?.trend}
+                growthPct={data?.workforce?.growthPct}
+                {...chart}
+              />
+            </div>
+          )}
+          {showAttendance && (
+            <div className={showWorkforce ? 'lg:col-span-4' : 'lg:col-span-12'}>
+              <TodayAttendanceDonut attendance={data?.attendance} {...chart} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {(showWorkforce || showApprovals) && (
+        // Same collapse, expressed in the column count: a survivor on its own
+        // takes the full width instead of leaving half a row empty.
+        <div
+          className={`grid grid-cols-1 gap-6 ${
+            showWorkforce && showApprovals ? 'lg:grid-cols-2' : ''
+          }`}
+        >
+          {showWorkforce && (
+            <HeadcountByDepartmentChart
+              byDepartment={data?.workforce?.byDepartment}
+              {...chart}
+            />
+          )}
+          {showApprovals && (
+            <ApprovalsQueue approvals={data?.approvals} loading={loading} />
+          )}
+        </div>
+      )}
+
+      {showPayroll && (
+        // Both panels belong to the one section, so they arrive and leave
+        // together — there is no half-payroll row to collapse.
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          {/* `payroll.trend` and `payroll.byDepartment` are deliberately the
+              analytics page's shapes, so both charts mount here unchanged. Two
+              shapes for one series is how the same month starts reading
+              differently on two screens. */}
+          <NetSalaryTrendChart
+            trend={data?.payroll?.trend}
+            currency={currency}
+            periodLabel={data?.periodLabel}
+            {...chart}
+          />
+          <DepartmentCostChart
+            departments={data?.payroll?.byDepartment}
+            departmentOptions={departmentOptions}
+            currency={currency}
+            period={payrollPeriod}
+            {...chart}
+          />
+        </div>
+      )}
+
+      {/* Last, and full width: it is the only block on the page that is a list
+          of named people with dates against them, and it is the one the reader
+          leaves the screen to go and act on. */}
+      {showCompliance && (
+        <ExpiringSoonPanel compliance={data?.compliance} loading={loading} />
+      )}
     </div>
   );
 }
 
 export default function DashboardPage() {
-  const [refreshKey, setRefreshKey] = useState(0);
-  const { user } = useAuthStore();
-  const dashboardLayout = useBrandingStore((s) => s.branding.dashboard_layout);
-  const t = useTranslations('dashboardPage');
+  const user = useAuthStore((s) => s.user);
+  const isEmployee = user?.role === 'EMPLOYEE';
 
-  const getLocalDateString = () => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
+  // The heading lives in Topbar; a second one here would give the screen two.
+  usePageHeader(
+    // main's session carries the assembled name, not the parts, so there is
+    // nothing here to join — reading `fullName` off the record is the whole job.
+    `Welcome${user?.employee?.fullName ? `, ${user.employee.fullName}` : ''}`,
+    isEmployee
+      ? 'Your day, your leave, and anything still waiting on a decision.'
+      : 'Here is where your organisation stands today.',
+  );
 
-  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
-
-  const handleRefresh = () => {
-    setRefreshKey(prev => prev + 1);
-  };
-
-  // Employee role gets a personalized dashboard
-  if (user?.role === 'EMPLOYEE') {
-    return (
-      <>
-        <EmployeeDashboard />
-      </>
-    );
-  }
-
-  // Admin / HR_MANAGER / MANAGER get the full management dashboard —
-  // layout is an org-wide setting (Settings → General → Dashboard layout),
-  // persisted in the backend and loaded via the branding store.
-  if (dashboardLayout === 'v1') {
-    return (
-      <div className="space-y-8 pb-6">
-
-        {/* Greeting Header */}
-        <DashboardGreeting selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
-
-        {/* KPI Overview Cards */}
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, delay: 0.06, ease: [0.22, 1, 0.36, 1] }}
-        >
-          <OverviewCards key={`overview-${selectedDate}`} date={selectedDate} />
-        </motion.div>
-
-        {/* SECTION 1: WORKFORCE OVERVIEW */}
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
-          className="space-y-5"
-        >
-          <SectionHeader
-            label={t('personnelOverview')}
-            icon={Users}
-            colorClass="bg-brand-primary"
-            dividerClass="bg-surface-border"
-          />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Suspense fallback={<ChartSkeleton />}>
-              <EmployeeGrowthChart key={`growth-${selectedDate}`} />
-            </Suspense>
-            <Suspense fallback={<ChartSkeleton />}>
-              <DepartmentDistribution key={`department-${selectedDate}`} />
-            </Suspense>
-          </div>
-        </motion.div>
-
-        {/* SECTION 2: ATTENDANCE, ALERTS & PAYROLL */}
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          className="space-y-5"
-        >
-          <SectionHeader
-            label="Operations & Alerts"
-            icon={Clock}
-            colorClass="bg-status-success"
-            dividerClass="bg-surface-border"
-          />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-            {/* Left Column: Absenteeism + Critical Alerts */}
-            <div className="flex flex-col gap-6">
-              {user?.role !== 'MANAGER' && (
-                <div className="shrink-0">
-                  <Suspense fallback={<ChartSkeleton />}>
-                    <AbsenteeismRate key={`absenteeism-${selectedDate}`} />
-                  </Suspense>
-                </div>
-              )}
-              <div className={user?.role === 'MANAGER' ? "w-full lg:col-span-2" : "flex-1"}>
-                <Suspense fallback={<ChartSkeleton />}>
-                  <CriticalAlertsHub key={`alerts-${selectedDate}`} />
-                </Suspense>
-              </div>
-            </div>
-
-            {/* Right Column: Payroll Costs + Visa Expiry */}
-            {user?.role !== 'MANAGER' && (
-              <div className="flex flex-col gap-6 h-full min-h-[400px]">
-                <Suspense fallback={<ChartSkeleton />}>
-                  <PayrollCostByDepartment key={`cost-${selectedDate}`} />
-                </Suspense>
-                <Suspense fallback={<ChartSkeleton />}>
-                  <VisaExpiryWidget key={`visas-${selectedDate}`} />
-                </Suspense>
-              </div>
-            )}
-          </div>
-        </motion.div>
-
-        {/* Recent Activities — Full Width */}
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, delay: 0.22, ease: [0.22, 1, 0.36, 1] }}
-        >
-          <Suspense fallback={<ChartSkeleton />}>
-            <RecentActivities key={`activities-${selectedDate}`} />
-          </Suspense>
-        </motion.div>
-
-        {/* Two-column row: Today Snapshot + Quick Actions (Moved to bottom) */}
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, delay: 0.26, ease: [0.22, 1, 0.36, 1] }}
-          className="grid grid-cols-1 xl:grid-cols-5 gap-6"
-        >
-          {/* Today Snapshot — wider column */}
-          <div className="xl:col-span-3">
-            <Suspense fallback={<ChartSkeleton />}>
-              <TodaySnapshot key={`snapshot-${selectedDate}`} date={selectedDate} />
-            </Suspense>
-          </div>
-
-          {/* Quick Actions — narrower column */}
-          <div className="xl:col-span-2">
-            <QuickActions />
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
-  return <DashboardV2Page />;
+  /**
+   * Two dashboards, not one with the awkward parts hidden.
+   *
+   * The management cards read company-wide endpoints an EMPLOYEE is refused, so
+   * projecting them for that role produces a screen of em dashes explaining
+   * what it cannot show — an admin dashboard apologising rather than the
+   * person's own. What somebody in that seat opens this page to find is their
+   * own day, which is a different set of questions and a different tree.
+   */
+  return isEmployee ? <EmployeeDashboard /> : <ManagementDashboard />;
 }
-
