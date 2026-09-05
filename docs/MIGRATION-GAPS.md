@@ -68,6 +68,14 @@ Deliberately simple: one card, no tabs.
 | `TerminationApprovalPanel`, `TerminationHistory` | The queue approves and rejects correctly today. The panel is presentation over a working flow — though its confirm step now states the consequence in words. |
 | `AutoAbsentTrigger`, `AttendanceLiveFeed`, `AttendanceGauge`, insight charts | The hub already carries the trend, the department ranking and the attention strip. |
 
+## Decided during the work
+
+**`/dashboard/attendance` keeps its existing KPI row and header filters.** It
+already carries both; factoring them into the shared `AttendanceStatsBar` /
+`AttendanceSearchFilterBar` would be a rewrite of a working screen for
+consistency alone, and adding a second pair beside them would simply duplicate
+what is there. The pattern is satisfied; only its packaging differs.
+
 ## The lesson worth keeping
 
 Route parity is not feature parity. Every route existed and every test passed

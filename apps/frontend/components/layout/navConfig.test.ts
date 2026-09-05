@@ -52,7 +52,42 @@ describe('buildMenu', () => {
   });
 
   it('gives an employee only their own screens', () => {
-    expect(labelKeys(buildMenu('EMPLOYEE'))).toEqual(['dashboard', 'payroll', 'settings']);
+    expect(labelKeys(buildMenu('EMPLOYEE'))).toEqual([
+      'dashboard',
+      'approvals',
+      'myTeam',
+      'myTime',
+      'myPay',
+      'myRecords',
+      'settings',
+    ]);
+  });
+
+  it('keeps approvals and my team as top-level employee entries', () => {
+    // Both are shown only to somebody who actually has a queue or a report, and
+    // that check reads the entry's own href. Nested under a group they would be
+    // out of its reach and drawn for everybody.
+    const menu = buildMenu('EMPLOYEE');
+    const approvals = findGroupByModuleKey(menu, 'approvals');
+    const myTeam = findGroupByModuleKey(menu, 'myTeam');
+
+    expect(approvals?.href).toBe('/dashboard/approvals');
+    expect(approvals?.children).toBeUndefined();
+    expect(myTeam?.href).toBe('/dashboard/my-team');
+    expect(myTeam?.children).toBeUndefined();
+  });
+
+  it('puts leave and overtime in one section for admin and HR', () => {
+    for (const role of ['ADMIN', 'HR_MANAGER'] as const) {
+      expect(childKeys(buildMenu(role), 'leaveOvertime')).toEqual([
+        'leaveRequests',
+        'pendingLeaves',
+        'leaveBalances',
+        'overtimeRequests',
+        'logOvertime',
+      ]);
+    }
+    expect(labelKeys(buildMenu('PAYROLL_OFFICER'))).not.toContain('leaveOvertime');
   });
 
   it('drops the system group for everyone but an admin', () => {

@@ -1,7 +1,10 @@
 import {
   Building2,
+  CalendarCheck,
   CalendarRange,
+  ClipboardCheck,
   Clock,
+  FolderOpen,
   LayoutDashboard,
   Settings,
   Users,
@@ -188,6 +191,24 @@ export const adminMenuItems: NavGroup[] = [
     ],
   },
   {
+    // Leave and overtime share one section because they share one queue: both
+    // are a request an employee raises and somebody signs, and both come out of
+    // the same approval chain. Splitting them would give an approver two rails
+    // to check for the same day's decisions.
+    icon: CalendarCheck,
+    labelKey: 'leaveOvertime',
+    href: '/dashboard/leaves',
+    roles: ['ADMIN', 'HR_MANAGER'],
+    permissions: ['VIEW_EMPLOYEES'],
+    children: [
+      { labelKey: 'leaveRequests', href: '/dashboard/leaves' },
+      { labelKey: 'pendingLeaves', href: '/dashboard/leaves/pending' },
+      { labelKey: 'leaveBalances', href: '/dashboard/leaves/balances' },
+      { labelKey: 'overtimeRequests', href: '/dashboard/overtime' },
+      { labelKey: 'logOvertime', href: '/dashboard/overtime/new' },
+    ],
+  },
+  {
     icon: Wallet,
     labelKey: 'payroll',
     href: '/dashboard/payroll',
@@ -287,11 +308,17 @@ export const departmentHeadMenuItems: NavGroup[] = [
 /**
  * Employee self-service.
  *
- * Flat on purpose: an employee's nav is their own record, and there is no
- * aggregate hub behind any of it — the module dashboards read company-wide
- * figures the server does not serve to this role. Their attendance and profile
- * screens are not part of this app yet, so they are not listed; a rail entry
- * for a route nobody has built is a dead end the user finds before we do.
+ * An employee's nav is their own record, so the groups are cut by what the
+ * record is ABOUT — their time, their pay, their file — rather than by which
+ * server module answers. None of them is a hub: the module dashboards
+ * aggregate company-wide figures the server does not serve to this role, so a
+ * group header points straight at the first screen underneath it.
+ *
+ * Approvals and My team stay TOP-LEVEL entries rather than children of a
+ * group. Both are visible only to somebody who actually has a queue or a
+ * report, and that decision is made against the entry's own `href` — demoting
+ * either to a child moves it out of reach of the check and shows it to
+ * everybody.
  */
 export const employeeMenuItems: NavGroup[] = [
   {
@@ -302,11 +329,55 @@ export const employeeMenuItems: NavGroup[] = [
     permissions: ['VIEW_DASHBOARD'],
   },
   {
+    icon: ClipboardCheck,
+    labelKey: 'approvals',
+    href: '/dashboard/approvals',
+    roles: ['EMPLOYEE'],
+    permissions: ['VIEW_DASHBOARD'],
+  },
+  {
+    icon: Users,
+    labelKey: 'myTeam',
+    href: '/dashboard/my-team',
+    roles: ['EMPLOYEE'],
+    permissions: ['VIEW_DASHBOARD'],
+  },
+  {
+    icon: Clock,
+    labelKey: 'myTime',
+    href: '/dashboard/my-attendance',
+    roles: ['EMPLOYEE'],
+    permissions: ['VIEW_OWN_PROFILE'],
+    children: [
+      { labelKey: 'myAttendance', href: '/dashboard/my-attendance' },
+      { labelKey: 'attendanceRequests', href: '/dashboard/attendance/corrections' },
+      { labelKey: 'biometricVerification', href: '/dashboard/face-recognition' },
+      { labelKey: 'myCalendar', href: '/dashboard/my-calendar' },
+      { labelKey: 'myLeaves', href: '/dashboard/my-leaves' },
+      { labelKey: 'myOvertime', href: '/dashboard/my-overtime' },
+    ],
+  },
+  {
     icon: Wallet,
-    labelKey: 'payroll',
+    labelKey: 'myPay',
     href: '/dashboard/payroll',
     roles: ['EMPLOYEE'],
     permissions: ['VIEW_OWN_PAYSLIP'],
+    children: [{ labelKey: 'myPayslips', href: '/dashboard/payroll' }],
+  },
+  {
+    icon: FolderOpen,
+    labelKey: 'myRecords',
+    href: '/dashboard/my-documents',
+    roles: ['EMPLOYEE'],
+    permissions: ['VIEW_OWN_PROFILE'],
+    children: [
+      { labelKey: 'myDocuments', href: '/dashboard/my-documents' },
+      { labelKey: 'myLetters', href: '/dashboard/my-letters' },
+      { labelKey: 'myAssets', href: '/dashboard/my-assets' },
+      { labelKey: 'myTraining', href: '/dashboard/my-training' },
+      { labelKey: 'myGrievances', href: '/dashboard/my-grievances' },
+    ],
   },
   {
     icon: Settings,
