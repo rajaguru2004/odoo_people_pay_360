@@ -515,6 +515,7 @@ function AttendanceLogs() {
                     })}
 
                     <td
+                      data-testid="attendance-summary"
                       className={`sticky end-0 z-10 border-b border-s border-surface-border bg-surface-card px-3 py-2.5 group-hover:bg-surface-border-light/60 ${SUMMARY_COL}`}
                     >
                       <span className="grid grid-cols-2 gap-1">
