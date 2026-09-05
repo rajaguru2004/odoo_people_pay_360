@@ -54,6 +54,13 @@ up() {
   echo "🌱 Seeding..."
   ( cd "$BACKEND" && set -a && . ./.env.test && set +a && npm run prisma:seed )
 
+  # The bootstrap seed makes admin, hr.manager and employee1. global-setup.ts
+  # also signs in as manager@company.com, which only the e2e baseline creates —
+  # and the baseline is layered ON TOP of the bootstrap seed (it fails without
+  # the HRD department and HO branch), so the order here is load-bearing.
+  echo "🌱 Seeding the e2e baseline..."
+  ( cd "$BACKEND" && set -a && . ./.env.test && set +a && npm run prisma:seed:e2e )
+
   echo "✅ e2e database ready on port 8174."
 }
 

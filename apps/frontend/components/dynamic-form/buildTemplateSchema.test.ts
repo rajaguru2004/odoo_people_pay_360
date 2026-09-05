@@ -276,12 +276,14 @@ describe('null is "not provided", for every field type', () => {
       bound('fullName', 'employee'),
       bound('address', 'employee'),
       bound('avatarUrl', 'employee'),
+      bound('attendanceExternalId', 'employee'),
       field({ fieldKey: 'grade' }),
     ]);
     const out = schema.safeParse({
       fullName: 'Ada',
       address: null,
       avatarUrl: null,
+      attendanceExternalId: null,
       customFields: null,
     });
     expect(out.success).toBe(true);
