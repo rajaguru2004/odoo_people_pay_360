@@ -176,6 +176,7 @@ export default function EmployeeDashboard() {
               : 'Balances are not available yet'
           }
           icon={<Sun className="h-5 w-5" aria-hidden />}
+          index={0}
         />
         <StatCard
           label="Waiting on a decision"
@@ -186,6 +187,7 @@ export default function EmployeeDashboard() {
               : 'Leave, overtime and attendance'
           }
           icon={<ClipboardList className="h-5 w-5" aria-hidden />}
+          index={1}
         />
         <StatCard
           label="Next shift"
@@ -196,6 +198,7 @@ export default function EmployeeDashboard() {
               : 'No working day found in the next month'
           }
           icon={<CalendarClock className="h-5 w-5" aria-hidden />}
+          index={2}
         />
       </div>
 

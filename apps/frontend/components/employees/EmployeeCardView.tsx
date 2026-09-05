@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { Building2, CalendarDays, Mail, MapPin } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { Badge } from '@/components/ui/Badge';
 import { formatDateOnly } from '@/utils/formatDate';
 import { fullName, initials } from '@/utils/formatters';
@@ -95,8 +96,15 @@ function EmployeeCard({ employee }: { employee: Employee }) {
 export default function EmployeeCardView({ employees }: { employees: Employee[] }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {employees.map((employee) => (
-        <EmployeeCard key={employee.id} employee={employee} />
+      {employees.map((employee, i) => (
+        <motion.div
+          key={employee.id}
+          initial={{ opacity: 0, y: 3 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.06 * i }}
+        >
+          <EmployeeCard employee={employee} />
+        </motion.div>
       ))}
     </div>
   );

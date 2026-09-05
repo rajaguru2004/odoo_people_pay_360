@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import { PanelHeader, PanelLink } from '@/components/module-landing/primitives';
 import type { OrganizationHubSummary } from '@/types/organizationHub';
 
@@ -70,28 +71,34 @@ export default function OrgStructureBlocks({
           panel, which left a hand-sized hole under the heading beside a donut
           that fills its own. */}
       <div className="mt-3 grid flex-1 grid-cols-3 content-center gap-2">
-        {blocks.map((block) => (
-          <Link
+        {blocks.map((block, i) => (
+          <motion.div
             key={block.key}
-            href={block.href}
-            className="surface-panel-interactive rounded-2xl bg-surface-page/60 px-2 py-4 text-center transition-colors hover:bg-surface-page"
+            initial={{ opacity: 0, scale: 0.99 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5, delay: 0.08 * i }}
           >
-            <div className="text-[26px] font-extrabold leading-none tabular-nums text-text-heading">
-              {loading ? (
-                <span className="inline-block h-6 w-8 animate-pulse rounded bg-surface-border align-middle" />
-              ) : (
-                // An em dash, never 0: "no departments" is a claim, and a read
-                // that failed has not earned the right to make it.
-                (block.value ?? '—')
-              )}
-            </div>
-            <div className="mt-1.5 text-[11px] font-semibold text-text-muted">{block.label}</div>
-            {block.gap && (
-              <div className="mt-1 text-[10px] font-medium leading-tight text-status-warning">
-                {block.gap}
+            <Link
+              href={block.href}
+              className="surface-panel-interactive flex flex-col rounded-2xl bg-surface-page/60 px-2 py-4 text-center transition-colors hover:bg-surface-page"
+            >
+              <div className="text-[26px] font-extrabold leading-none tabular-nums text-text-heading">
+                {loading ? (
+                  <span className="inline-block h-6 w-8 animate-pulse rounded bg-surface-border align-middle" />
+                ) : (
+                  // An em dash, never 0: "no departments" is a claim, and a read
+                  // that failed has not earned the right to make it.
+                  (block.value ?? '—')
+                )}
               </div>
-            )}
-          </Link>
+              <div className="mt-1.5 text-[11px] font-semibold text-text-muted">{block.label}</div>
+              {block.gap && (
+                <div className="mt-1 text-[10px] font-medium leading-tight text-status-warning">
+                  {block.gap}
+                </div>
+              )}
+            </Link>
+          </motion.div>
         ))}
       </div>
     </div>

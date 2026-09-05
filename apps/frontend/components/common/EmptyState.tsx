@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Inbox } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 export function EmptyState({
   title = 'Nothing here yet',
@@ -23,13 +24,23 @@ export function EmptyState({
   const Heading = `h${headingLevel}` as 'h1' | 'h2' | 'h3';
 
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
-      <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-border-light text-text-muted">
+    <motion.div
+      className="flex flex-col items-center justify-center px-6 py-14 text-center"
+      initial={{ opacity: 0, scale: 0.99 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.5 }}
+    >
+      <motion.span
+        className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-border-light text-text-muted"
+        initial={{ scale: 0.95 }}
+        animate={{ scale: 1 }}
+        transition={{ duration: 0.5, delay: 0.08 }}
+      >
         {icon ?? <Inbox className="h-6 w-6" aria-hidden />}
-      </span>
+      </motion.span>
       <Heading className="text-base font-semibold text-text-heading">{title}</Heading>
       {description && <p className="mt-1 max-w-sm text-sm text-text-muted">{description}</p>}
       {action && <div className="mt-4">{action}</div>}
-    </div>
+    </motion.div>
   );
 }

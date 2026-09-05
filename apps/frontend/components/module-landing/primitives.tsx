@@ -289,7 +289,7 @@ export interface MeterRow {
 export function MeterList({ rows, trackHeight = 16 }: { rows: MeterRow[]; trackHeight?: number }) {
   return (
     <div className="space-y-4">
-      {rows.map((row) => {
+      {rows.map((row, i) => {
         const pct = Math.max(0, Math.min(100, row.percent));
         const color = row.color ?? 'var(--color-brand-accent)';
         const heading = (
@@ -318,7 +318,13 @@ export function MeterList({ rows, trackHeight = 16 }: { rows: MeterRow[]; trackH
         );
 
         return (
-          <div key={row.key} className="group/meter space-y-1.5">
+          <motion.div
+            key={row.key}
+            className="group/meter space-y-1.5"
+            initial={{ opacity: 0, x: -2 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.45, delay: 0.06 * i }}
+          >
             {row.href ? (
               <Link
                 href={row.href}
@@ -351,7 +357,7 @@ export function MeterList({ rows, trackHeight = 16 }: { rows: MeterRow[]; trackH
                 <div className="h-full w-1 rounded-md opacity-20" style={{ background: color }} />
               )}
             </div>
-          </div>
+          </motion.div>
         );
       })}
     </div>

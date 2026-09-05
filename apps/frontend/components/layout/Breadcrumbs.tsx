@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { usePageChrome } from '@/hooks/usePageChrome';
 
 /**
@@ -23,14 +24,23 @@ export default function Breadcrumbs() {
   if (!crumbs.length) return null;
 
   return (
-    <nav
+    <motion.nav
       aria-label="Breadcrumb"
       className="mb-4 flex min-w-0 flex-wrap items-center gap-1.5 text-xs"
+      initial={{ opacity: 0, y: -1 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45 }}
     >
       {crumbs.map((crumb, i) => {
         const isLast = i === crumbs.length - 1;
         return (
-          <span key={`${crumb.label}-${i}`} className="flex min-w-0 items-center gap-1.5">
+          <motion.span
+            key={`${crumb.label}-${i}`}
+            className="flex min-w-0 items-center gap-1.5"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.35, delay: 0.08 + 0.06 * i }}
+          >
             {i > 0 && (
               <ChevronRight
                 className="h-3.5 w-3.5 shrink-0 text-text-muted rtl:rotate-180"
@@ -51,9 +61,9 @@ export default function Breadcrumbs() {
                 {crumb.label}
               </span>
             )}
-          </span>
+          </motion.span>
         );
       })}
-    </nav>
+    </motion.nav>
   );
 }

@@ -1,13 +1,16 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import { motion } from 'framer-motion';
 import Breadcrumbs from '@/components/layout/Breadcrumbs';
 import Sidebar from '@/components/layout/Sidebar';
 import Topbar from '@/components/layout/Topbar';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
+import { usePathname } from 'next/navigation';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isReady } = useRequireAuth();
+  const pathname = usePathname();
 
   // Render nothing decisive until the persisted session has been read. Showing
   // the shell first would flash it to a signed-out visitor on their way to
@@ -38,7 +41,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             than in the header bar: it describes the page, not the frame. */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
           <Breadcrumbs />
-          {children}
+          <motion.div
+            key={pathname}
+            initial={{ opacity: 0, y: 2 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            {children}
+          </motion.div>
         </main>
       </div>
     </div>

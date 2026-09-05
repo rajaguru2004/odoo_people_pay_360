@@ -36,17 +36,20 @@ function ManagementDashboard() {
           value={canSeePeople ? headcount : '—'}
           hint={canSeePeople ? 'Across every branch' : 'Not available for your role'}
           icon={<Users className="h-5 w-5" aria-hidden />}
+          index={0}
         />
         <StatCard
           label="Departments"
           value={departmentCount}
           icon={<Building2 className="h-5 w-5" aria-hidden />}
+          index={1}
         />
         <StatCard
           label="Last payroll"
           value={formatCurrency(0, currency)}
           hint="No run has been posted yet"
           icon={<Wallet className="h-5 w-5" aria-hidden />}
+          index={2}
         />
       </div>
 

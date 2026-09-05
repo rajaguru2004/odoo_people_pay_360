@@ -51,9 +51,9 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-surface-page px-4 py-10">
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
+        initial={{ opacity: 0, y: 3 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.25 }}
+        transition={{ duration: 0.5 }}
         className="w-full max-w-md rounded-[var(--radius-card)] border border-surface-border bg-surface-card p-8 shadow-sm"
       >
         <div className="mb-7 flex flex-col items-center text-center">

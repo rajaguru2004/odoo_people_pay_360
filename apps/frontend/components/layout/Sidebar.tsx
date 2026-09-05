@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { ChevronDown } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/utils/cn';
 import { hasAnyPermission } from '@/utils/permissions';
 import { useAuthStore } from '@/store/authStore';
@@ -59,7 +60,7 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {items.map((group) => {
+        {items.map((group, idx) => {
           const Icon = group.icon;
           const isActive = activeKey === group.labelKey;
           const hasChildren = Boolean(group.children?.length);
@@ -72,7 +73,12 @@ export default function Sidebar() {
           const label = t(group.labelKey);
 
           return (
-            <div key={group.labelKey}>
+            <motion.div
+              key={group.labelKey}
+              initial={{ opacity: 0, x: -2 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.5, delay: 0.06 * idx }}
+            >
               <div
                 className={cn(
                   'flex items-center rounded-[var(--radius-button)] text-sm font-medium transition-colors',
@@ -106,38 +112,57 @@ export default function Sidebar() {
                     aria-label={t('toggleSection', { section: label })}
                     className="me-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-button)] hover:bg-sidebar-hover-bg"
                   >
-                    <ChevronDown
-                      className={cn('h-4 w-4 transition-transform', isExpanded && 'rotate-180')}
-                      aria-hidden
-                    />
+                    <motion.span
+                      animate={{ rotate: isExpanded ? 180 : 0 }}
+                      transition={{ duration: 0.4 }}
+                      className="flex"
+                    >
+                      <ChevronDown className="h-4 w-4" aria-hidden />
+                    </motion.span>
                   </button>
                 )}
               </div>
 
-              {hasChildren && isExpanded && (
-                <ul className="mt-1 ms-6 space-y-1 border-s border-sidebar-border ps-2">
-                  {group.children!.map((child) => {
-                    const childActive = location?.child?.href === child.href;
-                    return (
-                      <li key={child.href}>
-                        <Link
-                          href={child.href}
-                          aria-current={childActive ? 'page' : undefined}
-                          className={cn(
-                            'block truncate rounded-[var(--radius-button)] px-3 py-2 text-sm transition-colors',
-                            childActive
-                              ? 'bg-sidebar-sub-active-bg font-semibold text-sidebar-sub-active-text'
-                              : 'text-sidebar-text hover:bg-sidebar-hover-bg hover:text-sidebar-hover-text',
-                          )}
-                        >
-                          {t(child.labelKey)}
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
+              <AnimatePresence initial={false}>
+                {hasChildren && isExpanded && (
+                  <motion.ul
+                    key="submenu"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.45, ease: 'easeInOut' }}
+                    className="overflow-hidden"
+                  >
+                    <div className="mt-1 ms-6 space-y-1 border-s border-sidebar-border ps-2">
+                      {group.children!.map((child, childIdx) => {
+                        const childActive = location?.child?.href === child.href;
+                        return (
+                          <motion.li
+                            key={child.href}
+                            initial={{ opacity: 0, x: -2 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ duration: 0.35, delay: 0.06 * childIdx }}
+                          >
+                            <Link
+                              href={child.href}
+                              aria-current={childActive ? 'page' : undefined}
+                              className={cn(
+                                'block truncate rounded-[var(--radius-button)] px-3 py-2 text-sm transition-colors',
+                                childActive
+                                  ? 'bg-sidebar-sub-active-bg font-semibold text-sidebar-sub-active-text'
+                                  : 'text-sidebar-text hover:bg-sidebar-hover-bg hover:text-sidebar-hover-text',
+                              )}
+                            >
+                              {t(child.labelKey)}
+                            </Link>
+                          </motion.li>
+                        );
+                      })}
+                    </div>
+                  </motion.ul>
+                )}
+              </AnimatePresence>
+            </motion.div>
           );
         })}
       </nav>

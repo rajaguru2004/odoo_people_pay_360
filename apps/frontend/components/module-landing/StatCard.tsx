@@ -185,9 +185,9 @@ export function StatCard({ stat, index = 0 }: { stat: KpiStat; index?: number })
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 3 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: 0.05 + index * 0.05 }}
+      transition={{ duration: 0.5, delay: 0.08 + index * 0.08 }}
       className="h-full"
     >
       {stat.href ? (

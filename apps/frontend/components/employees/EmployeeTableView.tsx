@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { Badge } from '@/components/ui/Badge';
 import { formatDateOnly } from '@/utils/formatDate';
 import { fullName } from '@/utils/formatters';
@@ -118,8 +119,14 @@ export default function EmployeeTableView({
           </tr>
         </thead>
         <tbody className="divide-y divide-surface-border-light">
-          {employees.map((employee) => (
-            <tr key={employee.id} className="hover:bg-surface-border-light/60">
+          {employees.map((employee, i) => (
+            <motion.tr
+              key={employee.id}
+              className="hover:bg-surface-border-light/60"
+              initial={{ opacity: 0, y: 2 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.04 * i }}
+            >
               <td className="px-5 py-3 font-medium text-text-heading">
                 {employee.employeeCode}
               </td>
@@ -142,7 +149,7 @@ export default function EmployeeTableView({
                   {employee.status.replace(/_/g, ' ')}
                 </Badge>
               </td>
-            </tr>
+            </motion.tr>
           ))}
         </tbody>
       </table>

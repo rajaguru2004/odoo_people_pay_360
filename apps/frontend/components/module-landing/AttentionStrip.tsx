@@ -145,9 +145,9 @@ export default function AttentionStrip({
               <motion.div
                 key={item.key}
                 className="h-full min-w-0"
-                initial={{ opacity: 0, y: -4 }}
+                initial={{ opacity: 0, y: -1 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.18, delay: 0.02 * Math.min(i, 6) }}
+                transition={{ duration: 0.4, delay: 0.05 * Math.min(i, 6) }}
               >
                 {item.href ? (
                   <Link href={item.href} className={`${shell} transition-all hover:brightness-95`}>

@@ -104,9 +104,9 @@ export default function ModuleNavTiles({ moduleKey, badges, badgeTones }: Module
         return (
           <motion.div
             key={child.href}
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 3 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25, delay: 0.02 * i }}
+            transition={{ duration: 0.5, delay: 0.06 * i }}
           >
             <Link
               href={child.href}
