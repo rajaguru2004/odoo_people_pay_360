@@ -27,5 +27,15 @@
   "payroll": "Payroll",
   "system": "System",
   "settings": "Settings",
-  "toggleSection": "Toggle {section}"
+  "toggleSection": "Toggle {section}",
+  "leaveOvertime": "Leave & overtime",
+  "leaveRequests": "Leave requests",
+  "pendingLeave": "Pending leave",
+  "leaveBalances": "Leave balances",
+  "leaveTypes": "Leave types",
+  "leaveAllocations": "Leave allocations",
+  "overtimeRequests": "Overtime",
+  "overtimePolicies": "Overtime policies",
+  "myLeave": "My leave",
+  "myOvertime": "My overtime"
 }

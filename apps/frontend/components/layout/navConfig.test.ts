@@ -52,7 +52,33 @@ describe('buildMenu', () => {
   });
 
   it('gives an employee only their own screens', () => {
-    expect(labelKeys(buildMenu('EMPLOYEE'))).toEqual(['dashboard', 'payroll', 'settings']);
+    // Flat, and every entry is a SELF screen. The company-wide leave and
+    // overtime lists answer by name across the workforce and the server refuses
+    // them to this role, so an entry for one would be a link to /403.
+    expect(labelKeys(buildMenu('EMPLOYEE'))).toEqual([
+      'dashboard',
+      'myLeave',
+      'myOvertime',
+      'payroll',
+      'settings',
+    ]);
+  });
+
+  it('gives leave and overtime to the roles the server serves them to', () => {
+    // A payroll officer sees the group for the OVERTIME screens — those hours
+    // are a payroll fact — and none of the leave ones, because a sick note is
+    // not. The group therefore appears for them with a narrowed child list.
+    expect(childKeys(buildMenu('PAYROLL_OFFICER'), 'leaveOvertime')).toEqual([
+      'overtimeRequests',
+    ]);
+    expect(childKeys(buildMenu('HR_MANAGER'), 'leaveOvertime')).toContain(
+      'leaveBalances',
+    );
+    // A department head decides requests; the library and the allocation runs
+    // change what the whole company is entitled to and stay with HR.
+    expect(childKeys(buildMenu('MANAGER'), 'leaveOvertime')).not.toContain(
+      'leaveTypes',
+    );
   });
 
   it('drops the system group for everyone but an admin', () => {

@@ -21,6 +21,12 @@ import { SchedulesModule } from './schedules/schedules.module';
 import { HolidaysModule } from './holidays/holidays.module';
 import { FaceEnrollmentsModule } from './face-enrollments/face-enrollments.module';
 import { SystemSettingsModule } from './system-settings/system-settings.module';
+import { LibraryItemsModule } from './library-items/library-items.module';
+import { LeaveBalancesModule } from './leave-balances/leave-balances.module';
+import { LeaveAttachmentsModule } from './leave-attachments/leave-attachments.module';
+import { LeaveRequestsModule } from './leave-requests/leave-requests.module';
+import { OvertimePolicyModule } from './overtime-policy/overtime-policy.module';
+import { OvertimeModule } from './overtime/overtime.module';
 
 @Module({
   imports: [
@@ -44,6 +50,14 @@ import { SystemSettingsModule } from './system-settings/system-settings.module';
     HolidaysModule,
     FaceEnrollmentsModule,
     SystemSettingsModule,
+    LibraryItemsModule,
+    LeaveBalancesModule,
+    // Listed BEFORE LeaveRequestsModule so `/leave-requests/:id/attachments` is
+    // matched before `/leave-requests/:id` can claim the prefix.
+    LeaveAttachmentsModule,
+    LeaveRequestsModule,
+    OvertimePolicyModule,
+    OvertimeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -27,5 +27,15 @@
   "payroll": "الرواتب",
   "system": "النظام",
   "settings": "الإعدادات",
-  "toggleSection": "إظهار أو إخفاء {section}"
+  "toggleSection": "إظهار أو إخفاء {section}",
+  "leaveOvertime": "الإجازات والعمل الإضافي",
+  "leaveRequests": "طلبات الإجازة",
+  "pendingLeave": "الإجازات المعلقة",
+  "leaveBalances": "أرصدة الإجازات",
+  "leaveTypes": "أنواع الإجازات",
+  "leaveAllocations": "مخصصات الإجازات",
+  "overtimeRequests": "العمل الإضافي",
+  "overtimePolicies": "سياسات العمل الإضافي",
+  "myLeave": "إجازاتي",
+  "myOvertime": "عملي الإضافي"
 }
