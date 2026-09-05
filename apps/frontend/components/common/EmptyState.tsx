@@ -1,35 +1,96 @@
-import type { ReactNode } from 'react';
-import { Inbox } from 'lucide-react';
+'use client';
 
-export function EmptyState({
-  title = 'Nothing here yet',
-  description,
+import type { ComponentType } from 'react';
+import { Inbox, AlertTriangle } from 'lucide-react';
+import { cn } from '@/utils/cn';
+
+/**
+ * What a screen shows when it has nothing to show.
+ *
+ * Fifty-four of these are inlined across thirty-five files, most of them a
+ * single muted sentence — `<div className="py-10 text-center text-text-muted">
+ * There are no leave applications yet</div>` — and several hardcode `slate-400`
+ * rather than a token.
+ *
+ * On a desktop that sentence sits in a table with a header, filters and a
+ * sidebar around it, so the reader has context and a next step. **On a phone
+ * the empty state IS the screen**: 650px of nothing with one grey line in the
+ * middle. So this component insists on the two things that fix that — an icon
+ * that says which kind of nothing, and room for an action that says what to do
+ * about it.
+ *
+ * Two states, one component, because they are the same shape and confusing them
+ * is the actual defect: an `error` rendered as `empty` tells the user they have
+ * no leave requests when in fact the request failed.
+ *
+ *     empty  → "no rows yet"          → the action creates the first one
+ *     error  → "we could not load it" → the action retries
+ *
+ * A third case worth spelling separately at the call site: *filtered* to empty
+ * is not empty. Pass different copy and a "Clear filters" action, or the reader
+ * concludes their records are gone.
+ */
+
+export interface EmptyStateProps {
+  icon?: ComponentType<{ size?: number; className?: string }>;
+  title: string;
+  hint?: string;
+  /** Rendered as an `h-12` primary button — the thumb-sized floor for a phone. */
+  action?: { label: string; onClick: () => void; testId?: string };
+  tone?: 'empty' | 'error';
+  /** Tightens the vertical padding for a small panel. */
+  compact?: boolean;
+  className?: string;
+  testId?: string;
+}
+
+export default function EmptyState({
   icon,
+  title,
+  hint,
   action,
-  headingLevel = 3,
-}: {
-  title?: string;
-  description?: string;
-  icon?: ReactNode;
-  action?: ReactNode;
-  /**
-   * Where this sits in the document outline. The default suits an empty state
-   * inside a card on a page that already has its heading; a screen whose whole
-   * content IS the empty state (the permission-denied route) passes 1, so the
-   * page is not left without a top-level heading.
-   */
-  headingLevel?: 1 | 2 | 3;
-}) {
-  const Heading = `h${headingLevel}` as 'h1' | 'h2' | 'h3';
+  tone = 'empty',
+  compact = false,
+  className,
+  testId,
+}: EmptyStateProps) {
+  const Icon = icon ?? (tone === 'error' ? AlertTriangle : Inbox);
 
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
-      <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-border-light text-text-muted">
-        {icon ?? <Inbox className="h-6 w-6" aria-hidden />}
+    <div
+      data-testid={testId}
+      data-tone={tone}
+      className={cn(
+        'flex flex-col items-center justify-center px-6 text-center',
+        compact ? 'py-8' : 'py-12',
+        className,
+      )}
+    >
+      <span
+        className={cn(
+          'flex h-14 w-14 items-center justify-center rounded-2xl',
+          tone === 'error' ? 'bg-status-error-bg' : 'bg-surface-page',
+        )}
+      >
+        <Icon
+          size={24}
+          className={tone === 'error' ? 'text-status-error' : 'text-text-muted'}
+        />
       </span>
-      <Heading className="text-base font-semibold text-text-heading">{title}</Heading>
-      {description && <p className="mt-1 max-w-sm text-sm text-text-muted">{description}</p>}
-      {action && <div className="mt-4">{action}</div>}
+
+      <p className="mt-4 text-sm font-semibold text-text-heading">{title}</p>
+      {hint && <p className="mt-1 max-w-xs text-xs leading-relaxed text-text-muted">{hint}</p>}
+
+      {action && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          data-testid={action.testId}
+          className="mt-5 inline-flex h-12 touch-manipulation items-center justify-center rounded-[--radius-button] bg-brand-primary px-5 text-sm font-semibold text-text-on-brand transition-transform active:scale-[0.98]"
+        >
+          {action.label}
+        </button>
+      )}
     </div>
   );
 }

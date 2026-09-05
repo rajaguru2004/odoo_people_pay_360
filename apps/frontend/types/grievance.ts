@@ -12,19 +12,10 @@ export interface GrievanceEvent {
   fromStatus: string | null;
   toStatus: string | null;
   note: string | null;
-  /** An internal note is never returned to the complainant. */
+  /** Internal notes are never returned to the complainant. */
   isInternal: boolean;
   createdAt: string;
   actor?: { id: string; email: string } | null;
-}
-
-export interface GrievancePerson {
-  id: string;
-  employeeCode: string;
-  firstName: string;
-  lastName: string;
-  fullName: string;
-  department?: { id: string; name: string } | null;
 }
 
 export interface Grievance {
@@ -34,14 +25,20 @@ export interface Grievance {
   subject: string;
   description: string;
   isConfidential: boolean;
+  /** Whoever this is can never see the grievance, whatever their role. */
   againstEmployeeId: string | null;
   status: GrievanceStatus;
   assignedToId: string | null;
   resolution: string | null;
   resolvedAt: string | null;
   createdAt: string;
-  employee: GrievancePerson;
-  againstEmployee: GrievancePerson | null;
+  employee?: {
+    id: string;
+    employeeCode: string;
+    fullName: string;
+    department?: { name: string } | null;
+  };
+  againstEmployee?: { id: string; employeeCode: string; fullName: string } | null;
   assignedTo?: { id: string; email: string } | null;
   events?: GrievanceEvent[];
 }
@@ -52,11 +49,4 @@ export interface CreateGrievanceData {
   description: string;
   isConfidential?: boolean;
   againstEmployeeId?: string;
-}
-
-export interface GrievanceStats {
-  open: number;
-  byStatus: Record<string, number>;
-  olderThan14Days: number;
-  oldestOpenAt: string | null;
 }

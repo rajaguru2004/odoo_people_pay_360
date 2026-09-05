@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import {
   MeterList,
   PanelHeader,
@@ -7,27 +8,22 @@ import {
   type MeterRow,
 } from '@/components/module-landing/primitives';
 import type { PeopleHubSummary } from '@/types/peopleHub';
-import { DEFAULT_EXPIRY_WINDOW_DAYS, daysUntilDate } from '@/utils/contractExpiry';
+import { daysUntil } from '@/hooks/usePeopleHub';
 
 /**
  * What is about to happen to somebody, soonest first.
  *
- * The bar length is TIME REMAINING, not a quantity — every row here is exactly
- * one person, so a bar drawn from a count would be the same length on all of
- * them. A start date four days out is a different job from one four weeks out,
- * and that is the only difference worth drawing.
+ * The bar length is **time remaining**, not a quantity. A start date four days
+ * out is a different job from one four weeks out, and a bar drawn from a count
+ * would say nothing at all here — every row is exactly one person.
  *
- * Joiners, contract expiries and probation endings share one list because the
- * reader chasing paperwork does not care which table a date came out of; they
- * care which one is closest.
+ * Joiners, contract expiries, probation endings and terminations share one
+ * list because a reader chasing paperwork does not care which table a date came
+ * out of; they care which one is closest.
  */
-type Kind = 'joining' | 'contract' | 'probation';
+const WINDOW_DAYS = 30;
 
-const KIND_LABEL: Record<Kind, string> = {
-  joining: 'Starts',
-  contract: 'Contract ends',
-  probation: 'Probation ends',
-};
+type Kind = 'joining' | 'contract' | 'probation';
 
 const KIND_COLOR: Record<Kind, string> = {
   joining: 'var(--color-brand-primary)',
@@ -46,11 +42,13 @@ export default function LifecyclePanel({
   failed?: boolean;
   limit?: number;
 }) {
+  const t = useTranslations('peopleHub');
+
   type Event = { key: string; name: string; days: number; kind: Kind };
   const events: Event[] = [];
 
   for (const e of summary?.lifecycle.startingSoon ?? []) {
-    const days = daysUntilDate(e.startDate);
+    const days = daysUntil(e.startDate);
     if (days === null) continue;
     events.push({
       key: `join-${e.id}`,
@@ -62,17 +60,17 @@ export default function LifecyclePanel({
   for (const c of summary?.contracts.expiring ?? []) {
     events.push({
       key: `contract-${c.id}`,
-      name: c.fullName ?? 'Unnamed employee',
+      name: c.fullName ?? t('unnamedEmployee'),
       days: c.daysUntilExpiry,
       kind: 'contract',
     });
   }
   for (const p of summary?.lifecycle.probationEndingSoon ?? []) {
-    const days = daysUntilDate(p.endDate);
+    const days = daysUntil(p.endDate);
     if (days === null) continue;
     events.push({
       key: `probation-${p.contractId}`,
-      name: p.fullName ?? 'Unnamed employee',
+      name: p.fullName ?? t('unnamedEmployee'),
       days,
       kind: 'probation',
     });
@@ -82,53 +80,49 @@ export default function LifecyclePanel({
 
   const rows: MeterRow[] = events.slice(0, limit).map((e) => ({
     key: e.key,
-    label: `${KIND_LABEL[e.kind]} · ${e.name}`,
-    // Full track = due now, empty = the far edge of the window. Clamped at both
-    // ends so a date beyond the window still draws something rather than a
-    // negative bar.
-    percent: Math.max(
-      4,
-      Math.min(100, ((DEFAULT_EXPIRY_WINDOW_DAYS - e.days) / DEFAULT_EXPIRY_WINDOW_DAYS) * 100),
-    ),
+    label: `${t(`lifecycleKind.${e.kind}`)} · ${e.name}`,
+    // Full track = due now, empty = the far edge of the window. Clamped, so a
+    // date beyond the window still draws something rather than a negative bar.
+    percent: Math.max(4, Math.min(100, ((WINDOW_DAYS - e.days) / WINDOW_DAYS) * 100)),
     valueLabel:
       e.days < 0
-        ? `${Math.abs(e.days)}d overdue`
+        ? t('overdueDays', { days: Math.abs(e.days) })
         : e.days === 0
-          ? 'Today'
-          : `in ${e.days}d`,
+        ? t('dueToday')
+        : t('inDays', { days: e.days }),
     color: e.days <= 7 ? 'var(--color-status-error)' : KIND_COLOR[e.kind],
   }));
 
   return (
-    <div className="surface-panel flex h-full flex-col rounded-[20px] p-6">
+    <div className="surface-panel p-6 rounded-[20px] flex flex-col h-full">
       <PanelHeader
-        title="Due next"
+        title={t('employeeLifecycle')}
         hint={
           summary && summary.terminations.awaitingApproval > 0
-            ? `Starts, contract ends and probation decisions — plus ${summary.terminations.awaitingApproval} termination${
-                summary.terminations.awaitingApproval === 1 ? '' : 's'
-              } waiting on a decision.`
-            : 'Starts, contract ends and probation decisions in the next 30 days.'
+            ? t('lifecycleHintWithTerminations', {
+                count: summary.terminations.awaitingApproval,
+              })
+            : t('lifecycleHint')
         }
-        action={<PanelLink href="/dashboard/contracts">Contracts</PanelLink>}
+        action={<PanelLink href="/dashboard/contracts">{t('seeContracts')}</PanelLink>}
       />
 
       {loading ? (
         <div className="flex-1 space-y-3 pt-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-8 animate-pulse rounded-lg bg-surface-page" />
+            <div key={i} className="h-8 rounded-lg bg-surface-page animate-pulse" />
           ))}
         </div>
       ) : failed ? (
-        <p className="py-8 text-[13px] text-text-muted">Not available right now.</p>
+        <p className="text-[13px] text-text-muted py-8">{t('chartUnavailable')}</p>
       ) : rows.length === 0 ? (
-        <p className="py-8 text-[13px] text-text-muted">Nothing falls due in the next 30 days.</p>
+        <p className="text-[13px] text-text-muted py-8">{t('nothingDue')}</p>
       ) : (
-        <div className="flex flex-1 flex-col justify-center">
+        <div className="flex-1 flex flex-col justify-center">
           <MeterList rows={rows} trackHeight={12} />
           {events.length > rows.length && (
             <p className="mt-3 text-[11px] text-text-muted">
-              And {events.length - rows.length} more further out.
+              {t('andMoreDue', { count: events.length - rows.length })}
             </p>
           )}
         </div>

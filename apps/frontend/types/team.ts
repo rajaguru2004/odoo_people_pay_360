@@ -1,59 +1,85 @@
-import type { EmployeeRef, NamedRef } from './common';
-
-export type TeamType = 'PERMANENT' | 'PROJECT' | 'CROSS_FUNCTIONAL';
-export type TeamMemberRole = 'LEAD' | 'MEMBER' | 'CONTRIBUTOR';
+export interface Team {
+  id: string;
+  name: string;
+  code: string;
+  description?: string;
+  departmentId: string;
+  teamLeadId?: string;
+  type: 'PERMANENT' | 'PROJECT' | 'CROSS_FUNCTIONAL';
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  department?: {
+    id: string;
+    code: string;
+    name: string;
+  };
+  teamLead?: {
+    id: string;
+    employeeCode: string;
+    fullName: string;
+    position: string;
+    email?: string;
+  };
+  members?: TeamMember[];
+  _count?: {
+    members: number;
+  };
+}
 
 export interface TeamMember {
   id: string;
   teamId: string;
   employeeId: string;
-  role: TeamMemberRole;
-  /** 0–100. A person at 100% on three teams is a staffing problem worth seeing. */
-  allocation: number;
+  role: 'LEAD' | 'SENIOR' | 'MEMBER' | 'CONTRIBUTOR';
+  allocationPercentage: number;
   startDate: string;
-  endDate?: string | null;
+  endDate?: string;
   isActive: boolean;
-  employee?: EmployeeRef & { status?: string };
   createdAt: string;
   updatedAt: string;
+  employee?: {
+    id: string;
+    employeeCode: string;
+    fullName: string;
+    position: string;
+    email: string;
+    avatarUrl?: string;
+  };
+  team?: Team;
 }
 
-export interface Team {
-  id: string;
-  code: string;
+export interface CreateTeamData {
   name: string;
-  description?: string | null;
-  departmentId: string;
-  teamLeadId?: string | null;
-  type: TeamType;
-  isActive: boolean;
-  department?: NamedRef | null;
-  teamLead?: EmployeeRef | null;
-  members?: TeamMember[];
-  _count?: { members: number };
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CreateTeamPayload {
   code: string;
-  name: string;
   description?: string;
   departmentId: string;
   teamLeadId?: string;
-  type?: TeamType;
-  isActive?: boolean;
+  type?: 'PERMANENT' | 'PROJECT' | 'CROSS_FUNCTIONAL';
 }
 
-export type UpdateTeamPayload = Partial<CreateTeamPayload>;
+export interface UpdateTeamData {
+  name?: string;
+  code?: string;
+  description?: string;
+  departmentId?: string;
+  teamLeadId?: string;
+  type?: 'PERMANENT' | 'PROJECT' | 'CROSS_FUNCTIONAL';
+}
 
-export interface AddTeamMemberPayload {
+export interface AddTeamMemberData {
   employeeId: string;
-  role?: TeamMemberRole;
-  allocation?: number;
+  role?: 'LEAD' | 'SENIOR' | 'MEMBER' | 'CONTRIBUTOR';
+  allocationPercentage?: number;
   startDate?: string;
+  endDate?: string;
 }
 
-export type UpdateTeamMemberPayload = Partial<
-  Omit<AddTeamMemberPayload, 'employeeId'>
-> & { endDate?: string | null; isActive?: boolean };
+export interface EmployeeTeam extends Team {
+  membership: {
+    role: string;
+    allocationPercentage: number;
+    startDate: string;
+    endDate?: string;
+  };
+}

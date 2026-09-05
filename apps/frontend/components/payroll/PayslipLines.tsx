@@ -1,85 +1,63 @@
 'use client';
 
-import { formatCurrency } from '@/utils/formatters';
-import type { PayslipLine } from '@/types/payslip';
-
-export type LineTone = 'success' | 'error' | 'brand';
-
-const TONE_CLASS: Record<LineTone, string> = {
-  success: 'text-status-success',
-  error: 'text-status-error',
-  brand: 'text-brand-primary',
-};
+import type { PayslipRow } from '@/utils/payslipLines';
 
 /**
  * The rows of one payslip section.
  *
- * A dumb renderer on purpose: the section decides which lines it holds, what
- * they are called and whether the figures add to the payslip or come off it.
- * That is what lets the same component print earnings, deductions AND the
- * employer contributions that belong to none of the three totals — the caller
- * says so by passing `sign="none"`, and nothing here has to know the rule.
- *
- * Every amount goes through `formatCurrency` with the RUN's currency, never a
- * default: an OMR line rendered at two decimals silently rounds 125.500 to
- * 125.50, and a payslip that rounds does not reconcile against the bank.
+ * Markup is deliberately identical to the hardcoded rows this replaced, so that
+ * with itemisation off the rendered page is unchanged down to the class names.
+ * The only new thing a reader can see is that a row may now be a component name
+ * instead of an aggregate.
  */
-export default function PayslipLines({
-  lines,
+export function PayslipLines({
+  rows,
   tone,
-  currency,
-  sign = 'none',
-  emptyLabel,
+  t,
+  formatCurrency,
 }: {
-  lines: PayslipLine[];
-  tone: LineTone;
-  currency: string;
-  /** What to print in front of the amount. `none` for a figure that is neither. */
-  sign?: 'plus' | 'minus' | 'none';
-  emptyLabel?: string;
+  rows: PayslipRow[];
+  tone: 'success' | 'error' | 'brand';
+  /** next-intl translator, passed in so this stays a dumb renderer. */
+  t: (key: string, values?: Record<string, string | number>) => string;
+  formatCurrency: (n: number) => string;
 }) {
-  if (lines.length === 0) {
-    return emptyLabel ? (
-      <p className="py-2 text-sm text-text-muted">{emptyLabel}</p>
-    ) : null;
-  }
+  const toneClass =
+    tone === 'success'
+      ? 'text-status-success'
+      : tone === 'error'
+        ? 'text-status-error'
+        : 'text-brand-primary';
 
   return (
     <>
-      {lines.map((line) => (
+      {rows.map((row) => (
         <div
-          key={line.id}
-          data-testid={`payslip-row-${line.code}`}
-          data-code={line.code}
-          className="flex items-start justify-between gap-4 border-b border-surface-border-light py-2 last:border-b-0"
+          key={row.key}
+          className="flex justify-between py-2 border-b border-surface-border-light"
+          data-testid={`payslip-row-${row.key}`}
+          data-source={row.source}
         >
-          <span className="min-w-0 text-sm text-text-body">
-            {/* The label is a COLUMN on the line, frozen at issue: a component
-                renamed years later cannot change what this payslip says it
-                paid. The code beside it is what a report joins on. */}
-            {line.label}
-            <span className="block font-mono text-[11px] text-text-muted">{line.code}</span>
+          <span className="text-text-body">
+            {row.labelKey ? t(row.labelKey, row.labelValues) : row.label}
+            {row.sublabelKey && (
+              <span className="block text-xs text-text-muted">
+                {t(row.sublabelKey, row.sublabelValues)}
+              </span>
+            )}
           </span>
           <span
-            className={`shrink-0 text-sm font-semibold tabular-nums ${
-              sign === 'none' ? 'text-text-heading' : TONE_CLASS[tone]
-            }`}
+            className={
+              row.sign === 'none'
+                ? 'font-semibold text-text-heading'
+                : `font-semibold ${toneClass}`
+            }
           >
-            {sign === 'plus' ? '+ ' : sign === 'minus' ? '− ' : ''}
-            {formatCurrency(line.amount, currency)}
+            {row.sign === 'plus' ? '+' : row.sign === 'minus' ? '-' : ''}
+            {formatCurrency(row.amount)}
           </span>
         </div>
       ))}
     </>
   );
-}
-
-/** The lines of one type, in the order the payslip prints them. */
-export function linesOfType(
-  lines: PayslipLine[] | undefined,
-  type: PayslipLine['type'],
-): PayslipLine[] {
-  return (lines ?? [])
-    .filter((line) => line.type === type)
-    .sort((a, b) => a.sequence - b.sequence);
 }

@@ -1,11 +1,11 @@
 'use client';
 
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import DepartmentForm from '@/components/departments/DepartmentForm';
+import ProtectedRoute from '@/components/auth/ProtectedRoute';
 
 export default function NewDepartmentPage() {
   return (
-    <ProtectedRoute requiredRoles={['ADMIN', 'HR_MANAGER']}>
+    <ProtectedRoute requiredPermission="MANAGE_DEPARTMENTS">
       <DepartmentForm mode="create" />
     </ProtectedRoute>
   );

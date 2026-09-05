@@ -1,35 +1,32 @@
 'use client';
 
-import { useCallback, useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 
 /**
- * Reports `false` on the server and for the hydrating render, then settles to
- * the real match.
+ * SSR-safe media-query hook.
  *
- * Reading `window.matchMedia` during the initial render would make SSR output
- * and the client's first render disagree, which React reports as a hydration
- * mismatch and repaints. `useSyncExternalStore` keeps that guarantee — React
- * uses `getServerSnapshot` for the hydration pass and re-renders with the live
- * value immediately afterwards — without the setState-in-an-effect cascade that
- * an effect-based version needs.
+ * Returns `false` on the server and the first client render (so markup matches
+ * and hydration never mismatches), then updates to the real match after mount
+ * and on every viewport change. Prefer pure CSS (`hidden md:block`) for styling;
+ * reach for this only when behavior — not just appearance — must branch on size
+ * (e.g. initial drawer state, rendering a table vs. a card list).
  */
 export function useMediaQuery(query: string): boolean {
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => {
-      const mql = window.matchMedia(query);
-      mql.addEventListener('change', onStoreChange);
-      return () => mql.removeEventListener('change', onStoreChange);
-    },
-    [query],
-  );
+  const [matches, setMatches] = useState(false);
 
-  const getSnapshot = useCallback(() => window.matchMedia(query).matches, [query]);
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(mql.matches);
 
-  // The server has no matchMedia; `false` is also what the hydrating render
-  // must produce so the client's markup matches what was sent.
-  const getServerSnapshot = useCallback(() => false, []);
+    onChange(); // sync once mounted
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, [query]);
 
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  return matches;
 }
 
-export const useIsMobile = () => useMediaQuery('(max-width: 767px)');
+/** True below Tailwind's `md` breakpoint (< 768px) — i.e. phones / small tablets. */
+export function useIsMobile(): boolean {
+  return useMediaQuery('(max-width: 767px)');
+}

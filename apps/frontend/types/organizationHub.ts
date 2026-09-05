@@ -1,6 +1,7 @@
 /**
- * `GET /organization/hub-summary` — the Organisation hub's one payload.
+ * `GET /organization/hub-summary` — the Organization hub's one payload.
  *
+ * Mirrors `apps/backend/src/organization-hub/organization-hub.service.ts`.
  * Every rate is `number | null`, never `0` as a stand-in for "not known": an
  * empty branch and an empty company are different claims, and a card printing
  * 0.0% for both has told the reader something false about one of them.
@@ -64,7 +65,8 @@ export interface OrganizationHubSummary {
     cancelled: number;
     total: number;
   };
-  unassigned: { noBranch: number; noDepartment: number };
+  /** `noBranch` only — `Employee.departmentId` is NOT NULL, so it has no twin. */
+  unassigned: { noBranch: number };
   growth: {
     months: number;
     buckets: OrgGrowthBucket[];

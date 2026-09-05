@@ -1,505 +1,620 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
-import {
-  CalendarDays,
-  CalendarRange,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  Filter,
-  Search,
-  Users,
-} from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, Filter, Search, Users, Clock, Calendar, CalendarDays, PlusCircle } from 'lucide-react';
+import { toast } from 'sonner';
+import employeeService from '@/services/employeeService';
+import calendarService from '@/services/calendarService';
+import systemSettingsService from '@/services/systemSettingsService';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import EmployeeChip from '@/components/schedules/EmployeeChip';
-import ScheduleLegend from '@/components/schedules/ScheduleLegend';
-import { DAY_PALETTE, SHIFT_PALETTE } from '@/components/schedules/shiftStyles';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { useBranches } from '@/hooks/useBranches';
-import { useDepartments } from '@/hooks/useDepartments';
-import { usePageHeader } from '@/hooks/usePageHeader';
-import { useScheduleOverview } from '@/hooks/useSchedules';
 import { apiErrorMessage } from '@/utils/apiError';
+import { useBranchStore } from '@/store/branchStore';
+import { usePageHeader } from '@/hooks/usePageHeader';
 import {
-  dayKeysBetween,
-  isWeeklyOff,
-  monthBounds,
-  monthLabel,
-  roundHours,
-  shiftWindowLabel,
-  todayKey,
-  weekdayLabel,
+    DEFAULT_LUNCH,
+    LunchPolicy,
+    daysOfMonth,
+    monthBounds,
+    parseWeeklyOffDays,
+    roundHours,
+    scheduledOvertimeOf,
+    toCalendarDate,
+    workHoursOf,
 } from '@/utils/scheduleHours';
-import type { BranchCalendar, OverviewShift } from '@/types/schedules';
 
-/** Where a branch with no id of its own is filed. */
-const NO_BRANCH = '';
-
-/**
- * The working schedule: the whole workforce against a month, one row each.
- *
- * A grid rather than a list because the question it answers is spatial — "is
- * Thursday thin", "who is on nights this fortnight" — and a list of five hundred
- * rows sorted by date answers neither.
- *
- * ## What decides a cell
- *
- * Four lanes, resolved in the order a reader resolves a day:
- *
- *   1. a rostered SHIFT, which beats everything: a row exists precisely because
- *      the person deviates from their branch calendar that day;
- *   2. LEAVE already recorded against the day;
- *   3. the branch's HOLIDAY, company-wide or its own;
- *   4. the branch's WEEKLY OFF.
- *
- * Nothing left is a plain working day the branch calendar already describes, and
- * it gets an empty cell — a badge on every ordinary day would be four hundred
- * badges saying nothing.
- *
- * The shading is per BRANCH, never one company calendar. Head Office rests
- * Friday and Saturday, the Sohar plant rests Friday only, and a shared weekend
- * would shade the plant's Saturday as closed and report a coverage hole that
- * does not exist.
- */
-function WorkingSchedule() {
-  const t = useTranslations('schedules');
-  usePageHeader(t('overviewTitle'), t('overviewSubtitle'));
-
-  const [anchor, setAnchor] = useState(todayKey());
-  const [search, setSearch] = useState('');
-  const [departmentId, setDepartmentId] = useState('');
-  const [branchId, setBranchId] = useState('');
-
-  const { start, end } = useMemo(() => monthBounds(anchor), [anchor]);
-  const days = useMemo(() => dayKeysBetween(start, end), [start, end]);
-
-  const overview = useScheduleOverview({
-    startDate: start,
-    endDate: end,
-    branchId: branchId || undefined,
-    departmentId: departmentId || undefined,
-  });
-  const departments = useDepartments();
-  const branches = useBranches();
-
-  const data = overview.data;
-
-  /** Each branch's working week, so a cell can ask about its OWN branch. */
-  const calendarOf = useMemo(() => {
-    const map = new Map<string, BranchCalendar>();
-    for (const calendar of data?.branchCalendars ?? []) {
-      map.set(calendar.branchId ?? NO_BRANCH, calendar);
-    }
-    return map;
-  }, [data]);
-
-  /** `branchId|date` → holiday name, with the branch row winning a shared date. */
-  const holidayFor = useMemo(() => {
-    const companyWide = new Map<string, string>();
-    const perBranch = new Map<string, string>();
-    for (const holiday of data?.holidays ?? []) {
-      if (holiday.branchId) perBranch.set(`${holiday.branchId}|${holiday.date}`, holiday.name);
-      else companyWide.set(holiday.date, holiday.name);
-    }
-    return (employeeBranchId: string | null, date: string): string | null =>
-      (employeeBranchId ? perBranch.get(`${employeeBranchId}|${date}`) : undefined) ??
-      companyWide.get(date) ??
-      null;
-  }, [data]);
-
-  const shiftAt = useMemo(() => {
-    const map = new Map<string, OverviewShift>();
-    for (const shift of data?.schedules ?? []) {
-      map.set(`${shift.employeeId}|${shift.date}`, shift);
-    }
-    return map;
-  }, [data]);
-
-  const leaveAt = useMemo(() => {
-    const set = new Set<string>();
-    for (const leave of data?.leaves ?? []) set.add(`${leave.employeeId}|${leave.date}`);
-    return set;
-  }, [data]);
-
-  /**
-   * Search is client-side; branch and department are not.
-   *
-   * The two filters narrow the QUERY because they change which rows the server
-   * has to read at all, and a department of six should not cost a full-workforce
-   * grid. A name search over the rows already on screen costs one render and
-   * stays responsive between keystrokes.
-   */
-  const employees = useMemo(() => {
-    const rows = data?.employees ?? [];
-    const needle = search.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter(
-      (row) =>
-        row.fullName.toLowerCase().includes(needle) ||
-        row.employeeCode.toLowerCase().includes(needle),
-    );
-  }, [data, search]);
-
-  /** The tiles above the grid, summed from exactly what the grid draws. */
-  const stats = useMemo(() => {
-    const visible = new Set(employees.map((e) => e.id));
-    let shifts = 0;
-    let hours = 0;
-    const rostered = new Set<string>();
-
-    for (const shift of data?.schedules ?? []) {
-      if (!visible.has(shift.employeeId)) continue;
-      shifts += 1;
-      // Rounded per cell, because these tiles are checked against the grid and a
-      // total that sums raw values disagrees with the cells by a few tenths.
-      hours += roundHours(shift.hours);
-      rostered.add(shift.employeeId);
-    }
-
-    const leaveDays = (data?.leaves ?? []).filter((l) => visible.has(l.employeeId)).length;
-
-    return {
-      rostered: rostered.size,
-      shifts,
-      hours: roundHours(hours),
-      leaveDays,
+interface Employee {
+    id: string;
+    employeeCode: string;
+    fullName: string;
+    department: {
+        name: string;
     };
-  }, [data, employees]);
-
-  const error = overview.isError
-    ? apiErrorMessage(overview.error, t('loadFailed'))
-    : null;
-
-  const stepMonth = (direction: -1 | 1) => {
-    const [year, month] = anchor.slice(0, 7).split('-').map(Number);
-    const next = new Date(Date.UTC(year, month - 1 + direction, 1));
-    setAnchor(next.toISOString().slice(0, 10));
-  };
-
-  const today = todayKey();
-
-  return (
-    <div className="space-y-6">
-      {error && (
-        <p
-          role="alert"
-          data-testid="schedule-error"
-          className="rounded-[var(--radius-card)] border border-status-error/30 bg-status-error-bg/40 px-4 py-3 text-sm font-medium text-status-error"
-        >
-          {error}
-        </p>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          {
-            key: 'staff',
-            icon: Users,
-            label: t('statStaff'),
-            value: `${stats.rostered} / ${employees.length}`,
-            testId: 'schedule-stat-staff',
-          },
-          {
-            key: 'shifts',
-            icon: CalendarDays,
-            label: t('statShifts'),
-            value: String(stats.shifts),
-            testId: 'schedule-stat-shifts',
-          },
-          {
-            key: 'hours',
-            icon: Clock,
-            label: t('statHours'),
-            value: `${stats.hours}h`,
-            testId: 'schedule-stat-hours',
-          },
-          {
-            key: 'leave',
-            icon: CalendarRange,
-            label: t('statLeave'),
-            value: String(stats.leaveDays),
-            testId: 'schedule-stat-leave',
-          },
-        ].map((tile) => (
-          <div
-            key={tile.key}
-            className="flex items-center gap-3.5 rounded-[var(--radius-card)] border border-surface-border bg-surface-card p-4"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-button)] bg-brand-primary text-text-on-brand">
-              <tile.icon size={20} aria-hidden />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-xs font-bold tracking-wide text-text-muted uppercase">
-                {tile.label}
-              </span>
-              <span
-                data-testid={tile.testId}
-                className="mt-0.5 block truncate text-xl font-extrabold text-text-heading tabular-nums"
-              >
-                {tile.value}
-              </span>
-            </span>
-          </div>
-        ))}
-      </div>
-
-      <div className="rounded-[var(--radius-card)] border border-surface-border bg-surface-card p-4">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div className="flex flex-1 flex-wrap items-end gap-3">
-            <span className="flex h-10 items-center gap-2 text-sm font-semibold text-text-body">
-              <Filter size={18} className="text-text-muted" aria-hidden />
-              {t('filterBy')}
-            </span>
-            <div className="min-w-[220px]">
-              <Input
-                placeholder={t('searchStaff')}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                icon={<Search size={16} aria-hidden />}
-                data-testid="schedule-search"
-                aria-label={t('searchStaff')}
-              />
-            </div>
-            <div className="min-w-[180px]">
-              <Select
-                value={departmentId}
-                onChange={(e) => setDepartmentId(e.target.value)}
-                data-testid="schedule-department-filter"
-                aria-label={t('allDepartments')}
-              >
-                <option value="">{t('allDepartments')}</option>
-                {(departments.data?.data ?? []).map((department) => (
-                  <option key={department.id} value={department.id}>
-                    {department.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="min-w-[160px]">
-              <Select
-                value={branchId}
-                onChange={(e) => setBranchId(e.target.value)}
-                data-testid="schedule-branch-filter"
-                aria-label={t('allBranches')}
-              >
-                <option value="">{t('allBranches')}</option>
-                {(branches.data?.data ?? []).map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-          <p className="text-sm font-medium text-text-muted">
-            {t('showingStaff', {
-              count: employees.length,
-              total: data?.employees.length ?? 0,
-            })}
-          </p>
-        </div>
-      </div>
-
-      <div className="rounded-[var(--radius-card)] border border-surface-border bg-surface-card p-6">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <Button
-            variant="ghost"
-            onClick={() => stepMonth(-1)}
-            data-testid="schedule-prev-month"
-          >
-            <ChevronLeft size={18} aria-hidden />
-            {t('previousMonth')}
-          </Button>
-          <div className="flex items-center gap-3">
-            <h2
-              data-testid="schedule-current-month"
-              className="text-lg font-bold text-text-heading"
-            >
-              {monthLabel(anchor)}
-            </h2>
-            {anchor.slice(0, 7) !== today.slice(0, 7) && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setAnchor(today)}
-                data-testid="schedule-this-month"
-              >
-                {t('thisMonth')}
-              </Button>
-            )}
-          </div>
-          <Button
-            variant="ghost"
-            onClick={() => stepMonth(1)}
-            data-testid="schedule-next-month"
-          >
-            {t('nextMonth')}
-            <ChevronRight size={18} aria-hidden />
-          </Button>
-        </div>
-
-        {overview.isLoading ? (
-          <div
-            data-testid="schedule-loading"
-            className="flex h-96 items-center justify-center"
-          >
-            <span className="h-8 w-8 animate-spin rounded-full border-4 border-brand-primary border-t-transparent" />
-          </div>
-        ) : employees.length === 0 ? (
-          <div data-testid="schedule-empty" className="py-20 text-center">
-            <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-page">
-              <Users size={32} className="text-text-muted" aria-hidden />
-            </span>
-            <h3 className="mb-1 text-lg font-semibold text-text-heading">
-              {t('noStaff')}
-            </h3>
-            <p className="text-sm text-text-muted">
-              {(data?.employees.length ?? 0) === 0
-                ? t('noStaffEmpty')
-                : t('noStaffHint')}
-            </p>
-          </div>
-        ) : (
-          // The grid scrolls INSIDE its own box. Letting it widen the page puts
-          // the sidebar and the header off screen on a 31-column month.
-          <div className="max-h-[600px] overflow-auto rounded-[var(--radius-card)] border border-surface-border">
-            <table className="w-full border-collapse">
-              <caption className="sr-only">
-                {t('overviewTitle')} — {monthLabel(anchor)}
-              </caption>
-              <thead>
-                <tr>
-                  <th
-                    scope="col"
-                    className="sticky top-0 start-0 z-30 min-w-[220px] border border-surface-border bg-surface-page p-3 text-start text-sm font-semibold text-text-heading"
-                  >
-                    {t('employee')}
-                  </th>
-                  {days.map((day) => (
-                    <th
-                      key={day}
-                      scope="col"
-                      data-testid={`schedule-day-header-${Number(day.slice(8))}`}
-                      data-today={day === today ? 'true' : 'false'}
-                      className={`sticky top-0 z-20 min-w-[58px] border border-surface-border p-2 text-center ${
-                        day === today
-                          ? 'bg-brand-primary-light/30'
-                          : 'bg-surface-page'
-                      }`}
-                    >
-                      <span className="block text-[11px] text-text-muted">
-                        {weekdayLabel(day)}
-                      </span>
-                      <span className="block text-sm font-bold text-text-heading tabular-nums">
-                        {Number(day.slice(8))}
-                      </span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((employee) => {
-                  const calendar = calendarOf.get(employee.branchId ?? NO_BRANCH);
-                  return (
-                    <tr
-                      key={employee.id}
-                      data-testid={`schedule-employee-row-${employee.employeeCode}`}
-                      className="hover:bg-surface-page/50"
-                    >
-                      <th
-                        scope="row"
-                        className="sticky start-0 z-10 border border-surface-border bg-surface-card p-3 text-start font-normal"
-                      >
-                        <EmployeeChip
-                          name={employee.fullName}
-                          code={employee.employeeCode}
-                          detail={employee.departmentName}
-                          avatarUrl={employee.avatarUrl}
-                        />
-                      </th>
-
-                      {days.map((day) => {
-                        const shift = shiftAt.get(`${employee.id}|${day}`);
-                        const onLeave = leaveAt.has(`${employee.id}|${day}`);
-                        const holiday = holidayFor(employee.branchId, day);
-                        const restDay = isWeeklyOff(day, calendar?.weeklyOffDays);
-
-                        const shaded = holiday
-                          ? DAY_PALETTE.holiday.background
-                          : restDay
-                            ? DAY_PALETTE.weeklyOff.background
-                            : undefined;
-
-                        return (
-                          <td
-                            key={day}
-                            data-testid={`schedule-cell-${employee.employeeCode}-${day}`}
-                            data-shift-type={shift?.shiftType ?? ''}
-                            data-holiday={holiday ? 'true' : 'false'}
-                            data-weekly-off={restDay ? 'true' : 'false'}
-                            title={holiday ?? undefined}
-                            className="border border-surface-border p-1 text-center align-middle"
-                            style={shaded ? { background: shaded } : undefined}
-                          >
-                            {shift ? (
-                              <span
-                                data-testid="schedule-shift-cell"
-                                title={`${shiftWindowLabel(shift)} · ${roundHours(shift.hours)}h${
-                                  shift.notes ? ` — ${shift.notes}` : ''
-                                }`}
-                                className="flex h-8 w-full flex-col items-center justify-center rounded-[var(--radius-button)] border text-[11px] leading-tight font-bold"
-                                style={{
-                                  background: SHIFT_PALETTE[shift.shiftType].background,
-                                  borderColor: SHIFT_PALETTE[shift.shiftType].border,
-                                  color: SHIFT_PALETTE[shift.shiftType].text,
-                                }}
-                              >
-                                {/* A day rostered OFF for one person carries no
-                                    hours — printing "0h" reads as a data error
-                                    rather than as a deliberate day off. */}
-                                {shift.isWorkDay ? `${roundHours(shift.hours)}h` : '—'}
-                              </span>
-                            ) : onLeave ? (
-                              <span
-                                data-testid="schedule-leave-cell"
-                                className="flex h-8 w-full items-center justify-center rounded-[var(--radius-button)] border text-[10px] font-semibold"
-                                style={{
-                                  background: DAY_PALETTE.leave.background,
-                                  borderColor: DAY_PALETTE.leave.border,
-                                  color: DAY_PALETTE.leave.text,
-                                }}
-                              >
-                                {t('legendLeave')}
-                              </span>
-                            ) : null}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <ScheduleLegend />
-    </div>
-  );
 }
 
-export default function WorkingSchedulePage() {
-  return (
-    <ProtectedRoute
-      requiredRoles={['ADMIN', 'HR_MANAGER', 'MANAGER']}
-      requiredPermission="VIEW_SCHEDULES"
-    >
-      <WorkingSchedule />
-    </ProtectedRoute>
-  );
+export default function SchedulesOverviewPage() {
+    // The one heading for this route, rendered by TopHeader.
+    usePageHeader('Overview Calendar', 'Monitor shift schedules, leaves, and overtime company-wide');
+
+    const selectedBranchId = useBranchStore((s) => s.selectedBranchId);
+    const [loading, setLoading] = useState(true);
+    const [employees, setEmployees] = useState<Employee[]>([]);
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const [selectedDepartment, setSelectedDepartment] = useState<string>('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [overviewData, setOverviewData] = useState<{
+        schedules: any[];
+        leaves: any[];
+        overtimes: any[];
+        holidays: { id: string; date: string; name: string }[];
+        weeklyOffDays: number[] | null;
+    }>({ schedules: [], leaves: [], overtimes: [], holidays: [], weeklyOffDays: null });
+    const [loadingData, setLoadingData] = useState(false);
+    // The COMPANY default, used only until the endpoint answers — see
+    // `weeklyHolidays` below, which prefers the branch's own week.
+    const [companyWeeklyOff, setCompanyWeeklyOff] = useState<number[]>([0]);
+    const [lunchPolicy, setLunchPolicy] = useState<LunchPolicy>(DEFAULT_LUNCH);
+    const [companyTZ, setCompanyTZ] = useState('Asia/Kolkata');
+    const [standardHoursPerDay, setStandardHoursPerDay] = useState(8);
+    // A failed load and an empty month look identical without this: every fetch
+    // used to swallow its error into console.error and fall back to [].
+    //
+    // TWO slots, not one. The screen runs two independent loaders — the staff
+    // list and the month's schedule — and a single shared slot makes the banner
+    // depend on which of them resolves LAST: a failed schedule load followed by
+    // a successful employee load clears the error and the month goes back to
+    // looking merely quiet. Each loader now owns its own message and the banner
+    // shows whichever is set.
+    const [overviewError, setOverviewError] = useState<string | null>(null);
+    const [employeesError, setEmployeesError] = useState<string | null>(null);
+    const error = overviewError ?? employeesError;
+
+    useEffect(() => {
+        fetchEmployees();
+        fetchSettings();
+    }, []);
+
+    const fetchSettings = async () => {
+        try {
+            const res = await systemSettingsService.getAll();
+            if (res?.success) {
+                const val = (key: string, fallback: string) =>
+                    res.data.find(s => s.key === key)?.value || fallback;
+                setCompanyWeeklyOff(parseWeeklyOffDays(val('calendar_weekly_holidays', '0')));
+                setCompanyTZ(val('system_timezone', 'Asia/Kolkata'));
+                const stdHours = parseFloat(val('payroll_work_hours_per_day', '8'));
+                setStandardHoursPerDay(isNaN(stdHours) || stdHours <= 0 ? 8 : stdHours);
+                const [lh, lm] = val('lunch_break_start', '13:00').split(':').map(Number);
+                const duration = parseInt(val('lunch_break_duration_minutes', '60'), 10);
+                setLunchPolicy({
+                    startMinutes: (isNaN(lh) ? 13 : lh) * 60 + (isNaN(lm) ? 0 : lm),
+                    durationMinutes: isNaN(duration) ? 60 : Math.max(0, duration),
+                });
+            }
+        } catch (err) {
+            console.error('Failed to load system settings:', err);
+        }
+    };
+
+    /**
+     * Which days this BRANCH rests, not which days the company rests.
+     *
+     * `/calendar/overview` resolves `Branch.weeklyOffDays` for the branch in
+     * context and falls back to the global setting itself, so its answer is
+     * always the more specific one. The screen used to read
+     * `calendar_weekly_holidays` directly and had no way to know better — an
+     * Oman branch resting Fri/Sat was shaded Sat/Sun, and no client-side fix was
+     * possible while the endpoint declined to say.
+     *
+     * The company default remains the fallback for the moment before the first
+     * response lands, so the grid never renders a week with no rest day at all.
+     */
+    const weeklyHolidays = overviewData.weeklyOffDays ?? companyWeeklyOff;
+
+    /** `YYYY-MM-DD` → holiday name, for the shaded columns and their tooltips. */
+    const holidayByDate = useMemo(() => {
+        const map = new Map<string, string>();
+        overviewData.holidays?.forEach((h) => map.set(h.date, h.name));
+        return map;
+    }, [overviewData.holidays]);
+
+    useEffect(() => {
+        fetchOverviewData();
+        // `selectedBranchId` is a dependency because the WORK WEEK and the
+        // holidays are per branch: switching the picker has to re-ask, or the
+        // grid keeps shading the previous branch's weekend.
+    }, [currentDate, selectedBranchId]);
+
+    const fetchOverviewData = async () => {
+        try {
+            setLoadingData(true);
+            setOverviewError(null);
+            // `monthBounds` reads the calendar parts directly. The previous
+            // `toISOString().split('T')[0]` converted a LOCAL midnight to UTC,
+            // so at any positive offset the range slid back a day and the last
+            // day of the month was rendered by the grid but never requested —
+            // a shift on the 31st was simply invisible.
+            const { start, end } = monthBounds(currentDate);
+
+            const response = await calendarService.getOverviewCalendar(start, end);
+
+            if (response && response.data) {
+                setOverviewData({
+                    schedules: response.data.schedules ?? [],
+                    leaves: response.data.leaves ?? [],
+                    overtimes: response.data.overtimes ?? [],
+                    holidays: response.data.holidays ?? [],
+                    // `null` rather than `[]` when absent: an empty array is a
+                    // legitimate answer meaning "this branch rests no days", and
+                    // it must not be confused with "the server did not say".
+                    weeklyOffDays: Array.isArray(response.data.weeklyOffDays)
+                        ? response.data.weeklyOffDays
+                        : null,
+                });
+            }
+        } catch (err) {
+            console.error('Error fetching calendar overview data:', err);
+            setOverviewError(apiErrorMessage(err, 'Could not load the schedule for this month.'));
+            setOverviewData({ schedules: [], leaves: [], overtimes: [], holidays: [], weeklyOffDays: null });
+        } finally {
+            setLoadingData(false);
+        }
+    };
+
+    const fetchEmployees = async () => {
+        try {
+            setLoading(true);
+            setEmployeesError(null);
+            const response = await employeeService.getAll({ status: 'ACTIVE', limit: 500 });
+
+            if (!response || !response.data) {
+                console.error('Invalid response from API:', response);
+                setEmployees([]);
+                setEmployeesError('The staff list came back in a shape this screen cannot read.');
+                return;
+            }
+
+            setEmployees(response.data || []);
+        } catch (err: any) {
+            console.error('Error loading employee list:', err);
+            setEmployees([]);
+            setEmployeesError(apiErrorMessage(err, 'Could not load the staff list.'));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const getDaysInMonth = () => daysOfMonth(currentDate);
+
+    const previousMonth = () => {
+        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+    };
+
+    const nextMonth = () => {
+        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+    };
+
+    const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    const filteredEmployees = employees.filter(emp => {
+        const matchesSearch = emp.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            emp.employeeCode.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesDepartment = !selectedDepartment || emp.department.name === selectedDepartment;
+        return matchesSearch && matchesDepartment;
+    });
+
+    const departments = [...new Set(employees.map(emp => emp.department.name))].sort();
+
+    // The hours arithmetic lives in `utils/scheduleHours.ts`. It used to be
+    // copied here and again in the shift-management screen, with both copies
+    // claiming to "mirror the backend rule" — two copies of a rule that has to
+    // agree with a third implementation.
+    const hoursOpts = { lunch: lunchPolicy, timeZone: companyTZ };
+
+    /** A `WorkSchedule` row from `/calendar/overview`, in the helper's shape. */
+    const asShift = (schedule: any) => ({
+        isWorkDay: schedule.isWorkDay,
+        shiftType: schedule.shiftType,
+        requiredHours: schedule.requiredHours,
+        start: schedule.startTime,
+        end: schedule.endTime,
+    });
+
+    // Rounded per cell, because the stat tiles sum these and a user checks the
+    // tiles against the grid. See the note in `workHoursOf`.
+    const getWorkHours = (schedule: any) => roundHours(workHoursOf(asShift(schedule), hoursOpts));
+
+    // Overtime implied by a scheduled shift: any worked hours beyond the
+    // standard working hours per day count as overtime for that shift.
+    const getScheduledOvertime = (schedule: any) =>
+        roundHours(scheduledOvertimeOf(asShift(schedule), { ...hoursOpts, standardHoursPerDay }));
+
+    const formatTime12h = (timeStr: string) => {
+        if (!timeStr) return '';
+        const date = new Date(timeStr);
+        return date.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        });
+    };
+
+    const getAvatarGradient = (name: string) => {
+        const colors = [
+            'from-brand-primary to-indigo-600',
+            'from-purple-500 to-indigo-600',
+            'from-teal-500 to-emerald-600',
+            'from-brand-accent to-amber-600',
+            'from-rose-500 to-pink-600',
+            'from-sky-500 to-brand-primary'
+        ];
+        let hash = 0;
+        for (let i = 0; i < name.length; i++) {
+            hash = name.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const index = Math.abs(hash) % colors.length;
+        return colors[index];
+    };
+
+    const getOverviewStats = () => {
+        let totalShifts = 0;
+        let totalHours = 0;
+        let totalLeaves = 0;
+        let totalOvertime = 0;
+        const scheduledStaffSet = new Set<string>();
+
+        filteredEmployees.forEach(emp => {
+            getDaysInMonth().forEach(date => {
+                const dateStr = toCalendarDate(date);
+                
+                const leave = overviewData.leaves.find(l => 
+                    l.employeeId === emp.id && dateStr >= l.startDate && dateStr <= l.endDate
+                );
+                if (leave) {
+                    totalLeaves++;
+                    return;
+                }
+
+                const schedule = overviewData.schedules.find(s => 
+                    s.employeeId === emp.id && s.date === dateStr
+                );
+                if (schedule) {
+                    totalShifts++;
+                    totalHours += getWorkHours(schedule);
+                    totalOvertime += getScheduledOvertime(schedule);
+                    scheduledStaffSet.add(emp.id);
+                } else {
+                    // Standalone approved overtime (no scheduled shift that day)
+                    const overtime = overviewData.overtimes.find(o =>
+                        o.employeeId === emp.id && o.date === dateStr
+                    );
+                    if (overtime) {
+                        totalOvertime += overtime.hours;
+                    }
+                }
+            });
+        });
+
+        return {
+            totalStaffScheduled: scheduledStaffSet.size,
+            totalShifts,
+            totalHours: Math.round(totalHours * 10) / 10,
+            totalLeaves,
+            totalOvertime: Math.round(totalOvertime * 10) / 10
+        };
+    };
+
+    const stats = getOverviewStats();
+
+    return (
+        <ProtectedRoute requiredPermission="VIEW_ALL_SCHEDULES">
+            <>
+                <div className="space-y-6">
+                    {/* A refused or failed load must not read as a quiet month. */}
+                    {error && (
+                        <div
+                            data-testid="schedule-error"
+                            role="alert"
+                            className="bg-status-error-bg/40 border border-status-error/30 text-status-error rounded-[--radius-card] px-4 py-3 text-sm font-medium"
+                        >
+                            {error}
+                        </div>
+                    )}
+
+                    {/* Company Stats Summary */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="bg-brand-primary-light/10 border border-brand-primary-light/30 rounded-[--radius-card] p-4 flex items-center gap-3.5 shadow-2xs hover:shadow-xs transition-all">
+                            <div className="w-10 h-10 rounded-[--radius-button] bg-brand-primary text-text-on-brand flex items-center justify-center shadow-xs shrink-0">
+                                <Users size={20} />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-xs text-text-muted font-bold tracking-wide uppercase">Scheduled Staff</p>
+                                <p data-testid="schedule-stat-staff" className="text-xl font-extrabold text-text-heading mt-0.5 truncate">{stats.totalStaffScheduled} / {filteredEmployees.length}</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-status-success-bg/30 border border-status-success/30 rounded-[--radius-card] p-4 flex items-center gap-3.5 shadow-2xs hover:shadow-xs transition-all">
+                            <div className="w-10 h-10 rounded-[--radius-button] bg-status-success text-white flex items-center justify-center shadow-xs shrink-0">
+                                <Clock size={20} />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-xs text-text-muted font-bold tracking-wide uppercase">Scheduled Hours</p>
+                                <p data-testid="schedule-stat-hours" className="text-xl font-extrabold text-text-heading mt-0.5 truncate">{stats.totalHours} hrs</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-status-warning-bg/30 border border-status-warning/30 rounded-[--radius-card] p-4 flex items-center gap-3.5 shadow-2xs hover:shadow-xs transition-all">
+                            <div className="w-10 h-10 rounded-[--radius-button] bg-brand-accent text-text-on-accent flex items-center justify-center shadow-xs shrink-0">
+                                <Calendar size={20} />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-xs text-text-muted font-bold tracking-wide uppercase">Planned Leaves</p>
+                                <p data-testid="schedule-stat-leaves" className="text-xl font-extrabold text-text-heading mt-0.5 truncate">{stats.totalLeaves} days</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-status-info-bg/30 border border-status-info/30 rounded-[--radius-card] p-4 flex items-center gap-3.5 shadow-2xs hover:shadow-xs transition-all">
+                            <div className="w-10 h-10 rounded-[--radius-button] bg-status-info text-white flex items-center justify-center shadow-xs shrink-0">
+                                <PlusCircle size={20} />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-xs text-text-muted font-bold tracking-wide uppercase">Overtime Logs</p>
+                                <p data-testid="schedule-stat-overtime" className="text-xl font-extrabold text-text-heading mt-0.5 truncate">{stats.totalOvertime} hrs</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Filters */}
+                    <div className="bg-surface-card rounded-[--radius-card] border border-surface-border p-4 shadow-xs">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div className="flex flex-wrap items-center gap-3 flex-1">
+                                <div className="flex items-center gap-2 text-text-body font-semibold text-sm">
+                                    <Filter size={18} className="text-text-muted" />
+                                    <span>Filter By:</span>
+                                </div>
+                                
+                                {/* Search Employee */}
+                                <div className="relative min-w-[240px]">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
+                                    <input
+                                        data-testid="schedule-search"
+                                        type="text"
+                                        placeholder="Search by name, code..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full pl-9 pr-4 py-2 border border-surface-border bg-surface-card text-text-body rounded-[--radius-input] focus:ring-2 focus:ring-brand-primary/20 focus:border-transparent text-sm"
+                                    />
+                                </div>
+
+                                {/* Department Filter */}
+                                <select
+                                    data-testid="schedule-department-filter"
+                                    value={selectedDepartment}
+                                    onChange={(e) => setSelectedDepartment(e.target.value)}
+                                    className="px-3 py-2 border border-surface-border rounded-[--radius-input] text-text-body focus:ring-2 focus:ring-brand-primary/20 focus:border-transparent text-sm bg-surface-card"
+                                >
+                                    <option value="">All departments</option>
+                                    {departments.map((dept) => (
+                                        <option key={dept} value={dept}>
+                                            {dept}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="text-sm font-medium text-text-muted">
+                                Showing <span data-testid="schedule-result-count" className="text-text-heading font-bold">{filteredEmployees.length}</span> staff members
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Calendar */}
+                    <div className="bg-surface-card rounded-[--radius-card] border border-surface-border p-6">
+                        {/* Month Navigation */}
+                        <div className="flex items-center justify-between mb-6">
+                            <button
+                                data-testid="schedule-prev-month"
+                                onClick={previousMonth}
+                                className="p-2 hover:bg-surface-page rounded-[--radius-button] text-text-body transition-colors flex items-center gap-2 cursor-pointer"
+                            >
+                                <ChevronLeft size={20} />
+                                Last month
+                            </button>
+                            <h2 data-testid="schedule-current-month" className="text-xl font-bold text-text-heading">
+                                {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
+                            </h2>
+                            <button
+                                data-testid="schedule-next-month"
+                                onClick={nextMonth}
+                                className="p-2 hover:bg-surface-page rounded-[--radius-button] text-text-body transition-colors flex items-center gap-2 cursor-pointer"
+                            >
+                                Next month
+                                <ChevronRight size={20} />
+                            </button>
+                        </div>
+
+                        {loading || loadingData ? (
+                            <div data-testid="schedule-loading" className="h-96 flex items-center justify-center">
+                                <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin"></div>
+                            </div>
+                        ) : filteredEmployees.length === 0 ? (
+                            <div data-testid="schedule-empty" className="py-20 text-center">
+                                <div className="w-16 h-16 rounded-full bg-surface-page flex items-center justify-center mx-auto mb-4">
+                                    <Users size={32} className="text-text-muted" />
+                                </div>
+                                <h3 className="text-lg font-semibold text-text-heading mb-1">No staff to show</h3>
+                                <p className="text-text-muted text-sm">
+                                    {employees.length === 0
+                                        ? 'No active staff are visible in the selected branch.'
+                                        : 'No one matches the current search and department filter.'}
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="overflow-auto max-h-[600px] border border-surface-border rounded-[--radius-card] shadow-xs">
+                                <table className="w-full border-collapse">
+                                    <thead>
+                                        <tr className="bg-surface-page">
+                                            <th className="border border-surface-border p-3 text-left font-semibold sticky top-0 left-0 bg-surface-page text-text-heading z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                                Employee
+                                            </th>
+                                            {getDaysInMonth().map((date) => {
+                                                const dayOfWeek = date.getDay();
+                                                const isWeekend = weeklyHolidays.includes(dayOfWeek);
+                                                const holidayName = holidayByDate.get(toCalendarDate(date));
+                                                return (
+                                                    <th
+                                                        key={toCalendarDate(date)}
+                                                        data-testid={`schedule-day-header-${date.getDate()}`}
+                                                        data-weekend={isWeekend ? 'true' : 'false'}
+                                                        data-holiday={holidayName ? 'true' : 'false'}
+                                                        title={holidayName ?? undefined}
+                                                        className={`border border-surface-border p-2 text-center min-w-[60px] sticky top-0 z-20 ${
+                                                            holidayName
+                                                                ? 'bg-status-success-bg text-text-body'
+                                                                : isWeekend
+                                                                    ? 'bg-surface-page text-text-body'
+                                                                    : 'bg-surface-page'
+                                                        }`}
+                                                    >
+                                                        <div className="text-xs text-text-muted">
+                                                            {dayNames[date.getDay()]}
+                                                        </div>
+                                                        <div className="font-bold text-sm text-text-heading">{date.getDate()}</div>
+                                                    </th>
+                                                );
+                                            })}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredEmployees.map((emp) => (
+                                            <tr
+                                                key={emp.id}
+                                                data-testid={`schedule-employee-row-${emp.employeeCode}`}
+                                                className="hover:bg-surface-page/50"
+                                            >
+                                                <td className="border border-surface-border p-3 sticky left-0 bg-surface-card z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
+                                                    <div className="flex items-center gap-2.5 min-w-[200px]">
+                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-xs text-white shrink-0 bg-gradient-to-r ${getAvatarGradient(emp.fullName)}`}>
+                                                            {emp.fullName.substring(0, 2).toUpperCase()}
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <p className="font-bold text-sm text-text-heading truncate">{emp.fullName}</p>
+                                                            <p className="text-[11px] text-text-muted font-semibold mt-0.5">{emp.employeeCode}</p>
+                                                            <p className="text-[10px] text-text-muted font-medium truncate">{emp.department.name}</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                {getDaysInMonth().map((date) => {
+                                                    const dayOfWeek = date.getDay();
+                                                    const isWeekend = weeklyHolidays.includes(dayOfWeek);
+
+                                                     const dateStr = toCalendarDate(date);
+                                                    const holidayName = holidayByDate.get(dateStr);
+                                                    
+                                                    const leave = overviewData.leaves.find(l => 
+                                                        l.employeeId === emp.id && dateStr >= l.startDate && dateStr <= l.endDate
+                                                    );
+                                                    const overtime = overviewData.overtimes.find(o => 
+                                                        o.employeeId === emp.id && o.date === dateStr
+                                                    );
+                                                    const schedule = overviewData.schedules.find(s => 
+                                                        s.employeeId === emp.id && s.date === dateStr
+                                                    );
+
+                                                    return (
+                                                        <td
+                                                            key={toCalendarDate(date)}
+                                                            data-testid={`schedule-cell-${emp.employeeCode}-${dateStr}`}
+                                                            data-weekend={isWeekend ? 'true' : 'false'}
+                                                            data-holiday={holidayName ? 'true' : 'false'}
+                                                            title={holidayName ?? undefined}
+                                                            className={`border border-surface-border p-1 text-center ${
+                                                                holidayName
+                                                                    ? 'bg-status-success-bg/50'
+                                                                    : isWeekend
+                                                                        ? 'bg-surface-page/30'
+                                                                        : ''
+                                                            }`}
+                                                        >
+                                                            {leave ? (
+                                                                <div data-testid="schedule-leave-cell" className="w-full h-8 bg-status-warning-bg/40 border border-status-warning/20 rounded-[--radius-button] flex items-center justify-center text-[10px] text-status-warning font-semibold" title={leave.leaveType}>
+                                                                    Leave
+                                                                </div>
+                                                            ) : schedule ? (
+                                                                <button
+                                                                    type="button"
+                                                                    data-testid="schedule-shift-cell"
+                                                                    data-shift-type={schedule.shiftType}
+                                                                    onClick={() => {
+                                                                        const shiftName = schedule.shiftType.charAt(0) + schedule.shiftType.slice(1).toLowerCase();
+                                                                        toast.info(
+                                                                            `${shiftName} Shift`,
+                                                                            {
+                                                                                description: `Scheduled: ${formatTime12h(schedule.startTime)} - ${formatTime12h(schedule.endTime)}`,
+                                                                                duration: 4000,
+                                                                            }
+                                                                        );
+                                                                    }}
+                                                                    className="w-full h-8 bg-brand-primary-light/40 hover:bg-brand-primary-light/60 border border-brand-primary-light rounded-[--radius-button] flex flex-col items-center justify-center leading-tight text-xs text-brand-primary-dark font-bold animate-fadeIn transition-colors cursor-pointer"
+                                                                    title={`${schedule.shiftType.charAt(0) + schedule.shiftType.slice(1).toLowerCase()} shift: ${formatTime12h(schedule.startTime)} - ${formatTime12h(schedule.endTime)}${getScheduledOvertime(schedule) > 0 ? ` (incl. ${getScheduledOvertime(schedule)}h OT)` : ''}`}
+                                                                >
+                                                                    <span>{getWorkHours(schedule)}h</span>
+                                                                    {getScheduledOvertime(schedule) > 0 && (
+                                                                        <span className="text-[9px] text-status-info font-semibold">+{getScheduledOvertime(schedule)}h OT</span>
+                                                                    )}
+                                                                </button>
+                                                            ) : overtime ? (
+                                                                <div data-testid="schedule-overtime-cell" className="w-full h-8 bg-status-info-bg/40 border border-status-info/20 rounded-[--radius-button] flex items-center justify-center text-[10px] text-status-info font-semibold">
+                                                                    {overtime.hours}h OT
+                                                                </div>
+                                                            ) : null}
+                                                        </td>
+                                                    );
+                                                })}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Legend */}
+                    <div className="bg-surface-card rounded-[--radius-card] border border-surface-border p-4">
+                        <h3 className="font-semibold text-text-heading mb-3">Note:</h3>
+                        <div className="flex items-center gap-6 flex-wrap">
+                            <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 bg-brand-primary-light rounded border border-brand-primary-light"></div>
+                                <span className="text-sm text-text-body">Work</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 bg-status-warning-bg/40 rounded border border-status-warning/20"></div>
+                                <span className="text-sm text-text-body">On leave</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 bg-status-info-bg/40 rounded border border-status-info/20"></div>
+                                <span className="text-sm text-text-body">Overtime</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 bg-surface-page rounded border border-surface-border"></div>
+                                {/* "Weekly off" rather than "Weekend": the shaded
+                                    days come from this BRANCH's work week, and an
+                                    Oman branch's rest days are Friday and
+                                    Saturday. Calling them the weekend states
+                                    something the business did not say. */}
+                                <span className="text-sm text-text-body">Weekly off</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 bg-status-success-bg rounded border border-status-success/20"></div>
+                                <span className="text-sm text-text-body">Holiday</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </>
+        </ProtectedRoute>
+    );
 }

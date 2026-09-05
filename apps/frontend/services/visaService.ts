@@ -1,66 +1,98 @@
-import axiosInstance from '@/lib/axios';
-import { ApiResponse } from '@/types/api';
-import type {
-  CreateLegalDocumentPayload,
-  LegalDocument,
-  LegalDocumentListQuery,
-  LegalDocumentSummary,
-  RenewLegalDocumentPayload,
-  UpdateLegalDocumentPayload,
-} from '@/types/legalDocument';
+import api from '@/lib/axios';
+import {
+  VisaRecord,
+  VisaSummary,
+  CreateVisaPayload,
+  UpdateVisaPayload,
+  RenewVisaPayload,
+} from '@/types/visa';
 
-/**
- * Work permits and government identifiers.
- *
- * Named for the screen rather than the table: the Visa Reports page is the only
- * consumer, and every default here is `category: VISA`. The endpoint underneath
- * is generic because a labour card and a passport expire the same way.
- */
-class VisaService {
-  list(
-    query: LegalDocumentListQuery = {},
-  ): Promise<ApiResponse<LegalDocument[]>> {
-    return axiosInstance.get('/legal-documents', {
-      params: { category: 'VISA', ...query },
-    });
-  }
-
-  summary(): Promise<ApiResponse<LegalDocumentSummary>> {
-    return axiosInstance.get('/legal-documents/summary');
-  }
-
-  expiring(days = 30): Promise<ApiResponse<LegalDocument[]>> {
-    return axiosInstance.get('/legal-documents/expiring', { params: { days } });
-  }
-
-  get(id: string): Promise<ApiResponse<LegalDocument>> {
-    return axiosInstance.get(`/legal-documents/${id}`);
-  }
-
-  create(
-    payload: CreateLegalDocumentPayload,
-  ): Promise<ApiResponse<LegalDocument>> {
-    return axiosInstance.post('/legal-documents', payload);
-  }
-
-  update(
-    id: string,
-    payload: UpdateLegalDocumentPayload,
-  ): Promise<ApiResponse<LegalDocument>> {
-    return axiosInstance.patch(`/legal-documents/${id}`, payload);
-  }
-
-  /** Creates a successor pointing back at this one; history is never overwritten. */
-  renew(
-    id: string,
-    payload: RenewLegalDocumentPayload,
-  ): Promise<ApiResponse<LegalDocument>> {
-    return axiosInstance.post(`/legal-documents/${id}/renew`, payload);
-  }
-
-  cancel(id: string): Promise<ApiResponse<LegalDocument>> {
-    return axiosInstance.patch(`/legal-documents/${id}/cancel`);
-  }
+export interface VisaListParams {
+  employeeId?: string;
+  status?: string;
+  country?: string;
+  documentType?: string;
+  expiringInDays?: number;
+  isCurrent?: boolean;
+  search?: string;
+  page?: number;
+  limit?: number;
 }
 
-export default new VisaService();
+// NOTE: axios interceptor unwraps to the backend envelope { success, data, meta }.
+const visaService = {
+  async getAll(params: VisaListParams = {}): Promise<{
+    success: boolean;
+    data: VisaRecord[];
+    meta: { total: number; page: number; limit: number; totalPages: number };
+  }> {
+    return api.get('/legal-documents', { params });
+  },
+
+  async getExpiring(days = 30): Promise<{
+    success: boolean;
+    data: VisaRecord[];
+    meta: { total: number; days: number };
+  }> {
+    return api.get('/legal-documents/expiring', { params: { days } });
+  },
+
+  async getSummary(): Promise<{ success: boolean; data: VisaSummary }> {
+    return api.get('/legal-documents/summary');
+  },
+
+  async getByEmployee(
+    employeeId: string,
+  ): Promise<{ success: boolean; data: VisaRecord[] }> {
+    return api.get(`/legal-documents/employee/${employeeId}`);
+  },
+
+  async getOne(id: string): Promise<{ success: boolean; data: VisaRecord }> {
+    return api.get(`/legal-documents/${id}`);
+  },
+
+  async create(
+    payload: CreateVisaPayload,
+  ): Promise<{ success: boolean; data: VisaRecord; message: string }> {
+    return api.post('/legal-documents', payload);
+  },
+
+  async update(
+    id: string,
+    payload: UpdateVisaPayload,
+  ): Promise<{ success: boolean; data: VisaRecord; message: string }> {
+    return api.patch(`/legal-documents/${id}`, payload);
+  },
+
+  async renew(
+    id: string,
+    payload: RenewVisaPayload,
+  ): Promise<{ success: boolean; data: VisaRecord; message: string }> {
+    return api.post(`/legal-documents/${id}/renew`, payload);
+  },
+
+  async cancel(
+    id: string,
+    reason?: string,
+  ): Promise<{ success: boolean; data: VisaRecord; message: string }> {
+    return api.post(`/legal-documents/${id}/cancel`, { reason });
+  },
+
+  async remove(id: string): Promise<{ success: boolean; message: string }> {
+    return api.delete(`/legal-documents/${id}`);
+  },
+
+  async uploadAttachment(id: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post(`/legal-documents/${id}/attachments`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  async deleteAttachment(id: string, attachmentId: string) {
+    return api.delete(`/legal-documents/${id}/attachments/${attachmentId}`);
+  },
+};
+
+export default visaService;

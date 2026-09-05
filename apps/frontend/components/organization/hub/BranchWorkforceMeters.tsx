@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import {
   MeterList,
   PanelHeader,
@@ -11,10 +12,10 @@ import type { OrgUnitRow } from '@/types/organizationHub';
 /**
  * Where the workforce sits, by location.
  *
- * The bar is the branch's SHARE of the company rather than its headcount
- * against the largest branch. Normalising to the largest would draw both bars
- * at full width in a two-branch company and say nothing about how concentrated
- * the business is, which is the only question this panel answers.
+ * The bar is the branch's SHARE of the company, not its raw headcount against
+ * the biggest branch — a 62-person Muscat and a 21-person Coimbatore mean
+ * something specific about how concentrated the business is, and normalising to
+ * the largest branch would draw both at full width in a two-branch company.
  */
 export default function BranchWorkforceMeters({
   rows,
@@ -29,61 +30,63 @@ export default function BranchWorkforceMeters({
   loading?: boolean;
   failed?: boolean;
 }) {
-  const shown = (rows ?? []).slice(0, limit);
+  const t = useTranslations('organizationHub');
 
-  const meters: MeterRow[] = shown.map((branch) => ({
-    key: branch.id,
-    label: branch.name,
-    // A branch nobody is posted to draws an empty track rather than a full one.
-    percent: branch.share ?? 0,
+  const shown = (rows ?? []).slice(0, limit);
+  const meters: MeterRow[] = shown.map((b) => ({
+    key: b.id,
+    label: b.name,
+    // A branch with nobody in it draws an empty track rather than a full one.
+    percent: b.share ?? 0,
     valueLabel:
-      branch.share === null
-        ? `${branch.employees}`
-        : `${branch.employees} · ${branch.share.toFixed(0)}%`,
-    href: '/dashboard/branches',
+      b.share === null
+        ? t('branchPeopleOnly', { count: b.employees })
+        : t('branchPeopleShare', { count: b.employees, share: b.share.toFixed(0) }),
   }));
 
   return (
-    <div className="surface-panel flex h-full flex-col rounded-[20px] p-6">
+    <div className="surface-panel p-6 rounded-[20px] flex flex-col h-full">
       <PanelHeader
-        title="Workforce by branch"
+        title={t('branchWorkforce')}
         hint={
           failed
             ? undefined
             : withoutManager > 0
-              ? `${withoutManager} ${withoutManager === 1 ? 'branch has' : 'branches have'} no manager.`
-              : 'Share of the active workforce posted to each location.'
+            ? t('branchWorkforceHintGap', { count: withoutManager })
+            : t('branchWorkforceHint')
         }
-        action={<PanelLink href="/dashboard/branches">See branches</PanelLink>}
+        action={<PanelLink href="/dashboard/branches">{t('seeBranches')}</PanelLink>}
       />
 
       {loading ? (
         <div className="flex-1 space-y-3 pt-2">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-9 animate-pulse rounded-lg bg-surface-page" />
+            <div key={i} className="h-9 rounded-lg bg-surface-page animate-pulse" />
           ))}
         </div>
       ) : failed ? (
-        // Not "no branches" — the distinction matters, because an all-clear
-        // nobody managed to read is worse than a gap somebody can see.
-        <p className="py-8 text-[13px] text-text-muted">
-          The branch figures could not be read.
-        </p>
+        // Not "no branches" — the difference matters, because an all-clear
+        // nobody checked is worse than a visible gap.
+        <p className="text-[13px] text-text-muted py-8">{t('branchesUnknown')}</p>
       ) : meters.length === 0 ? (
-        <p className="py-8 text-[13px] text-text-muted">No branches recorded yet.</p>
+        <p className="text-[13px] text-text-muted py-8">{t('noBranches')}</p>
       ) : (
-        // Centred only once there are enough rows to fill the panel. One branch
-        // floating in the middle of a tall box reads as a half-loaded page
-        // rather than as a company with a single location.
+        // Centred only when there are enough rows to fill the panel. One branch
+        // floating in the middle of a tall empty box reads as a half-loaded page
+        // rather than as a company with one location.
         <div
-          className={`flex flex-1 flex-col ${
+          className={`flex-1 flex flex-col ${
             meters.length >= 4 ? 'justify-center' : 'justify-start pt-1'
           }`}
         >
           <MeterList rows={meters} />
           {meters.length === 1 && (
-            <p className="mt-4 text-[11px] leading-snug text-text-muted">
-              One location, so this is the whole workforce rather than a comparison.
+            // The branch picker always narrows to exactly one branch, so this
+            // panel is a comparison with nothing to compare against far more
+            // often than not. Saying so is better than a tall empty box that
+            // reads as a half-loaded page.
+            <p className="mt-4 text-[11px] text-text-muted leading-snug">
+              {t('branchWorkforceSingle')}
             </p>
           )}
         </div>

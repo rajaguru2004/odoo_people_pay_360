@@ -1,576 +1,131 @@
-import type { EmployeeRef, RequestStatus, UserRef } from './common';
+export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LEAVE' | 'HOLIDAY' | 'MISSED_CHECKOUT' | 'NOT_CHECKED_IN';
 
-export type AttendanceStatus =
-  | 'PRESENT'
-  | 'LATE'
-  | 'ABSENT'
-  | 'HALF_DAY'
-  | 'ON_LEAVE'
-  | 'HOLIDAY'
-  | 'WEEKEND';
-
-export type AttendanceSource =
-  | 'ESS'
-  | 'MANUAL'
-  | 'BIOMETRIC'
-  | 'IMPORT'
-  | 'SYSTEM';
+export interface AttendanceSession {
+  checkIn: string;
+  checkOut?: string | null;
+  // 'LUNCH' marks a break session; undefined = a work session.
+  type?: 'LUNCH' | string;
+  reminderSent?: boolean;
+}
 
 export interface Attendance {
   id: string;
   employeeId: string;
-  branchId?: string | null;
-  /** The day the work is ATTRIBUTED to — for a night shift, not the check-out's date. */
   date: string;
-  checkIn?: string | null;
-  checkOut?: string | null;
-  workHours?: string | null;
-  expectedHours?: string | null;
-  status: AttendanceStatus;
-  source: AttendanceSource;
+  checkIn?: string;
+  checkOut?: string;
+  workHours?: number;
   isLate: boolean;
   isEarlyLeave: boolean;
-  /** Measured from the shift start, not from the end of the grace window. */
-  lateMinutes: number;
-  notes?: string | null;
-  checkInLatitude?: string | null;
-  checkInLongitude?: string | null;
-  checkOutLatitude?: string | null;
-  checkOutLongitude?: string | null;
-  employee?: EmployeeRef & {
-    department?: { id: string; name: string } | null;
-    branch?: { id: string; name: string } | null;
-  };
+  isEarlyCheckIn?: boolean;
+  isLateCheckout?: boolean;
+  status: AttendanceStatus;
+  note?: string;
+  // Multiple check-in/out intervals in a single day (work + LUNCH sessions).
+  sessions?: AttendanceSession[];
+  // Present on the today-attendance response.
+  allowMultiple?: boolean;
+  attendanceFaceOnly?: boolean;
+  // Flexible-shift fields: when isFlexible, the employee works `requiredHours`
+  // across any sessions; targetMet reflects whether logged hours met the target.
+  isFlexible?: boolean;
+  requiredHours?: number | null;
+  targetMet?: boolean;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface AttendanceListQuery {
-  page?: number;
-  limit?: number;
-  employeeId?: string;
-  departmentId?: string;
-  branchId?: string;
-  status?: AttendanceStatus;
-  source?: AttendanceSource;
-  startDate?: string;
-  endDate?: string;
-  search?: string;
-}
-
-/**
- * `GET /attendances/employee/:id` — one person's history and its totals.
- *
- * Not a bare array: the endpoint answers the whole question a person's own
- * attendance screen asks, so the range it resolved and the figures it counted
- * come back with the rows rather than being re-derived on the client. Deriving
- * them here would disagree with the report screens the moment a rule changes.
- */
-export interface EmployeeAttendanceHistory {
-  employee: EmployeeRef & {
-    department?: { id: string; name: string } | null;
-    branch?: { id: string; code: string; name: string } | null;
-  };
-  range: { startDate: string; endDate: string };
-  summary: {
-    records: number;
-    present: number;
-    late: number;
-    halfDay: number;
-    absent: number;
-    onLeave: number;
-    workHours: number;
-    /** Averaged over the days that recorded hours, not over every day. */
-    avgWorkHours: number | null;
-    lateMinutes: number;
-    /** null when nothing was expected — 0% would claim a total no-show. */
-    attendanceRate: number | null;
-  };
-  records: Attendance[];
-}
-
-export interface CheckInPayload {
-  latitude?: number;
-  longitude?: number;
-  notes?: string;
-}
-
-export interface CreateAttendancePayload {
-  employeeId: string;
-  date: string;
-  checkIn?: string;
-  checkOut?: string;
-  status?: AttendanceStatus;
-  notes?: string;
-}
-
-export type UpdateAttendancePayload = Partial<
-  Omit<CreateAttendancePayload, 'employeeId' | 'date'>
->;
-
-/**
- * The verdicts a human is allowed to assert.
- *
- * PRESENT, LATE and HALF_DAY are DERIVED from the times on the row — asserting
- * one would overwrite the calculation a payroll run later reads. The four below
- * say something the clock does not know, so they are the only ones the endpoint
- * accepts.
- */
-export type NonPunchStatus = Extract<
-  AttendanceStatus,
-  'ABSENT' | 'ON_LEAVE' | 'HOLIDAY' | 'WEEKEND'
->;
-
-/** One verdict applied to a set of people for one day. */
-/**
- * One call, one date, mixed verdicts.
- *
- * The verdict travels PER ENTRY rather than once for the whole batch, so
- * marking a morning's absences and one half-day is a single request. A
- * batch-level status would force one call per distinct verdict and turn a
- * partial failure into several partial failures to reconcile.
- */
-export interface BulkAttendancePayload {
-  date: string;
-  entries: BulkAttendanceEntry[];
-}
-
-export interface BulkAttendanceEntry {
-  employeeId: string;
-  /** Defaults to ABSENT when the entry carries no times. */
-  status?: AttendanceStatus;
-  checkIn?: string;
-  checkOut?: string;
-  notes?: string;
-}
-
-/** Per-row outcomes, so one bad id does not read as a failed batch. */
-export interface BulkAttendanceResult {
-  date: string;
-  applied: number;
-  created: number;
-  updated: number;
-  failed: Array<{ employeeId: string; message: string }>;
-  results: Array<{
-    employeeId: string;
-    outcome: 'created' | 'updated' | 'failed';
-    message?: string;
-    attendanceId?: string;
-  }>;
-}
-
-/** `GET /attendances/today` — the board, with the header figures it needs. */
-export interface TodayBoard {
-  /** The company-zone day key the board is for. */
-  date: string;
-  generatedAt: string;
-  totals: {
-    headcount: number;
-    expected: number;
-    present: number;
-    late: number;
-    halfDay: number;
-    absent: number;
-    onLeave: number;
-    checkedOut: number;
-    notCheckedIn: number;
-  };
-  records: TodayRecord[];
-}
-
-/**
- * One person's day.
- *
- * Everyone active appears, whether or not they punched: an absence has to be
- * visible before anybody can explain it, and a board listing only arrivals
- * cannot show who is missing.
- */
-export interface TodayRecord {
-  employee: EmployeeRef & {
-    status: string;
-    department?: { id: string; name: string } | null;
-    branch?: { id: string; code: string; name: string } | null;
-  };
-  attendanceId: string | null;
-  date: string;
-  checkIn: string | null;
-  checkOut: string | null;
-  workHours: string | null;
-  expectedHours: number | string | null;
-  status: AttendanceStatus;
-  source: AttendanceSource | null;
-  isLate: boolean;
-  lateMinutes: number;
-  isEarlyLeave: boolean;
-  notes: string | null;
-  /** False on a weekend, a holiday, or for somebody already on leave. */
-  expectedToWork: boolean;
-  holiday: { id: string; name: string } | null;
-  /** False until the branch's office day has ended — before that an absence
-   *  is a prediction rather than a fact. */
-  settled: boolean;
-  /** The zone the times above should be rendered in. */
-  zone: string;
-}
-
-/** `GET /attendances/summary` — the report over an explicit date range. */
-export interface AttendanceSummary {
-  range: { startDate: string; endDate: string };
-  totals: {
-    records: number;
-    present: number;
-    late: number;
-    halfDay: number;
-    absent: number;
-    onLeave: number;
-    holiday: number;
-    weekend: number;
-    workHours: number;
-    /** Averaged over the rows that recorded hours, not over every row. */
-    avgWorkHours: number | null;
-    lateMinutes: number;
-    /** null when nothing was recorded — 0% would claim total absence. */
-    attendanceRate: number | null;
-  };
-  daily: Array<{
-    date: string;
-    present: number;
-    late: number;
-    halfDay: number;
-    absent: number;
-    onLeave: number;
-    holiday: number;
-    weekend: number;
-    workHours: number;
-    attendanceRate: number | null;
-  }>;
-  departments: Array<{
+  employee?: {
     id: string;
-    name: string;
-    headcount: number;
-    present: number;
-    late: number;
-    absent: number;
-    onLeave: number;
-    workHours: number;
-    attendanceRate: number | null;
-  }>;
-}
-
-/**
- * `GET /attendances/monthly-report` — one calendar month of the workforce.
- *
- * The shape the attendance log grid draws: a row per employee, a cell per day,
- * and the month's totals beside each row. Built from the EMPLOYEE list rather
- * than from attendance rows, so somebody who produced no punch all month is
- * still a row — which is the row the log is usually opened to find.
- */
-export interface MonthlyReportQuery {
-  month?: number;
-  year?: number;
-  branchId?: string;
-  departmentId?: string;
-  /** Employee code, name, or department name. */
-  search?: string;
-}
-
-/**
- * One column of the grid header.
- *
- * `isWeeklyOff` is true only when EVERY branch on screen rests that day —
- * branches keep different weekends, and shading the column from one of them
- * would contradict the cells below it. Each cell carries its own answer.
- */
-export interface MonthlyCalendarDay {
-  date: string;
-  day: number;
-  /** ISO weekday, 1 = Monday … 7 = Sunday. */
-  weekday: number;
-  isWeeklyOff: boolean;
-  holiday: { id: string; name: string } | null;
-  isToday: boolean;
-  isFuture: boolean;
-}
-
-/** One employee on one day. */
-export interface MonthlyAttendanceCell {
-  date: string;
-  attendanceId: string | null;
-  hasRecord: boolean;
-  /**
-   * The day's verdict, or `null` where there is not one yet.
-   *
-   * A day that has not happened is not an absence, and neither is today before
-   * its shift closes — the person may still be on their way. Colouring a cell
-   * straight from this field is safe because of that null; had the server said
-   * ABSENT, most of a current month would read as a workforce-wide no-show.
-   */
-  status: AttendanceStatus | null;
-  checkIn: string | null;
-  checkOut: string | null;
-  workHours: number | null;
-  expectedHours: number;
-  source: AttendanceSource | null;
-  isLate: boolean;
-  lateMinutes: number;
-  isEarlyLeave: boolean;
-  /** Arrived before the shift the calendar set for that day. */
-  isEarlyIn: boolean;
-  /** Left after it. */
-  isLateOut: boolean;
-  isWorkingDay: boolean;
-  isWeeklyOff: boolean;
-  holiday: { id: string; name: string } | null;
-  isFuture: boolean;
-  /** False until the shift has closed — before that a missing punch is not an
-   *  absence, it is somebody still on their way. */
-  settled: boolean;
-  notes: string | null;
-  /** The zone `checkIn`/`checkOut` should be rendered in. */
-  zone: string;
-}
-
-export interface MonthlyAttendanceSummary {
-  present: number;
-  absent: number;
-  late: number;
-  earlyLeave: number;
-  /** The grid's single "Late/Early" column. */
-  lateOrEarly: number;
-  onLeave: number;
-  holiday: number;
-  weekend: number;
-  workingDays: number;
-  workHours: number;
-  expectedHours: number;
-  earlyIn: number;
-  lateOut: number;
-  lateMinutes: number;
-  /** null when nothing was expected — 0% would claim a total no-show. */
-  attendanceRate: number | null;
-}
-
-export interface MonthlyAttendanceEntry {
-  employee: EmployeeRef & {
-    status: string;
-    department?: { id: string; name: string } | null;
-    branch?: { id: string; code: string; name: string } | null;
+    employeeCode: string;
+    fullName: string;
+    email?: string;
+    department: {
+      name: string;
+    };
   };
-  zone: string;
-  days: MonthlyAttendanceCell[];
-  summary: MonthlyAttendanceSummary;
+  corrections?: AttendanceCorrection[];
 }
 
-export interface MonthlyAttendanceReport {
+export interface AttendanceSummary {
+  totalDays: number;
+  presentDays: number;
+  lateDays: number;
+  earlyLeaveDays: number;
+  totalWorkHours: number;
+}
+
+export interface AttendanceStatistics {
+  totalRecords: number;
+  lateCount: number;
+  earlyLeaveCount: number;
+  lateRate: number;
+  earlyLeaveRate: number;
+  avgWorkHours: number;
+}
+
+export interface CheckInData {
+  employeeId: string;
+  checkIn?: string;
+  checkOut?: string;
+  note?: string;
+}
+
+export interface AttendanceReport {
   month: number;
   year: number;
-  range: { startDate: string; endDate: string };
-  generatedAt: string;
-  days: MonthlyCalendarDay[];
-  totals: {
-    employees: number;
-    present: number;
-    absent: number;
-    late: number;
-    earlyLeave: number;
-    onLeave: number;
-    earlyIn: number;
-    lateOut: number;
-    workHours: number;
-    attendanceRate: number | null;
-  };
-  entries: MonthlyAttendanceEntry[];
+  totalDays: number;
+  presentDays: number;
+  absentDays: number;
+  lateDays: number;
+  earlyLeaveDays: number;
+  totalWorkHours: number;
+  avgWorkHours: number;
+  byEmployee?: Array<{
+    employee: any;
+    presentDays: number;
+    lateDays: number;
+    earlyLeaveDays: number;
+    totalWorkHours: number;
+  }>;
 }
-
-// ── Corrections ─────────────────────────────────────────────────────────────
 
 export interface AttendanceCorrection {
   id: string;
   employeeId: string;
-  /** null when the day has no attendance row at all — approving CREATES one. */
-  attendanceId?: string | null;
+  attendanceId?: string;
   date: string;
-  originalCheckIn?: string | null;
-  originalCheckOut?: string | null;
-  requestedCheckIn?: string | null;
-  requestedCheckOut?: string | null;
+  originalCheckIn?: string;
+  originalCheckOut?: string;
+  requestedCheckIn?: string;
+  requestedCheckOut?: string;
   reason: string;
-  status: RequestStatus;
-  reviewedById?: string | null;
-  reviewedAt?: string | null;
-  reviewNote?: string | null;
-  employee?: EmployeeRef & { department?: { id: string; name: string } | null };
-  attendance?: Attendance | null;
-  reviewedBy?: UserRef | null;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  approverId?: string;
+  approvedAt?: string;
+  approverNotes?: string;
+  rejectedReason?: string;
   createdAt: string;
   updatedAt: string;
+  employee?: {
+    id: string;
+    employeeCode: string;
+    fullName: string;
+    email: string;
+    department: {
+      id: string;
+      name: string;
+    };
+  };
+  reviewer?: {
+    id: string;
+    fullName: string;
+    employeeCode: string;
+  } | null;
+  attendance?: Attendance;
 }
 
-export interface CreateCorrectionPayload {
+export interface CreateCorrectionData {
   date: string;
   requestedCheckIn?: string;
   requestedCheckOut?: string;
   reason: string;
-}
-
-export interface CorrectionStats {
-  pending: number;
-  approved: number;
-  rejected: number;
-  cancelled: number;
-  total: number;
-  /** null while nothing has been resolved — 0 would claim instant turnaround. */
-  avgResolutionHours: number | null;
-}
-
-export interface CorrectionListQuery {
-  page?: number;
-  limit?: number;
-  status?: RequestStatus;
-  employeeId?: string;
-  startDate?: string;
-  endDate?: string;
-}
-
-// ── Roster and calendar ─────────────────────────────────────────────────────
-
-export type ShiftType =
-  | 'MORNING'
-  | 'AFTERNOON'
-  | 'FULL_DAY'
-  | 'NIGHT'
-  | 'FLEXIBLE';
-
-export interface WorkSchedule {
-  id: string;
-  employeeId: string;
-  date: string;
-  shiftType: ShiftType;
-  /** Wall clock in the employee's effective zone — "08:00", not an instant. */
-  startTime?: string | null;
-  endTime?: string | null;
-  requiredHours?: string | null;
-  isWorkDay: boolean;
-  notes?: string | null;
-  employee?: EmployeeRef;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Holiday {
-  id: string;
-  branchId?: string | null;
-  name: string;
-  date: string;
-  year: number;
-  isRecurring: boolean;
-  description?: string | null;
-  branch?: { id: string; name: string } | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// ── Biometric enrolment ─────────────────────────────────────────────────────
-
-/**
- * The descriptor itself is never sent to the browser. It is biometric material
- * and the screen only needs to know an enrolment exists, how good it is, and
- * when it was taken.
- */
-export interface FaceEnrollment {
-  id: string;
-  employeeId: string;
-  quality: number;
-  imageUrl?: string | null;
-  isActive: boolean;
-  employee?: EmployeeRef & { department?: { id: string; name: string } | null };
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** One row of the enrolment gallery. Reference photo, quality, date — no template. */
-export interface FaceEnrollmentGalleryItem {
-  id: string;
-  employeeId: string;
-  /** Server-relative, e.g. `/uploads/face-enrollments/<id>/<ts>.jpg`. */
-  imageUrl: string | null;
-  quality: number;
-  isActive: boolean;
-  createdAt: string;
-}
-
-/** `POST /face-enrollments/register` — the frame the browser captured. */
-export interface RegisterFacePayload {
-  /** A data URI. The server computes the template from it; the browser cannot. */
-  image: string;
-  /** Enrol somebody else. HR only; omitted, it enrols the caller. */
-  employeeId?: string;
-}
-
-export interface RegisterFaceResult extends FaceEnrollmentGalleryItem {
-  totalRegistered: number;
-  maxAllowed: number;
-  /** How many the guided flow asks for before an enrolment is usable. */
-  required: number;
-  employee: { id: string; employeeCode: string; fullName: string };
-}
-
-/**
- * `GET /face-enrollments/counts` — how many templates each employee holds.
- *
- * Counted in the database and returned whole, so the enrolment table can label
- * every row without asking per employee.
- */
-export interface FaceEnrollmentCounts {
-  maxAllowed: number;
-  required: number;
-  counts: { employeeId: string; count: number }[];
-}
-
-export interface CreateFaceEnrollmentPayload {
-  employeeId: string;
-  /** Exactly 128 finite numbers — the server refuses anything else. */
-  descriptor: number[];
-  quality: number;
-  imageUrl?: string;
-}
-
-/** `GET /face-enrollments/status` — am I enrolled, and how good is the capture? */
-export interface FaceEnrollmentStatus {
-  /** null for a user with no employee record, who cannot be enrolled at all. */
-  employeeId: string | null;
-  isRegistered: boolean;
-  totalRegistered: number;
-  /** The best capture held, not the most recent — that is what matching uses. */
-  bestQuality: number | null;
-  lastEnrolledAt: string | null;
-  /** The distance a match has to beat. Reported so the screen can explain it. */
-  threshold: number;
-}
-
-export interface VerifyFacePayload {
-  /** The probe. Sent, never stored, never echoed back. */
-  descriptor: number[];
-  /** Verify against ONE person instead of searching everybody enrolled. */
-  employeeId?: string;
-}
-
-/**
- * The verdict.
- *
- * On a FAILURE the server names nobody and reports no distance — being told you
- * are 41% like a named colleague is a fact about that colleague. `candidates`
- * is still given, because "nobody is enrolled" and "nobody was close enough"
- * are different problems with different fixes.
- */
-export interface FaceVerifyResult {
-  matched: boolean;
-  threshold: number;
-  candidates: number;
-  confidence: number | null;
-  distance: number | null;
-  employeeId?: string;
-  employee:
-    | (EmployeeRef & { fullName: string; status: string })
-    | null;
 }

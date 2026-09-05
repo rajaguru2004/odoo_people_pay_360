@@ -1,53 +1,36 @@
-import { DateTime } from 'luxon';
-import { DATE_FORMAT, DATETIME_FORMAT } from './constants';
+import { format, formatDistanceToNow, isPast, isFuture } from 'date-fns';
+import { enUS } from 'date-fns/locale';
 
-/**
- * Format an instant in a named zone.
- *
- * The zone is an explicit argument rather than an implicit "whatever this
- * browser is set to". A payroll cut-off or a shift start read in the viewer's
- * local zone rather than the company's is a date that is simply wrong for
- * anyone travelling or working remotely, and it is wrong silently.
- */
-export function formatDate(
-  value: string | Date | null | undefined,
-  zone = 'Asia/Muscat',
-  pattern = DATE_FORMAT,
-): string {
-  if (!value) return '—';
-  const dt =
-    value instanceof Date
-      ? DateTime.fromJSDate(value, { zone })
-      : DateTime.fromISO(value, { zone });
-  return dt.isValid ? dt.toFormat(pattern) : '—';
+export function formatDate(date: string | Date, formatStr: string = 'PPP'): string {
+  return format(new Date(date), formatStr, { locale: enUS });
 }
 
-export function formatDateTime(
-  value: string | Date | null | undefined,
-  zone = 'Asia/Muscat',
-): string {
-  return formatDate(value, zone, DATETIME_FORMAT);
+export function formatDateTime(date: string | Date): string {
+  return format(new Date(date), 'PPP p', { locale: enUS });
 }
 
-/** "3 days ago". Returns '—' for anything unparseable rather than "Invalid DateTime". */
-export function formatRelative(value: string | Date | null | undefined, zone = 'Asia/Muscat'): string {
-  if (!value) return '—';
-  const dt =
-    value instanceof Date
-      ? DateTime.fromJSDate(value, { zone })
-      : DateTime.fromISO(value, { zone });
-  return dt.isValid ? dt.toRelative() ?? '—' : '—';
+export function formatTime(date: string | Date): string {
+  return format(new Date(date), 'p', { locale: enUS });
 }
 
-/**
- * A DATE-ONLY value (hire date, period start) rendered without a zone shift.
- *
- * `2026-01-15` parsed as an instant is midnight UTC, which is the 14th in any
- * zone west of Greenwich. A hire date has no time of day, so it must never be
- * put through a zone conversion at all.
- */
-export function formatDateOnly(value: string | null | undefined, pattern = DATE_FORMAT): string {
-  if (!value) return '—';
-  const dt = DateTime.fromISO(value.slice(0, 10), { zone: 'utc' });
-  return dt.isValid ? dt.toFormat(pattern) : '—';
+export function formatRelativeTime(date: string | Date): string {
+  return formatDistanceToNow(new Date(date), { addSuffix: true, locale: enUS });
+}
+
+export function isDatePast(endTime: string | Date): boolean {
+  return isPast(new Date(endTime));
+}
+
+export function isDateUpcoming(startTime: string | Date): boolean {
+  return isFuture(new Date(startTime));
+}
+
+export function getDateStatus(startTime: string | Date, endTime: string | Date): 'upcoming' | 'ongoing' | 'completed' {
+  const now = new Date();
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+
+  if (now < start) return 'upcoming';
+  if (now >= start && now <= end) return 'ongoing';
+  return 'completed';
 }

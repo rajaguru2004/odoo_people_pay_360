@@ -1,36 +1,38 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { ClipboardList, FileWarning, UserMinus, UserPlus, Users } from 'lucide-react';
+import { UserPlus, FileWarning, UserMinus, Users, ClipboardList } from 'lucide-react';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import ModuleLandingPage from '@/components/module-landing/ModuleLandingPage';
 import AttentionStrip, { type AttentionItem } from '@/components/module-landing/AttentionStrip';
 import type { KpiStat } from '@/components/module-landing/StatCard';
+import VisaRunwayBar from '@/components/employees/hub/VisaRunwayBar';
+import EmployeeStatusDonut from '@/components/employees/hub/EmployeeStatusDonut';
+import LifecyclePanel from '@/components/employees/hub/LifecyclePanel';
+import HeadcountMovement from '@/components/employees/hub/HeadcountMovement';
 import {
   PanelHeader,
+  PanelLink,
   SegmentedTimeFilter,
   SplineTrendChart,
   type SplineSeries,
 } from '@/components/module-landing/primitives';
-import EmployeeStatusDonut from '@/components/employees/hub/EmployeeStatusDonut';
-import HeadcountMovement from '@/components/employees/hub/HeadcountMovement';
-import LifecyclePanel from '@/components/employees/hub/LifecyclePanel';
-import VisaRunwayBar from '@/components/employees/hub/VisaRunwayBar';
-import { usePeopleHub, type TrendMonths } from '@/hooks/usePeopleHub';
-import { daysUntilDate } from '@/utils/contractExpiry';
-import { fullName } from '@/utils/formatters';
+import { daysUntil, usePeopleHub, type TrendMonths } from '@/hooks/usePeopleHub';
 
 /**
- * The People hub — what is about to happen to the workforce.
+ * People module hub — what is about to happen to the workforce.
  *
- * Every figure on it is a deadline or a movement. There is no headcount-by-
- * department panel here: Organisation owns the shape of the company and already
- * draws it, and two hubs repeating one distribution is what makes a product feel
- * like one long page.
+ * Laid out on the finalised Time & Attendance template: five KPIs, an attention
+ * strip, one big chart beside a breakdown, three insight panels, then the tiles.
  *
- * The 6M/12M switch sits in the trend panel's own header rather than in the page
- * header. Only that one chart is windowed, and a period control at the top would
- * promise it moves the deadline cards above it too.
+ * Every figure is a deadline or a movement. The headcount-by-department panel
+ * lives on Organization and only there — three hubs drawing the same
+ * distribution is what made them feel like one page. There is no "on leave
+ * today" card either: Time & Attendance owns today, and already prints it.
+ *
+ * The page header carries no period filter. Only the workforce trend is
+ * windowed, so the 6M/12M switch sits in that panel's own header rather than
+ * implying it moves the four deadline cards above it.
  */
 const MONTH_TABS: Array<{ label: string; value: TrendMonths }> = [
   { label: '6M', value: 6 },
@@ -38,6 +40,7 @@ const MONTH_TABS: Array<{ label: string; value: TrendMonths }> = [
 ];
 
 function PeopleHubContent() {
+  const t = useTranslations('peopleHub');
   const tm = useTranslations('moduleLanding');
   const {
     summary,
@@ -53,199 +56,174 @@ function PeopleHubContent() {
     visaExpiringFailed,
   } = usePeopleHub(30);
 
-  /** A figure the aggregate did not answer for is null, never a zero. */
   const known = <T,>(value: T | undefined): T | null => (failed || !summary ? null : (value as T));
 
   const lifecycle = summary?.lifecycle;
   const probation = lifecycle?.probationEndingSoon ?? [];
   const joiners = lifecycle?.joinersThisMonth ?? 0;
   const leavers = lifecycle?.leaversThisMonth ?? 0;
-  const previous = lifecycle?.previousMonth;
-  const awaitingApproval = summary?.terminations.awaitingApproval ?? 0;
+  const prev = lifecycle?.previousMonth;
 
-  /**
-   * Permits are a separate module with its own answer, and the hub reads two
-   * different silences from it.
-   *
-   * `visaUnavailable` means the whole module refused this caller: permits are
-   * not part of their world, so they are left out of the tally and the panel
-   * removes itself. `visaExpiringFailed` on its own means the request simply did
-   * not come back — the permits ARE in scope and their number is unknown, which
-   * is the one case where a total would be a quiet undercount.
-   */
-  const permitsInScope = !visaUnavailable;
-  const permitsKnown = !visaExpiringFailed;
-  const pendingPermits = permitsInScope && permitsKnown ? visaExpiring.length : 0;
-  const pendingActions = pendingPermits + probation.length + awaitingApproval;
-  const pendingUnknowable = failed || (permitsInScope && !permitsKnown);
+  // "Needs HR now", summed rather than listed on the card — the footnote splits
+  // it so the number is never a mystery.
+  const pendingPermits = visaExpiringFailed ? 0 : visaExpiring.length;
+  const pendingActions =
+    pendingPermits + probation.length + (summary?.terminations.awaitingApproval ?? 0);
 
+  // ── KPI row ───────────────────────────────────────────────────────────────
   const kpis: KpiStat[] = [
     {
       key: 'active',
-      label: 'Active employees',
+      label: t('kpiActive'),
       value: known(summary?.headcount.active),
       icon: Users,
       footnote: summary
         ? summary.headcount.inactive > 0
-          ? `${summary.headcount.inactive} more on leave, suspended or terminated`
-          : 'Everybody on the books is working'
+          ? t('kpiActiveHint', { count: summary.headcount.inactive })
+          : t('kpiActiveAllOn')
         : undefined,
       href: '/dashboard/employees',
     },
     {
       key: 'joiners',
-      label: 'Joined this month',
+      label: t('kpiJoiners'),
       value: known(joiners),
       icon: UserPlus,
       trend: summary?.trend.buckets.map((b) => b.joiners),
-      // The delta names the window it is measured against, so the reader can go
-      // and check it rather than trusting a bare "+4".
+      // Labelled against a window the reader can actually navigate to and
+      // check, rather than a bare "+4".
       delta:
-        previous && previous.joiners !== joiners
+        prev && prev.joiners !== joiners
           ? {
-              value: joiners - previous.joiners,
-              direction: joiners >= previous.joiners ? 'up' : 'down',
+              value: joiners - prev.joiners,
+              direction: joiners >= prev.joiners ? 'up' : 'down',
               goodDirection: 'up',
-              display: `${joiners - previous.joiners > 0 ? '+' : ''}${joiners - previous.joiners}`,
-              label: 'vs last month',
+              display: `${joiners - prev.joiners > 0 ? '+' : ''}${joiners - prev.joiners}`,
+              label: t('vsLastMonth'),
             }
           : undefined,
       footnote:
         lifecycle && lifecycle.startingSoon.length > 0
-          ? `${lifecycle.startingSoon.length} more start in the next 30 days`
+          ? t('kpiJoinersStartingSoon', { count: lifecycle.startingSoon.length })
           : summary
-            ? 'Nobody else is due to start'
-            : undefined,
+          ? t('kpiJoinersNoneAhead')
+          : undefined,
       href: '/dashboard/employees',
     },
     {
       key: 'terminations',
-      label: 'Left this month',
+      label: t('kpiTerminations'),
       value: known(leavers),
       icon: UserMinus,
       trend: summary?.trend.buckets.map((b) => b.leavers),
       delta:
-        previous && previous.leavers !== leavers
+        prev && prev.leavers !== leavers
           ? {
-              value: leavers - previous.leavers,
-              direction: leavers >= previous.leavers ? 'up' : 'down',
-              // Fewer people leaving is the good news here, so the arrow has to
-              // be told which way is which before it picks a colour.
+              value: leavers - prev.leavers,
+              direction: leavers >= prev.leavers ? 'up' : 'down',
+              // Fewer people leaving is the good direction, so the arrow's
+              // colour has to be told which way is which.
               goodDirection: 'down',
-              display: `${leavers - previous.leavers > 0 ? '+' : ''}${leavers - previous.leavers}`,
-              label: 'vs last month',
+              display: `${leavers - prev.leavers > 0 ? '+' : ''}${leavers - prev.leavers}`,
+              label: t('vsLastMonth'),
             }
           : undefined,
       tone: leavers > joiners ? 'warning' : 'default',
       footnote: summary
-        ? awaitingApproval > 0
-          ? `${awaitingApproval} termination${awaitingApproval === 1 ? '' : 's'} awaiting approval`
-          : 'No terminations awaiting approval'
+        ? summary.terminations.awaitingApproval > 0
+          ? t('kpiTerminationsPending', { count: summary.terminations.awaitingApproval })
+          : t('kpiTerminationsNonePending')
         : undefined,
       href: '/dashboard/contracts/terminations',
     },
     {
       key: 'contracts',
-      label: 'Contracts expiring',
+      label: t('kpiContractsExpiring'),
       value: known(summary?.contracts.expiringSoon),
       icon: FileWarning,
       tone: (summary?.contracts.expiringSoon ?? 0) > 0 ? 'warning' : 'success',
-      footnote: 'Within the next 30 days',
+      footnote: t('kpiContractsHint'),
       href: '/dashboard/contracts',
     },
     {
       key: 'pending',
-      label: 'Needs HR now',
-      value: pendingUnknowable ? null : pendingActions,
+      label: t('kpiPendingActions'),
+      // Not `0` when the permit lookup failed — an unknown count reported as
+      // zero is an all-clear nobody checked.
+      value: failed ? null : pendingActions,
       icon: ClipboardList,
       tone: pendingActions > 0 ? 'warning' : 'success',
+      // The approvals queue, not the directory: three KPI cards pointing at one
+      // list is three ways of saying "go and look at everybody".
       footnote: summary
-        ? `${permitsInScope ? `${permitsKnown ? pendingPermits : '—'} permits · ` : ''}${
-            probation.length
-          } probations · ${awaitingApproval} terminations`
+        ? t('kpiPendingSplit', {
+            permits: visaExpiringFailed ? '—' : String(pendingPermits),
+            probations: probation.length,
+            terminations: summary.terminations.awaitingApproval,
+          })
         : undefined,
-      // No drill-down on purpose: this card is a sum of three queues that live on
-      // three screens, and picking one of them would send two thirds of the
-      // readers to the wrong place. The strip below is the way in.
+      href: '/dashboard/approvals',
     },
   ];
 
-  // ── Needs attention: every kind of deadline, soonest first ────────────────
+  // ── Needs attention: both kinds of expiry, soonest first ──────────────────
   const attention: AttentionItem[] = [];
-
-  // A failed aggregate has to be SAID. The permit queries answer separately, so
-  // the strip is usually full of their items and the empty-state sentence never
-  // renders — silence here would read as "the lifecycle is fine", which is the
-  // one thing this page does not know.
+  // A failed aggregate has to be SAID, not just implied by an empty state: the
+  // permit queries answer separately, so the strip is usually full of their
+  // items and the empty-state sentence never renders. Silence there would read
+  // as "the lifecycle is fine", which is the one thing the page does not know.
   if (failed) {
     attention.push({
       key: 'lifecycle-failed',
-      label: 'Lifecycle figures could not be read',
+      label: t('lifecycleUnknown'),
       severity: 'critical',
       href: '/dashboard/employees',
     });
   }
-
-  if (permitsInScope && visaExpiringFailed) {
+  for (const v of visaExpiring.slice().sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry).slice(0, 6)) {
     attention.push({
-      key: 'permits-failed',
-      label: 'Permit expiries could not be read',
-      detail: 'not an all-clear',
-      severity: 'critical',
-      href: '/dashboard/visa-reports',
-    });
-  }
-
-  for (const permit of visaExpiring
-    .slice()
-    .sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry)
-    .slice(0, 6)) {
-    attention.push({
-      key: `visa-${permit.id}`,
-      label: fullName(permit.employee) !== '—' ? fullName(permit.employee) : permit.documentNumber,
+      key: `visa-${v.id}`,
+      label: v.employee?.fullName ?? v.documentNumber,
       detail:
-        permit.daysUntilExpiry < 0
-          ? `permit expired ${Math.abs(permit.daysUntilExpiry)}d ago`
-          : `permit in ${permit.daysUntilExpiry}d`,
-      severity: permit.daysUntilExpiry <= 7 ? 'critical' : 'warning',
+        v.daysUntilExpiry < 0
+          ? t('expiredAgo', { days: Math.abs(v.daysUntilExpiry) })
+          : t('permitInDays', { days: v.daysUntilExpiry }),
+      severity: v.daysUntilExpiry <= 7 ? 'critical' : 'warning',
       href: '/dashboard/visa-reports',
     });
   }
-
-  for (const contract of (summary?.contracts.expiring ?? []).slice(0, 4)) {
+  for (const c of (summary?.contracts.expiring ?? []).slice(0, 4)) {
     attention.push({
-      key: `contract-${contract.id}`,
-      label: contract.fullName ?? 'Unnamed employee',
-      detail: `contract in ${contract.daysUntilExpiry}d`,
-      severity: contract.daysUntilExpiry <= 7 ? 'critical' : 'warning',
+      key: `contract-${c.id}`,
+      label: c.fullName ?? t('unnamedEmployee'),
+      detail: t('contractInDays', { days: c.daysUntilExpiry }),
+      severity: c.daysUntilExpiry <= 7 ? 'critical' : 'warning',
       href: '/dashboard/contracts',
     });
   }
-
-  for (const item of probation.slice(0, 3)) {
-    // A confirmation date that slips means the person is confirmed by default —
-    // a decision nobody actually took.
-    const days = daysUntilDate(item.endDate);
+  for (const p of probation.slice(0, 3)) {
+    const days = daysUntil(p.endDate);
     attention.push({
-      key: `probation-${item.contractId}`,
-      label: item.fullName ?? 'Unnamed employee',
-      detail: `probation in ${days ?? 0}d`,
+      key: `probation-${p.contractId}`,
+      label: p.fullName ?? t('unnamedEmployee'),
+      // A confirmation date that slips means the person is confirmed by
+      // default — a decision nobody actually took.
+      detail: t('probationInDays', { days: days ?? 0 }),
       severity: 'warning',
       href: '/dashboard/contracts',
     });
   }
-
-  if (awaitingApproval > 0) {
+  if (summary && summary.terminations.awaitingApproval > 0) {
     attention.push({
       key: 'terminations-pending',
-      label: `${awaitingApproval} termination${awaitingApproval === 1 ? '' : 's'} awaiting approval`,
-      detail: 'review',
+      label: t('attnTerminations', { count: summary.terminations.awaitingApproval }),
+      detail: t('review'),
       severity: 'info',
       href: '/dashboard/contracts/terminations',
     });
   }
 
-  // ── The workforce as a flow ───────────────────────────────────────────────
+  // ── Main chart: the workforce as a flow ───────────────────────────────────
   const buckets = summary?.trend.buckets ?? [];
   const trendSeries: SplineSeries[] = buckets.length
     ? [
@@ -273,32 +251,33 @@ function PeopleHubContent() {
       kpisLoading={loading}
       badges={{
         allContracts: summary?.contracts.expiringSoon,
-        // Undefined rather than zero when the list failed: a tile with no badge
-        // says nothing, and a tile badged "0" says the queue is empty.
-        visaReports: permitsInScope && permitsKnown ? visaExpiring.length : undefined,
+        visaReports: visaExpiringFailed ? undefined : visaExpiring.length,
       }}
       badgeTones={{ allContracts: 'warning', visaReports: 'danger' }}
       insights={
         <div className="space-y-6">
           <AttentionStrip
-            title="Needs attention"
+            title={t('needsAttention')}
             items={attention}
             loading={loading || visaLoading}
             emptyLabel={
-              failed
-                ? 'Lifecycle figures could not be read.'
-                : 'Nothing falls due in the next 30 days.'
+              visaExpiringFailed
+                ? t('expiringSoonUnknown')
+                : failed
+                ? t('lifecycleUnknown')
+                : t('nothingDue')
             }
-            seeAll={{ label: 'See contracts', href: '/dashboard/contracts' }}
+            seeAll={{ label: t('seeContracts'), href: '/dashboard/contracts' }}
           />
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-            <div className="surface-panel flex flex-col justify-between rounded-[20px] p-6 lg:col-span-7 xl:col-span-8">
+          {/* Middle row: the flow over time, and where everybody stands today */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-7 xl:col-span-8 surface-panel p-6 rounded-[20px] flex flex-col justify-between">
               <PanelHeader
-                title="Workforce trend"
-                // States the identity the chart draws, so nobody has to work out
+                title={t('workforceTrend')}
+                // States the identity the chart draws, so nobody has to guess
                 // whether the line is a stock or a flow.
-                hint="Arrivals and departures per month — not the running headcount."
+                hint={t('workforceTrendHint')}
                 action={
                   <SegmentedTimeFilter
                     options={MONTH_TABS.map((m) => m.label)}
@@ -309,50 +288,47 @@ function PeopleHubContent() {
                     }}
                   />
                 }
+                showMenu={false}
               />
 
-              <div className="mb-3 mt-1 flex flex-wrap items-baseline gap-4">
+              <div className="flex items-baseline gap-4 mt-1 mb-3">
                 <div>
-                  <span className="text-[28px] font-extrabold leading-none tracking-tight tabular-nums text-text-heading">
+                  <span className="text-[28px] font-extrabold text-text-heading tracking-tight leading-none tabular-nums">
                     {known(summary?.headcount.active) ?? '—'}
                   </span>
-                  <span className="ms-2 text-xs font-semibold text-text-muted">on staff today</span>
+                  <span className="ml-2 text-xs font-semibold text-text-muted">
+                    {t('onStaff')}
+                  </span>
                 </div>
                 <div className="flex items-center gap-3 text-[11px] font-medium text-text-muted">
                   <span className="flex items-center gap-1.5">
                     <span
-                      className="h-2 w-2 rounded-xs"
-                      style={{
-                        background: 'color-mix(in srgb, var(--color-brand-primary) 90%, white)',
-                      }}
+                      className="w-2 h-2 rounded-xs"
+                      style={{ background: 'color-mix(in srgb, var(--color-brand-primary) 90%, white)' }}
                     />
-                    Joined
+                    {t('joiners')}
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span
-                      className="h-2 w-2 rounded-xs"
-                      style={{
-                        background: 'color-mix(in srgb, var(--color-brand-accent) 75%, white)',
-                      }}
+                      className="w-2 h-2 rounded-xs"
+                      style={{ background: 'color-mix(in srgb, var(--color-brand-accent) 75%, white)' }}
                     />
-                    Left
+                    {t('leavers')}
                   </span>
                 </div>
               </div>
 
-              {/* Dimmed while a period switch is in flight, so the old series is
-                  visibly stale rather than silently passing for the new one. */}
-              <div className={`min-h-[200px] flex-1 ${fetching ? 'opacity-60 transition-opacity' : ''}`}>
+              <div className={`flex-1 min-h-[200px] ${fetching ? 'opacity-60 transition-opacity' : ''}`}>
                 <SplineTrendChart
                   height={200}
                   series={loading ? undefined : trendSeries}
                   timeTicks={trendTicks}
-                  emptyLabel={failed ? 'Not available right now' : 'No movement in this window'}
+                  emptyLabel={failed ? t('chartUnavailable') : t('noMovement')}
                 />
               </div>
             </div>
 
-            <div className="flex flex-col lg:col-span-5 xl:col-span-4">
+            <div className="lg:col-span-5 xl:col-span-4 flex flex-col">
               <EmployeeStatusDonut
                 split={summary?.statusSplit}
                 total={summary ? summary.headcount.active + summary.headcount.inactive : undefined}
@@ -362,23 +338,30 @@ function PeopleHubContent() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {/* Bottom row: what is due, permit runway, and the direction of travel */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <LifecyclePanel summary={summary} loading={loading} failed={failed} />
 
-            {/* One module's 403 must not blank the row. When permits are out of
-                reach the runway panel is dropped and the movement panel takes
-                the space, rather than leaving a hole where a card used to be. */}
             {visaUnavailable ? (
+              // The permit module is unreachable — the card has nothing to say
+              // and is dropped rather than shown empty. HeadcountMovement takes
+              // the space so the row does not end in a hole.
               <HeadcountMovement summary={summary} loading={loading} failed={failed} />
             ) : (
               <>
-                <VisaRunwayBar
-                  summary={visaSummary}
-                  expiring={visaExpiring}
-                  loading={visaLoading}
-                  unavailable={visaUnavailable}
-                  expiringFailed={visaExpiringFailed}
-                />
+                <div className="h-full">
+                  <VisaRunwayBar
+                    summary={visaSummary}
+                    expiring={visaExpiring}
+                    loading={visaLoading}
+                    unavailable={visaUnavailable}
+                  />
+                  {visaExpiringFailed && (
+                    <p className="mt-2 text-[11px] text-status-warning leading-snug">
+                      {t('permitListFailed')}
+                    </p>
+                  )}
+                </div>
                 <HeadcountMovement summary={summary} loading={loading} failed={failed} />
               </>
             )}

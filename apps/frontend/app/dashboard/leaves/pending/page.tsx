@@ -1,225 +1,218 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import Link from 'next/link';
-import { toast } from 'sonner';
-import { Check, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import { usePageHeader } from '@/hooks/usePageHeader';
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Textarea } from '@/components/ui/Textarea';
-import { EmptyState } from '@/components/common/EmptyState';
-import { Pagination } from '@/components/common/Pagination';
-import {
-  useApproveLeaveRequest,
-  usePendingLeaveRequests,
-  useLeaveStats,
-  useRejectLeaveRequest,
-} from '@/hooks/useLeaveRequests';
-import { apiErrorMessage } from '@/utils/apiError';
-import { formatDateOnly } from '@/utils/formatDate';
-import { fullName } from '@/utils/formatters';
-import { daysWaiting, formatDays } from '@/components/leave/leaveFormat';
-import type { LeaveRequest } from '@/types/leave';
+import PageActionRow from '@/components/common/PageActionRow';
+import { Clock, CheckCircle, XCircle, AlertCircle, Calendar, Paperclip } from 'lucide-react';
+import { motion } from 'framer-motion';
+import leaveService from '@/services/leaveService';
+import { LeaveRequest } from '@/types/leave';
+import { useBrandingStore } from '@/store/brandingStore';
+import { formatDate } from '@/utils/formatters';
 
-const PAGE_SIZE = 20;
+export default function PendingLeavesPage() {
+    const router = useRouter();
+    const t = useTranslations('pendingPage');
+    const tc = useTranslations('common');
 
-/**
- * The approval queue.
- *
- * Ordered oldest-first is not enough on its own: the row that matters is the one
- * that has been waiting, so a request older than two days carries a warning of
- * its own. Two days is the point at which an approval stops being "not yet" and
- * starts being "forgotten".
- *
- * Approving reports what it did with the attendance rows. A day the employee
- * already clocked keeps its own record, and the approver is TOLD — silently
- * skipping meant a day of approved leave had no ON_LEAVE row behind it and
- * nobody knew.
- */
-function PendingLeaveContent() {
-  const [page, setPage] = useState(1);
-  const [rejecting, setRejecting] = useState<LeaveRequest | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
+    // The one heading for this route, rendered by TopHeader.
+    usePageHeader(t('title'), t('subtitle'));
 
-  const query = useMemo(() => ({ page, limit: PAGE_SIZE }), [page]);
-  const { data, isLoading, isError, error } = usePendingLeaveRequests(query);
-  const stats = useLeaveStats();
+    const [requests, setRequests] = useState<LeaveRequest[]>([]);
+    const [loading, setLoading] = useState(true);
+    const { branding } = useBrandingStore();
+    const hierarchyEnabled = branding.leave_approval_hierarchy_enabled;
 
-  const approve = useApproveLeaveRequest();
-  const reject = useRejectLeaveRequest();
+    useEffect(() => {
+        fetchPendingRequests();
+    }, []);
 
-  const rows = data?.data ?? [];
+    const fetchPendingRequests = async () => {
+        try {
+            setLoading(true);
+            const response = await leaveService.getPending();
+            setRequests(response.data);
+        } catch (error) {
+            console.error('Failed to fetch pending requests:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-  usePageHeader(
-    'Pending leave',
-    stats.data ? `${stats.data.data.pending} waiting on a decision` : undefined,
-  );
+    const getLeaveTypeLabel = (type: string) => {
+        const labels: Record<string, string> = {
+            ANNUAL: tc('annualLeave'),
+            SICK: tc('sickLeave'),
+            UNPAID: tc('unpaidLeave'),
+            MATERNITY: tc('maternityLeave'),
+            PATERNITY: tc('paternityLeave'),
+            BEREAVEMENT: tc('bereavementLeave'),
+        };
+        return labels[type.toUpperCase()] || type;
+    };
 
-  const onApprove = async (request: LeaveRequest) => {
-    try {
-      const result = await approve.mutateAsync({ id: request.id });
-      // The server's own sentence, not a generic one: it is the only thing that
-      // knows how many days already had attendance.
-      toast.success(result.message);
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'The request could not be approved.'));
-    }
-  };
-
-  const onReject = async () => {
-    if (!rejecting) return;
-    try {
-      await reject.mutateAsync({ id: rejecting.id, comment: rejectReason });
-      toast.success('Leave rejected.');
-      setRejecting(null);
-      setRejectReason('');
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'The request could not be rejected.'));
-    }
-  };
-
-  if (isError) {
     return (
-      <Card className="p-6">
-        <p className="text-sm text-status-error">
-          {apiErrorMessage(error, 'The queue could not be loaded.')}
-        </p>
-      </Card>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      {isLoading ? (
-        <div className="space-y-3">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-28 animate-pulse rounded-[var(--radius-card)] bg-surface-border/60" />
-          ))}
-        </div>
-      ) : rows.length === 0 ? (
-        <Card>
-          <EmptyState
-            title="Nothing is waiting"
-            description="Every leave request has been decided."
-            action={
-              <Link href="/dashboard/leaves">
-                <Button variant="outline">See all requests</Button>
-              </Link>
-            }
-          />
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {rows.map((request) => {
-            const waiting = daysWaiting(request.createdAt);
-            return (
-              <Card key={request.id} className="p-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Link
-                        href={`/dashboard/leaves/${request.id}`}
-                        className="text-base font-semibold text-text-heading hover:text-brand-primary"
-                      >
-                        {request.employee ? fullName(request.employee) : 'Unknown employee'}
-                      </Link>
-                      <Badge tone="info">{request.leaveType}</Badge>
-                      {waiting >= 2 && (
-                        <Badge tone="warning">waiting {waiting} days</Badge>
-                      )}
-                    </div>
-
-                    <p className="mt-1 text-sm text-text-muted">
-                      {formatDateOnly(request.startDate)} –{' '}
-                      {formatDateOnly(request.endDate)} ·{' '}
-                      <span className="font-medium text-text-body">
-                        {formatDays(request.totalDays)}
-                      </span>
-                      {request.employee?.department
-                        ? ` · ${request.employee.department.name}`
-                        : ''}
-                    </p>
-
-                    <p className="mt-2 max-w-2xl whitespace-pre-wrap text-sm text-text-body">
-                      {request.reason}
-                    </p>
-                  </div>
-
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => void onApprove(request)}
-                      isLoading={approve.isPending}
-                    >
-                      <Check className="h-4 w-4" aria-hidden />
-                      Approve
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setRejecting(request);
-                        setRejectReason('');
-                      }}
-                    >
-                      <X className="h-4 w-4" aria-hidden />
-                      Reject
-                    </Button>
-                  </div>
-                </div>
-
-                {rejecting?.id === request.id && (
-                  <div className="mt-4 border-t border-surface-border-light pt-4">
-                    <Textarea
-                      label="Why it is being rejected"
-                      rows={2}
-                      value={rejectReason}
-                      onChange={(e) => setRejectReason(e.target.value)}
-                      // Required, and only here: the person who filed this is
-                      // owed a reason, and "Rejected" alone is the start of an
-                      // argument rather than the end of one.
-                      placeholder="Two people are already off that week"
+        <ProtectedRoute requiredPermission="VIEW_ALL_LEAVES">
+            <>
+                <div className="space-y-6">
+                    {/* Pending counter. The title/description live in the sticky
+                        TopHeader (declared via usePageHeader above). */}
+                    <PageActionRow
+                        action={
+                            <div className="flex items-center gap-2 px-4 py-2 bg-status-warning-bg border-2 border-status-warning/20 rounded-[--radius-card]">
+                                <Clock className="text-status-warning" size={20} />
+                                <span
+                                    data-testid="lvp-count"
+                                    data-count={requests.length}
+                                    className="font-bold text-status-warning"
+                                >
+                                    {t('pendingApprovalCount', { count: requests.length })}
+                                </span>
+                            </div>
+                        }
                     />
-                    <div className="mt-3 flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        disabled={rejectReason.trim().length < 3}
-                        isLoading={reject.isPending}
-                        onClick={() => void onReject()}
-                      >
-                        Confirm rejection
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setRejecting(null)}
-                      >
-                        Cancel
-                      </Button>
+
+                    {/* Pending Requests */}
+                    <div className="bg-surface-card rounded-[--radius-card] border border-surface-border">
+                        {loading ? (
+                            <div data-testid="lvp-loading" className="p-12 text-center">
+                                <div className="inline-block w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin"></div>
+                                <p className="text-text-muted mt-4">{tc('loading')}</p>
+                            </div>
+                        ) : requests.length === 0 ? (
+                            <div data-testid="lvp-empty" className="p-12 text-center">
+                                <CheckCircle className="w-16 h-16 text-status-success mx-auto mb-4" />
+                                <p className="text-text-muted text-lg">{t('noApprovalsPending')}</p>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead className="bg-surface-page border-b border-surface-border">
+                                        <tr>
+                                            <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                {tc('employee')}
+                                            </th>
+                                            <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                📎
+                                            </th>
+                                            <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                {tc('leaveTypeLabel')}
+                                            </th>
+                                            <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                {tc('startDate')}
+                                            </th>
+                                            <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                {tc('endDate')}
+                                            </th>
+                                            <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                {tc('totalDays')}
+                                            </th>
+                                            {hierarchyEnabled && (
+                                                <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                    {t('stageHeader')}
+                                                </th>
+                                            )}
+                                            <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                {tc('reason')}
+                                            </th>
+                                            <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                {t('creationDate')}
+                                            </th>
+                                            <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                {tc('actions')}
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-surface-border">
+                                        {requests.map((request, index) => {
+                                            const approvedTiers = request.approvals?.filter((a: any) => a.status === 'APPROVED').map((a: any) => a.tier) || [];
+                                            const nextTier = !approvedTiers.includes(1) ? 1 : !approvedTiers.includes(2) ? 2 : 3;
+                                            const stageNames = { 1: t('stageDeptHead'), 2: t('stageHrManager'), 3: t('stageAdmin') };
+
+                                            return (
+                                                <motion.tr
+                                                    key={request.id}
+                                                    data-testid="lvp-row"
+                                                    data-leave-id={request.id}
+                                                    data-total-days={request.totalDays}
+                                                    data-attachments={request.attachments?.length ?? 0}
+                                                    initial={{ opacity: 0 }}
+                                                    animate={{ opacity: 1 }}
+                                                    transition={{ delay: index * 0.05 }}
+                                                    className="hover:bg-surface-page transition-colors"
+                                                >
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-8 h-8 rounded-full bg-brand-primary-light/20 flex items-center justify-center text-brand-primary font-semibold text-xs">
+                                                                {request.employee?.fullName?.split(' ').map(n => n[0]).join('').slice(0, 2) || 'NA'}
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-sm font-medium text-text-heading">{request.employee?.fullName || tc('notAvailable')}</p>
+                                                                <p className="text-xs text-text-muted">{request.employee?.employeeCode || ''}</p>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        {request.attachments && request.attachments.length > 0 ? (
+                                                            <span data-testid="lvp-attachments" className="flex items-center text-text-muted" title={t('attachmentsCountTitle', { count: request.attachments.length })}>
+                                                                <Paperclip size={16} className="me-1 text-text-muted" />
+                                                                <span className="text-xs font-medium bg-surface-page px-1.5 py-0.5 rounded-full border border-surface-border">
+                                                                  {request.attachments.length}
+                                                                </span>
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-xs text-text-muted">-</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <span className="text-sm font-medium text-text-heading">
+                                                            {getLeaveTypeLabel(request.leaveType)}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm text-text-body">{formatDate(request.startDate)}</td>
+                                                    <td className="px-6 py-4 text-sm text-text-body">{formatDate(request.endDate)}</td>
+                                                    <td className="px-6 py-4">
+                                                        <span className="text-sm font-semibold text-brand-primary">{request.totalDays}</span>
+                                                    </td>
+                                                    {hierarchyEnabled && (
+                                                        <td className="px-6 py-4">
+                                                            <span
+                                                                data-testid="lvp-stage"
+                                                                data-tier={nextTier}
+                                                                className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-brand-primary-light/10 text-brand-primary border border-brand-primary/20"
+                                                            >
+                                                                {t('stageBadge', { tier: nextTier, stageName: stageNames[nextTier as 1 | 2 | 3] })}
+                                                            </span>
+                                                        </td>
+                                                    )}
+                                                    <td className="px-6 py-4">
+                                                        <p className="text-sm text-text-body line-clamp-1 max-w-xs">{request.reason}</p>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm text-text-muted">
+                                                        {formatDate(request.createdAt)}
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <button
+                                                            data-testid="lvp-open"
+                                                            onClick={() => router.push(`/dashboard/leaves/${request.id}`)}
+                                                            className="px-4 py-2 bg-brand-primary text-text-on-brand rounded-[--radius-button] hover:bg-brand-primary-dark transition-colors text-sm font-medium"
+                                                        >
+                                                            {t('viewAndBrowse')}
+                                                        </button>
+                                                    </td>
+                                                </motion.tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
-                  </div>
-                )}
-              </Card>
-            );
-          })}
-
-          <Card>
-            <Pagination meta={data?.meta} onPageChange={setPage} />
-          </Card>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default function PendingLeavePage() {
-  return (
-    <ProtectedRoute requiredRoles={['ADMIN', 'HR_MANAGER', 'MANAGER']}>
-      <PendingLeaveContent />
-    </ProtectedRoute>
-  );
+                </div>
+            </>
+        </ProtectedRoute>
+    );
 }

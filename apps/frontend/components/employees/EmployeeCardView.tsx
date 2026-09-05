@@ -1,102 +1,117 @@
 'use client';
 
-import Link from 'next/link';
-import { Building2, CalendarDays, Mail, MapPin } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
-import { formatDateOnly } from '@/utils/formatDate';
-import { fullName, initials } from '@/utils/formatters';
-import { EMPLOYEE_STATUS_TONE, employeeStatusLabel } from './employeeFacts';
-import type { Employee } from '@/types/employee';
+import { Employee } from '@/types/employee';
+import { Mail, Phone, Calendar, MapPin } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { formatDate } from '@/utils/formatters';
+import Avatar from '@/components/common/Avatar';
+import { useTranslations } from 'next-intl';
 
-/**
- * One person as a card.
- *
- * Initials rather than a photograph, which is what the record page already
- * draws: the avatar column holds a path served by the API, and a grid of
- * twenty broken images on a deployment that has never had one uploaded is
- * worse than no picture at all.
- *
- * The whole card is the link and the NAME appears exactly once inside it —
- * repeating it in a title attribute would turn "find the person called X" into
- * two hits for the same card.
- */
-function EmployeeCard({ employee }: { employee: Employee }) {
-  const placement = [employee.department?.name, employee.branch?.name].filter(Boolean);
-
-  return (
-    <Link
-      href={`/dashboard/employees/${employee.id}`}
-      data-testid={`employee-card-${employee.employeeCode}`}
-      className="surface-panel group flex h-full flex-col gap-4 rounded-[var(--radius-card)] p-5 transition-all"
-    >
-      <div className="flex items-start gap-3">
-        <span
-          aria-hidden
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-primary/10 text-sm font-semibold text-brand-primary transition-colors group-hover:bg-brand-primary group-hover:text-text-on-brand"
-        >
-          {initials(employee)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-base font-semibold text-text-heading transition-colors group-hover:text-brand-primary">
-            {fullName(employee)}
-          </h3>
-          <p className="mt-0.5 text-xs font-medium uppercase tracking-wide text-text-muted">
-            {employee.employeeCode}
-          </p>
-        </div>
-        <Badge tone={EMPLOYEE_STATUS_TONE[employee.status]}>
-          {employeeStatusLabel(employee.status)}
-        </Badge>
-      </div>
-
-      <p className="truncate text-sm text-text-body">
-        {employee.position ?? <span className="text-text-muted">No position recorded</span>}
-      </p>
-
-      <dl className="mt-auto space-y-2 border-t border-surface-border-light pt-3 text-sm">
-        <div className="flex items-center gap-1.5">
-          <dt className="sr-only">Placement</dt>
-          <Building2 className="h-4 w-4 shrink-0 text-text-muted" aria-hidden />
-          <dd className="truncate text-text-body">
-            {placement.length ? placement.join(' · ') : 'Unassigned'}
-          </dd>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <dt className="sr-only">Work email</dt>
-          <Mail className="h-4 w-4 shrink-0 text-text-muted" aria-hidden />
-          <dd className="truncate text-text-body">{employee.workEmail ?? '—'}</dd>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <dt className="sr-only">Hire date</dt>
-          <CalendarDays className="h-4 w-4 shrink-0 text-text-muted" aria-hidden />
-          {/* A hire date has no time of day; formatDateOnly is what keeps it
-              off the previous day for anyone west of Greenwich. */}
-          <dd className="truncate tabular-nums text-text-body">
-            {formatDateOnly(employee.hireDate)}
-          </dd>
-        </div>
-
-        {employee.supervisor && (
-          <div className="flex items-center gap-1.5">
-            <dt className="sr-only">Supervisor</dt>
-            <MapPin className="h-4 w-4 shrink-0 text-text-muted" aria-hidden />
-            <dd className="truncate text-text-body">
-              Signed off by {fullName(employee.supervisor)}
-            </dd>
-          </div>
-        )}
-      </dl>
-    </Link>
-  );
+interface EmployeeCardViewProps {
+  employees: Employee[];
+  onView: (id: string) => void;
 }
 
-export default function EmployeeCardView({ employees }: { employees: Employee[] }) {
+export default function EmployeeCardView({ employees, onView }: EmployeeCardViewProps) {
+  const t = useTranslations('employeeCardView');
+  const tc = useTranslations('common');
+
+  const getStatusColor = (status: string) => {
+    const colors = {
+      ACTIVE: 'bg-gradient-to-r from-green-400 to-emerald-500 text-white border-green-300 shadow-lg shadow-green-500/30',
+      ON_LEAVE: 'bg-gradient-to-r from-amber-400 to-orange-500 text-white border-amber-300 shadow-lg shadow-amber-500/30',
+      TERMINATED: 'bg-gradient-to-r from-red-400 to-rose-500 text-white border-red-300 shadow-lg shadow-red-500/30',
+    };
+    return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-700 border-gray-200';
+  };
+
+  const getStatusLabel = (status: string) => {
+    const labels = {
+      ACTIVE: tc('active'),
+      ON_LEAVE: tc('onLeaveStatus'),
+      TERMINATED: tc('terminated'),
+    };
+    return labels[status as keyof typeof labels] || status;
+  };
+
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {employees.map((employee) => (
-        <EmployeeCard key={employee.id} employee={employee} />
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      {employees.map((employee, index) => (
+        <motion.div
+          key={employee.id}
+          data-testid={`emp-card-${employee.employeeCode}`}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: index * 0.05 }}
+          onClick={() => onView(employee.id)}
+          className="bg-white rounded-2xl border-2 border-slate-200 hover:border-brand-primary hover:shadow-2xl hover:scale-105 transition-all duration-300 overflow-hidden cursor-pointer group"
+          title={t('clickToSeeDetails')}
+        >
+          {/* Card Header */}
+          <div className="relative h-28 bg-gradient-to-br from-brand-primary via-brand-primary to-indigo-600">
+            <div className="absolute inset-0 bg-black/10"></div>
+            <div className="absolute -bottom-12 start-4">
+              <div className="w-24 h-24 rounded-2xl border-4 border-white shadow-2xl overflow-hidden">
+                <Avatar 
+                  src={employee.avatarUrl}
+                  name={employee.fullName}
+                  alt={employee.fullName}
+                  className="w-full! h-full! rounded-none! border-0"
+                />
+              </div>
+            </div>
+            <div className="absolute top-3 end-3">
+              <span className={`px-3 py-1.5 rounded-full text-xs font-bold border-2 ${getStatusColor(employee.status)}`}>
+                {getStatusLabel(employee.status)}
+              </span>
+            </div>
+          </div>
+
+          {/* Card Body */}
+          <div className="pt-14 px-5 pb-5 space-y-3">
+            <div>
+              <h3 className="font-bold text-slate-900 text-lg truncate group-hover:text-brand-primary transition-colors">{employee.fullName}</h3>
+              <p className="text-sm text-brand-primary font-semibold">{employee.employeeCode}</p>
+            </div>
+
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2 text-slate-600">
+                <div className="w-5 h-5 flex items-center justify-center">
+                  <Mail size={14} />
+                </div>
+                <span className="truncate">{employee.email}</span>
+              </div>
+              
+              {employee.phone && (
+                <div className="flex items-center gap-2 text-slate-600">
+                  <div className="w-5 h-5 flex items-center justify-center">
+                    <Phone size={14} />
+                  </div>
+                  <span>{employee.phone}</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 text-slate-600">
+                <div className="w-5 h-5 flex items-center justify-center">
+                  <MapPin size={14} />
+                </div>
+                <span className="truncate">{employee.department?.name}</span>
+              </div>
+
+              <div className="flex items-center gap-2 text-slate-600">
+                <div className="w-5 h-5 flex items-center justify-center">
+                  <Calendar size={14} />
+                </div>
+                <span>{t('joinedOn', { date: formatDate(employee.startDate) })}</span>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100">
+              <p className="text-xs text-slate-500 font-medium mb-1">{tc('position')}</p>
+              <p className="text-sm font-semibold text-slate-700">{employee.position}</p>
+            </div>
+          </div>
+        </motion.div>
       ))}
     </div>
   );

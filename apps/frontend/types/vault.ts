@@ -13,24 +13,21 @@ export interface VaultItem {
   category: string;
   issueDate: string | null;
   expiryDate: string | null;
-  /** Days until it lapses; negative once it has. Null when it never expires. */
+  /** Negative once lapsed; null when it never expires. */
   daysUntilExpiry: number | null;
-  /** A URL anyone may open, or null when the file needs the download route. */
+  /** Null for private files — use the secure download route instead. */
   fileUrl: string | null;
-  /** The authenticated route: /secure-files/{secureKind}/{secureId}. */
   secureKind: string | null;
   secureId: string | null;
   source: string;
 }
 
-export interface VaultSummary {
-  total: number;
-  byKind: Partial<Record<VaultKind, number>>;
-  expiringSoon: number;
-  expired: number;
-}
-
 export interface VaultResponse {
   items: VaultItem[];
-  summary: VaultSummary;
+  summary: {
+    total: number;
+    byKind: Record<string, number>;
+    expiringSoon: number;
+    expired: number;
+  };
 }

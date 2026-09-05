@@ -79,7 +79,7 @@ export const emeraldTheme: ThemeConfig = {
   },
 
   brand: {
-    appName:    'People Pay 360',
+    appName:    'ESS Portal',
     faviconUrl: null,
   },
 };

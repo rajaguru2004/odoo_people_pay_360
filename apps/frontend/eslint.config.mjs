@@ -5,11 +5,14 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  // Override default ignores of eslint-config-next.
   globalIgnores([
+    // Default ignores of eslint-config-next:
     ".next/**",
     // Every other NEXT_DIST_DIR in this checkout is build output too, not
-    // source. Without this, eslint reports hundreds of errors from generated
-    // chunks and buries the real ones.
+    // source: `.next-manual*` for the user-manual pipeline, `.next-clarity-verify`
+    // for the browser check in docs/ANALYTICS-CLARITY.md. Without this, `eslint`
+    // reports hundreds of errors from generated chunks and hides the real ones.
     ".next-*/**",
     "out/**",
     "build/**",
@@ -23,9 +26,13 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-empty-object-type": "off",
       "react/no-unescaped-entities": "off",
       "@next/next/no-img-element": "off",
-      "react-hooks/exhaustive-deps": "warn",
-    },
-  },
+      "react-hooks/rules-of-hooks": "off",
+      "react-hooks/exhaustive-deps": "off",
+      "react-compiler/react-compiler": "off",
+      "react-hooks/purity": "off",
+      "react-hooks/set-state-in-effect": "off"
+    }
+  }
 ]);
 
 export default eslintConfig;

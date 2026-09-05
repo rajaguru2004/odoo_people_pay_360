@@ -1,120 +1,96 @@
 import axiosInstance from '@/lib/axios';
-import type { ApiResponse } from '@/types/api';
-import type {
-  ApprovedOvertimeHours,
-  ApproveOvertimePayload,
-  CreateOvertimePayload,
-  OvertimeListQuery,
-  OvertimeMonthlyReport,
-  OvertimePreview,
-  OvertimeRequest,
-  OvertimeStats,
+import { ApiResponse } from '@/types/api';
+import {
+  Overtime,
+  CreateOvertimeData,
+  RejectOvertimeData,
+  OvertimeReport,
+  ApproveOvertimeData,
+  OvertimeServerPreview,
 } from '@/types/overtime';
 
+interface QueryOvertimeParams {
+  status?: string;
+  employeeId?: string;
+  month?: number;
+  year?: number;
+  page?: number;
+  limit?: number;
+  search?: string;
+  startDate?: string;
+  endDate?: string;
+  otType?: string;
+}
+
 class OvertimeService {
-  list(query: OvertimeListQuery = {}): Promise<ApiResponse<OvertimeRequest[]>> {
-    return axiosInstance.get('/overtime', { params: query });
+  async getAll(params?: QueryOvertimeParams): Promise<ApiResponse<Overtime[]>> {
+    return axiosInstance.get('/overtime', { params });
   }
 
-  /**
-   * The caller's own overtime.
-   *
-   * A separate door from `list`: the workforce list answers by name and by pay,
-   * which is a management view, while an employee's own record is theirs.
-   */
-  mine(query: OvertimeListQuery = {}): Promise<ApiResponse<OvertimeRequest[]>> {
-    return axiosInstance.get('/overtime/my-requests', { params: query });
-  }
-
-  pending(query: OvertimeListQuery = {}): Promise<ApiResponse<OvertimeRequest[]>> {
-    return axiosInstance.get('/overtime/pending', { params: query });
-  }
-
-  stats(): Promise<ApiResponse<OvertimeStats>> {
-    return axiosInstance.get('/overtime/stats');
-  }
-
-  /** Carries the server's live payable breakdown in `preview`. */
-  get(id: string): Promise<ApiResponse<OvertimeRequest>> {
+  async getById(id: string): Promise<ApiResponse<Overtime>> {
     return axiosInstance.get(`/overtime/${id}`);
   }
 
-  forEmployee(
-    employeeId: string,
-    query: OvertimeListQuery = {},
-  ): Promise<ApiResponse<OvertimeRequest[]>> {
-    return axiosInstance.get(`/overtime/employee/${employeeId}`, {
-      params: query,
-    });
+  async getMyRequests(params?: QueryOvertimeParams): Promise<ApiResponse<Overtime[]>> {
+    return axiosInstance.get('/overtime/my-requests', { params });
   }
 
-  create(payload: CreateOvertimePayload): Promise<ApiResponse<OvertimeRequest>> {
-    return axiosInstance.post('/overtime', payload);
+  async getPending(): Promise<ApiResponse<Overtime[]>> {
+    return axiosInstance.get('/overtime/pending');
   }
 
-  /** Recording it for somebody else is an HR privilege: the hours become pay. */
-  createForEmployee(
-    employeeId: string,
-    payload: CreateOvertimePayload,
-  ): Promise<ApiResponse<OvertimeRequest>> {
-    return axiosInstance.post(`/overtime/employee/${employeeId}`, payload);
+  async getByEmployee(employeeId: string): Promise<ApiResponse<Overtime[]>> {
+    return axiosInstance.get(`/overtime/employee/${employeeId}`);
   }
 
-  /**
-   * Approve, optionally with corrections.
-   *
-   * A bodyless call means "approve exactly as filed". Any field present makes it
-   * an edit, which is written BEFORE the decision so the approval prices the
-   * corrected window.
-   */
-  approve(
-    id: string,
-    payload?: ApproveOvertimePayload,
-  ): Promise<ApiResponse<OvertimeRequest>> {
-    return axiosInstance.post(`/overtime/${id}/approve`, payload ?? {});
+  async create(data: CreateOvertimeData): Promise<ApiResponse<Overtime>> {
+    return axiosInstance.post('/overtime', data);
+  }
+
+  async createForEmployee(employeeId: string, data: CreateOvertimeData): Promise<ApiResponse<Overtime>> {
+    return axiosInstance.post(`/overtime/employee/${employeeId}`, data);
   }
 
   /**
-   * Dry-run a correction. Writes nothing.
-   *
-   * The browser cannot answer this itself: the figure depends on the employee's
-   * policy and on the branch calendar. An approver about to change the money has
-   * to see the real number before they commit to it.
+   * `data` carries an approver's corrections. Omitted entirely, this is the
+   * plain "approve as filed" the inbox's fast path sends.
    */
-  previewEdit(
+  async approve(
     id: string,
-    payload: ApproveOvertimePayload,
-  ): Promise<ApiResponse<OvertimePreview>> {
-    return axiosInstance.post(`/overtime/${id}/edit-preview`, payload);
+    data?: ApproveOvertimeData,
+  ): Promise<ApiResponse<Overtime>> {
+    return axiosInstance.post(`/overtime/${id}/approve`, data);
   }
 
-  reject(
+  /**
+   * Dry run: what those corrections WOULD produce. Writes nothing.
+   *
+   * Server-side rather than a local recompute because the browser can only see
+   * the global settings — not the employee's Overtime Policy, and not the
+   * branch-aware rest-day/holiday classification. Reproducing the split here
+   * would show an approver a figure the payslip then disagrees with.
+   */
+  async editPreview(
     id: string,
-    rejectedReason: string,
-  ): Promise<ApiResponse<OvertimeRequest>> {
-    return axiosInstance.post(`/overtime/${id}/reject`, { rejectedReason });
+    data: ApproveOvertimeData,
+  ): Promise<ApiResponse<OvertimeServerPreview>> {
+    return axiosInstance.post(`/overtime/${id}/edit-preview`, data);
   }
 
-  cancel(id: string): Promise<ApiResponse<OvertimeRequest>> {
+  async reject(id: string, data: RejectOvertimeData): Promise<ApiResponse<Overtime>> {
+    return axiosInstance.post(`/overtime/${id}/reject`, data);
+  }
+
+  async cancel(id: string): Promise<ApiResponse<void>> {
     return axiosInstance.delete(`/overtime/${id}`);
   }
 
-  report(
-    year: number,
-    month: number,
-  ): Promise<ApiResponse<OvertimeMonthlyReport>> {
-    return axiosInstance.get(`/overtime/report/${year}/${month}`);
+  async getApprovedHours(employeeId: string, month: number, year: number): Promise<ApiResponse<{ totalHours: number }>> {
+    return axiosInstance.get(`/overtime/employee/${employeeId}/hours/${month}/${year}`);
   }
 
-  /** The four payable buckets for one employee-month — what payroll reads. */
-  approvedHours(
-    employeeId: string,
-    year: number,
-    month: number,
-  ): Promise<ApiResponse<ApprovedOvertimeHours>> {
-    return axiosInstance.get(
-      `/overtime/employee/${employeeId}/hours/${year}/${month}`,
-    );
+  async getMonthlyReport(month: number, year: number): Promise<ApiResponse<OvertimeReport>> {
+    return axiosInstance.get(`/overtime/report/${month}/${year}`);
   }
 }
 

@@ -1,28 +1,52 @@
 import axiosInstance from '@/lib/axios';
 import { ApiResponse } from '@/types/api';
-import type { Holiday } from '@/types/holiday';
+import {
+  Holiday,
+  CreateHolidayData,
+  UpdateHolidayData,
+  CopyYearData,
+  CopyYearResult,
+  WorkDaysCalculation,
+} from '@/types/holiday';
+
+interface QueryHolidayParams {
+  year?: number;
+  branchId?: string;
+}
 
 class HolidayService {
-  /** Company-wide rows plus the branch's own; a branch row wins on a shared date. */
-  list(
-    params: { year?: number; branchId?: string } = {},
-  ): Promise<ApiResponse<Holiday[]>> {
+  async getAll(params?: QueryHolidayParams): Promise<ApiResponse<Holiday[]>> {
     return axiosInstance.get('/holidays', { params });
   }
 
-  create(
-    payload: Pick<Holiday, 'name' | 'date'> &
-      Partial<Pick<Holiday, 'branchId' | 'isRecurring' | 'description'>>,
-  ): Promise<ApiResponse<Holiday>> {
-    return axiosInstance.post('/holidays', payload);
+  async getById(id: string): Promise<ApiResponse<Holiday>> {
+    return axiosInstance.get(`/holidays/${id}`);
   }
 
-  update(id: string, payload: Partial<Holiday>): Promise<ApiResponse<Holiday>> {
-    return axiosInstance.patch(`/holidays/${id}`, payload);
+  async create(data: CreateHolidayData): Promise<ApiResponse<Holiday>> {
+    return axiosInstance.post('/holidays', data);
   }
 
-  remove(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
+  async update(id: string, data: UpdateHolidayData): Promise<ApiResponse<Holiday>> {
+    return axiosInstance.patch(`/holidays/${id}`, data);
+  }
+
+  async delete(id: string): Promise<ApiResponse<void>> {
     return axiosInstance.delete(`/holidays/${id}`);
+  }
+
+  async copyYear(data: CopyYearData): Promise<ApiResponse<CopyYearResult>> {
+    return axiosInstance.post('/holidays/copy-year', data);
+  }
+
+  async calculateWorkDays(
+    month: number,
+    year: number,
+    branchId?: string,
+  ): Promise<ApiResponse<WorkDaysCalculation>> {
+    return axiosInstance.get(`/holidays/work-days/${month}/${year}`, {
+      params: branchId ? { branchId } : undefined,
+    });
   }
 }
 

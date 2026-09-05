@@ -1,143 +1,250 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderWithProviders, screen } from '@/test/utils';
-import { useAuthStore } from '@/store/authStore';
-import type { UserRole } from '@/types/auth';
-import type { PublicBranding } from '@/types/settings';
-
-const BRANDING: PublicBranding = {
-  company_name: 'People Pay 360',
-  company_short_name: 'PP360',
-  primary_color: '#00358F',
-  accent_color: '#f66600',
-  default_currency: 'OMR',
-  default_timezone: 'Asia/Muscat',
-};
-
-const ADMIN_SETTINGS: Record<string, string> = {
-  ...BRANDING,
-  attendance_office_start: '08:00',
-  attendance_office_end: '17:00',
-  attendance_grace_minutes: '15',
-  attendance_weekly_off_days: '5,6',
-  attendance_half_day_threshold: '0.5',
-  attendance_day_end: '20:00',
-  attendance_geofence_default_radius_m: '150',
-  contract_expiry_alert_days: '60',
-  probation_alert_days: '30',
-  visa_expiry_alert_days: '30',
-  default_notice_period_days: '30',
-  default_annual_leave_days: '30',
-};
-
-const settingsCalls = vi.hoisted(() => ({ getAll: vi.fn(), update: vi.fn() }));
-
-vi.mock('@/services/settingsService', () => ({
-  default: {
-    getPublic: () => Promise.resolve({ success: true, data: BRANDING }),
-    getAll: settingsCalls.getAll,
-    update: settingsCalls.update,
-  },
-}));
-
-// The tabs a non-admin never opens still mount their hooks through this module
-// tree, so the services they reach for are stubbed rather than left to 404.
-vi.mock('@/services/libraryItemService', () => ({
-  default: {
-    list: () => Promise.resolve({ success: true, data: [] }),
-    create: vi.fn(),
-    update: vi.fn(),
-    deactivate: vi.fn(),
-    seedDefaults: vi.fn(),
-  },
-}));
-
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { renderWithProviders, screen, waitFor } from '@/test/render';
+import userEvent from '@testing-library/user-event';
 import SettingsPage from './page';
 
-function signInAs(role: UserRole) {
-  useAuthStore.setState({
-    user: { id: 'u1', email: `${role.toLowerCase()}@peoplepay360.com`, role, isActive: true },
-    isAuthenticated: true,
-    isLoading: false,
-    hasHydrated: true,
-  });
+/**
+ * What the Save button is allowed to put in the payload.
+ *
+ * Regression cover for a production outage. `POST /system-settings` refuses the
+ * WHOLE payload if it carries even one developer-owned key (`mail_*`) while the
+ * session is not elevated — so an admin saving Branding got
+ * `403 You do not have access to this resource`, and could not change ANY
+ * setting on any tab. This screen caused it by resubmitting its entire form
+ * state on every Save, `mail_*` included, even though it hides the SMTP card.
+ *
+ * The second failure is the quieter one and is why the gate is not simply "hide
+ * the card". The unelevated GET STRIPS `mail_*`, so local state holds empty
+ * strings for them. Had the payload been accepted it would have written those
+ * blanks over live SMTP config and silently killed transactional email.
+ *
+ * The gate deliberately keys off what the SERVER returned rather than the
+ * client's `devElevated`: elevation is inferred as `enforced ? hasLiveToken :
+ * true`, and `enforced` defaults to false and STAYS false when the dev-mode
+ * status probe fails — so a failed probe reads as elevated. The last test pins
+ * exactly that case, because it is the one that would put the outage back.
+ */
+
+vi.mock('sonner', () => ({
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
+
+vi.mock('@/services/systemSettingsService', () => ({
+  default: {
+    getAll: vi.fn(),
+    getPublic: vi.fn().mockResolvedValue({ success: true, data: {} }),
+    update: vi.fn().mockResolvedValue({ success: true }),
+    applyPreset: vi.fn(),
+    resetDatabase: vi.fn(),
+  },
+  CountryPreset: {},
+}));
+
+vi.mock('@/services/devModeService', () => ({
+  default: {
+    status: vi.fn(),
+    elevate: vi.fn(),
+    revoke: vi.fn(),
+  },
+}));
+
+// Everything below is a side panel on other tabs; each one fetches on mount and
+// none of it participates in the payload under test.
+vi.mock('@/services/libraryService', () => ({
+  default: { getAll: vi.fn().mockResolvedValue({ success: true, data: [] }), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+}));
+vi.mock('@/services/employeeService', () => ({
+  default: { update: vi.fn().mockResolvedValue({ success: true }) },
+}));
+vi.mock('@/services/authService', () => ({
+  default: { changePassword: vi.fn() },
+}));
+vi.mock('@/lib/axios', () => ({
+  default: { get: vi.fn().mockResolvedValue({ data: { success: true, data: [] } }), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+}));
+vi.mock('@/components/holidays/HolidaysManager', () => ({ default: () => null }));
+vi.mock('@/components/settings/CopilotSettingsSection', () => ({ default: () => null }));
+// Rendered as markers rather than null: the Messages tab has to be shown to
+// hold BOTH channels, and a null mock cannot tell the two apart.
+vi.mock('@/components/settings/WhatsAppSettingsSection', () => ({
+  default: () => <div>WhatsApp panel</div>,
+}));
+vi.mock('@/components/settings/TelegramSettingsSection', () => ({
+  default: () => <div>Telegram panel</div>,
+}));
+vi.mock('@/components/settings/SupervisorHierarchySection', () => ({ default: () => null }));
+vi.mock('@/components/settings/OvertimePolicySection', () => ({ default: () => null }));
+vi.mock('@/components/settings/EmployeeTemplateSection', () => ({ default: () => null }));
+vi.mock('@/components/settings/AttendanceIntegrationsSection', () => ({ default: () => null }));
+vi.mock('@/components/settings/WpsSection', () => ({ default: () => null }));
+vi.mock('@/components/dev-mode/DevModeToggle', () => ({ default: () => null }));
+
+import systemSettingsService from '@/services/systemSettingsService';
+import devModeService from '@/services/devModeService';
+import { useDevModeStore } from '@/store/devModeStore';
+
+const getAll = vi.mocked(systemSettingsService.getAll);
+const update = vi.mocked(systemSettingsService.update);
+const devStatus = vi.mocked(devModeService.status);
+
+/** The eight developer-owned keys the settings form holds state for. */
+const MAIL_KEYS = [
+  'mail_enabled', 'mail_host', 'mail_port', 'mail_user',
+  'mail_password', 'mail_from', 'mail_from_name', 'mail_bcc',
+];
+
+const TENANT_ROWS = [
+  { key: 'company_name', value: 'Acme' },
+  { key: 'company_subtitle', value: 'Acme HR' },
+  { key: 'payroll_currency', value: 'INR' },
+];
+
+/** getSettingsList() is a static registry, so a real elevated response carries
+ *  every mail_* row — blank when SMTP has never been configured. */
+const MAIL_ROWS = [
+  { key: 'mail_enabled', value: 'true' },
+  { key: 'mail_host', value: 'smtp.acme.test' },
+  { key: 'mail_port', value: '587' },
+  { key: 'mail_user', value: 'hr@acme.test' },
+  { key: 'mail_password', value: 'super-secret' },
+  { key: 'mail_from', value: 'noreply@acme.test' },
+  { key: 'mail_from_name', value: 'Acme HR' },
+  { key: 'mail_bcc', value: '' },
+];
+
+function respondWith(rows: { key: string; value: string }[]) {
+  getAll.mockResolvedValue({ success: true, data: rows } as any);
 }
 
-beforeEach(() => {
-  settingsCalls.getAll.mockReset();
-  settingsCalls.getAll.mockResolvedValue({ success: true, data: ADMIN_SETTINGS });
-  settingsCalls.update.mockReset();
-  settingsCalls.update.mockResolvedValue({ success: true, data: ADMIN_SETTINGS });
+/**
+ * Opens a settings tab, clicks Save, and returns the payload that reached the
+ * service. The tab matters: `handleSave` only POSTs settings from the tabs that
+ * own them, and the page opens on 'general' (personal preferences), which does
+ * not.
+ */
+async function save(tab = 'system'): Promise<Record<string, string>> {
+  await userEvent.click(await screen.findByTestId(`settings-tab-${tab}`));
+  const button = await screen.findByRole('button', { name: /save/i });
+  await userEvent.click(button);
+  await waitFor(() => expect(update).toHaveBeenCalled());
+  return update.mock.calls[0][0] as Record<string, string>;
+}
+
+describe('Settings page — developer-key write gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useDevModeStore.setState({
+      devToken: null, expiresAt: null, available: false, enforced: false, checked: false,
+    });
+    devStatus.mockResolvedValue({ data: { available: true, enforced: true } } as any);
+  });
+
+  it('omits every mail_* key when the server withheld them', async () => {
+    respondWith(TENANT_ROWS);
+    renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
+    await waitFor(() => expect(getAll).toHaveBeenCalled());
+
+    const payload = await save();
+
+    for (const key of MAIL_KEYS) expect(payload).not.toHaveProperty(key);
+  });
+
+  it('still saves the tenant settings the admin actually came to change', async () => {
+    respondWith(TENANT_ROWS);
+    renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
+    await waitFor(() => expect(getAll).toHaveBeenCalled());
+
+    const payload = await save();
+
+    // The point of the fix: the unrelated save goes through rather than 403ing.
+    expect(payload.company_name).toBe('Acme');
+    expect(Object.keys(payload).length).toBeGreaterThan(20);
+  });
+
+  it('writes mail_* back unchanged when the server did return them', async () => {
+    respondWith([...TENANT_ROWS, ...MAIL_ROWS]);
+    useDevModeStore.setState({ devToken: 't', expiresAt: Date.now() + 600_000 });
+    renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
+    await waitFor(() => expect(getAll).toHaveBeenCalled());
+
+    const payload = await save();
+
+    expect(payload.mail_host).toBe('smtp.acme.test');
+    expect(payload.mail_password).toBe('super-secret');
+    expect(payload.mail_enabled).toBe('true');
+  });
+
+  it('does not blank live SMTP config when the dev-mode probe fails', async () => {
+    // The probe failing leaves `enforced: false`, which makes `devElevated`
+    // read TRUE for an admin. A gate built on that flag would send the eight
+    // blanks here and put the 403 — and the config wipe — straight back.
+    respondWith(TENANT_ROWS);
+    devStatus.mockRejectedValue(new Error('network'));
+    renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
+    await waitFor(() => expect(getAll).toHaveBeenCalled());
+
+    const payload = await save();
+
+    for (const key of MAIL_KEYS) expect(payload).not.toHaveProperty(key);
+  });
 });
 
-describe('Settings', () => {
-  it('offers an administrator every configurable section', async () => {
-    signInAs('ADMIN');
-    renderWithProviders(<SettingsPage />);
-
-    const nav = await screen.findByRole('navigation', { name: 'Settings sections' });
-    for (const label of [
-      'Preferences',
-      'Branding',
-      'Attendance',
-      'People',
-      'Overtime policies',
-      'Supervisors',
-      'Libraries',
-    ]) {
-      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
-    }
-    expect(nav).toBeInTheDocument();
+/**
+ * The messaging tab.
+ *
+ * It was called "WhatsApp" while WhatsApp was the only channel. Telegram
+ * delivers the same HR updates through the same template allowlist, so an admin
+ * switching an update off expects it off everywhere — two vendor-named tabs
+ * would have made that two screens and invited them to drift.
+ */
+describe('Settings page — Messages tab', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    respondWith(TENANT_ROWS);
+    devStatus.mockResolvedValue({ data: { available: true, enforced: true } } as any);
+    useDevModeStore.setState({
+      devToken: 't',
+      expiresAt: Date.now() + 600_000,
+      available: true,
+      enforced: true,
+      checked: true,
+    });
   });
 
-  /**
-   * The decision this screen turns on. The rail offers Settings to every role,
-   * but `GET /system-settings` is ADMIN only — so an employee gets the panel
-   * that reads the public branding endpoint instead of a route that 403s.
-   */
-  it('gives an employee the readable panel and no company configuration', async () => {
-    signInAs('EMPLOYEE');
-    renderWithProviders(<SettingsPage />);
+  it('is labelled "Messages", not after any one vendor', async () => {
+    renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
+    await waitFor(() => expect(getAll).toHaveBeenCalled());
 
-    expect(await screen.findByText('Your account')).toBeInTheDocument();
-    expect(screen.getByText('Company profile')).toBeInTheDocument();
-
-    expect(screen.queryByRole('button', { name: 'Branding' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Libraries' })).not.toBeInTheDocument();
-    // A single tab is a rail with nothing to choose between, so it is not drawn.
-    expect(
-      screen.queryByRole('navigation', { name: 'Settings sections' }),
-    ).not.toBeInTheDocument();
+    expect(await screen.findByTestId('settings-tab-messages')).toHaveTextContent('Messages');
+    expect(screen.queryByTestId('settings-tab-whatsapp')).toBeNull();
   });
 
-  it('never asks for the admin-only settings map on behalf of a non-admin', async () => {
-    signInAs('EMPLOYEE');
-    renderWithProviders(<SettingsPage />);
+  it('holds both channels on the one tab', async () => {
+    renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
+    await waitFor(() => expect(getAll).toHaveBeenCalled());
 
-    await screen.findByText('Your account');
-    expect(settingsCalls.getAll).not.toHaveBeenCalled();
+    await userEvent.click(await screen.findByTestId('settings-tab-messages'));
+
+    expect(await screen.findByText('WhatsApp panel')).toBeInTheDocument();
+    expect(await screen.findByText('Telegram panel')).toBeInTheDocument();
   });
 
-  /**
-   * An HR manager may assign supervisors and read the overtime policies — both
-   * routes accept their role — but every settings-map route refuses them, so
-   * those tabs stay out of their rail.
-   */
-  it('gives HR the two sections its role can actually reach', async () => {
-    signInAs('HR_MANAGER');
-    renderWithProviders(<SettingsPage />);
+  it('offers no footer save bar — each channel saves through its own controls', async () => {
+    // `messages` is in SELF_SAVING_TABS. Without that the footer renders and
+    // handleSave does nothing except report success.
+    renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
+    await waitFor(() => expect(getAll).toHaveBeenCalled());
 
-    await screen.findByRole('navigation', { name: 'Settings sections' });
-    expect(screen.getByRole('button', { name: 'Supervisors' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Overtime policies' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Attendance' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'People' })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByTestId('settings-tab-messages'));
+
+    expect(screen.queryByRole('button', { name: /^save changes$/i })).toBeNull();
   });
 
-  it('paints no heading of its own — the shell draws one from usePageHeader', async () => {
-    signInAs('ADMIN');
-    renderWithProviders(<SettingsPage />);
+  it('hides the tab entirely from an admin who has not unlocked developer mode', async () => {
+    useDevModeStore.setState({ devToken: null, expiresAt: null, enforced: true, available: true, checked: true });
+    renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
+    await waitFor(() => expect(getAll).toHaveBeenCalled());
 
-    await screen.findByRole('navigation', { name: 'Settings sections' });
-    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('settings-tab-messages')).toBeNull();
   });
 });

@@ -1,454 +1,393 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { Search, CheckCircle, AlertTriangle, XCircle, RefreshCw } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import visaService from '@/services/visaService';
+import libraryService from '@/services/libraryService';
 import {
-  AlertTriangle,
-  CheckCircle2,
-  IdCard,
-  RefreshCw,
-  Search,
-  XCircle,
-} from 'lucide-react';
-import { toast } from 'sonner';
+  VisaRecord,
+  VisaSummary,
+  VisaStatus,
+  VISA_STATUS_LABEL_KEYS,
+  VISA_STATUS_CLASSES,
+  VISA_EXPIRING_SOON_CLASS,
+} from '@/types/visa';
+import { formatDate } from '@/utils/formatters';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { EmptyState } from '@/components/common/EmptyState';
-import { Pagination } from '@/components/common/Pagination';
-import { StatCard } from '@/components/common/StatCard';
-import { useDebounce } from '@/hooks/useDebounce';
+import Pagination from '@/components/common/Pagination';
+import ExportButton from '@/components/common/ExportButton';
+import PageActionRow from '@/components/common/PageActionRow';
 import { usePageHeader } from '@/hooks/usePageHeader';
-import { useCancelVisa, useRenewVisa, useVisaSummary, useVisas } from '@/hooks/useVisas';
-import { apiErrorMessage } from '@/utils/apiError';
-import { expiryLabel, expiryTone } from '@/utils/contractExpiry';
-import { formatDateOnly } from '@/utils/formatDate';
-import { fullName } from '@/utils/formatters';
-import type {
-  LegalDocument,
-  LegalDocumentListQuery,
-  LegalDocumentStatus,
-} from '@/types/legalDocument';
 
-const STATUS_TONE: Record<LegalDocumentStatus, 'success' | 'warning' | 'error' | 'neutral'> = {
-  ACTIVE: 'success',
-  EXPIRED: 'error',
-  RENEWED: 'neutral',
-  CANCELLED: 'neutral',
-};
+const LIMIT_DEFAULT = 20;
 
-const STATUS_OPTIONS: LegalDocumentStatus[] = ['ACTIVE', 'EXPIRED', 'RENEWED', 'CANCELLED'];
+function VisaReportsContent() {
+  const t = useTranslations('visas');
+  const router = useRouter();
 
-/** The windows a compliance officer actually works to. */
-const EXPIRY_WINDOWS = [7, 15, 30, 60, 90];
+  // The one heading for this route, rendered by TopHeader.
+  usePageHeader(t('reportsTitle'), t('reportsSubtitle'));
 
-const PAGE_SIZE = 20;
+  const [visas, setVisas] = useState<VisaRecord[]>([]);
+  const [summary, setSummary] = useState<VisaSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [visaTypes, setVisaTypes] = useState<string[]>([]);
 
-function humanise(value: string) {
-  return value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, ' ');
-}
-
-/**
- * Renewal, which creates a SUCCESSOR rather than editing the permit in place.
- *
- * The old document stays on file pointing at the new one. A permit's history is
- * what an audit asks for, and overwriting the dates would leave the record
- * saying the person was always compliant.
- */
-function RenewDialog({
-  permit,
-  busy,
-  onConfirm,
-  onCancel,
-}: {
-  permit: LegalDocument;
-  busy: boolean;
-  onConfirm: (values: { documentNumber: string; issueDate: string; expiryDate: string }) => void;
-  onCancel: () => void;
-}) {
-  const [documentNumber, setDocumentNumber] = useState(permit.documentNumber);
-  const [issueDate, setIssueDate] = useState('');
-  const [expiryDate, setExpiryDate] = useState('');
-
-  const invalid = !issueDate || !expiryDate || expiryDate <= issueDate;
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="renew-permit-title"
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
-    >
-      <div className="w-full max-w-md rounded-[var(--radius-card)] bg-surface-overlay p-6 shadow-2xl">
-        <h2 id="renew-permit-title" className="text-lg font-semibold text-text-heading">
-          Renew this permit
-        </h2>
-        <p className="mt-2 text-sm text-text-muted">
-          {permit.documentNumber} stays on file as history and the new document takes its place as
-          the current one.
-        </p>
-
-        <div className="mt-4 space-y-4">
-          <Input
-            label="New document number"
-            value={documentNumber}
-            onChange={(event) => setDocumentNumber(event.target.value)}
-          />
-          <Input
-            type="date"
-            label="New issue date"
-            value={issueDate}
-            onChange={(event) => setIssueDate(event.target.value)}
-          />
-          <Input
-            type="date"
-            label="New expiry date"
-            value={expiryDate}
-            onChange={(event) => setExpiryDate(event.target.value)}
-            error={
-              issueDate && expiryDate && expiryDate <= issueDate
-                ? 'The expiry has to fall after the issue date'
-                : undefined
-            }
-          />
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
-          <Button variant="outline" onClick={onCancel} disabled={busy}>
-            Cancel
-          </Button>
-          <Button
-            isLoading={busy}
-            disabled={invalid || !documentNumber.trim()}
-            onClick={() => onConfirm({ documentNumber: documentNumber.trim(), issueDate, expiryDate })}
-          >
-            Record the renewal
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function VisaReports() {
-  const [search, setSearch] = useState('');
+  // Filters
   const [status, setStatus] = useState('');
-  const [expiringWithin, setExpiringWithin] = useState('');
+  const [country, setCountry] = useState('');
+  const [documentType, setDocumentType] = useState('');
+  const [expiringInDays, setExpiringInDays] = useState('');
+  const [search, setSearch] = useState('');
+
+  // Pagination
   const [page, setPage] = useState(1);
-  const [renewing, setRenewing] = useState<LegalDocument | null>(null);
-  const [cancelling, setCancelling] = useState<LegalDocument | null>(null);
+  const [limit, setLimit] = useState(LIMIT_DEFAULT);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
-  const debouncedSearch = useDebounce(search, 300);
+  const fetchSummary = useCallback(async () => {
+    try {
+      const res = await visaService.getSummary();
+      if (res?.success) setSummary(res.data);
+    } catch (error) {
+      console.error('Failed to fetch visa summary:', error);
+    }
+  }, []);
 
-  // Narrowing the list resets the page in the same handler. Left to an effect,
-  // the reader sees page 4 of the shorter result — an empty table that reads as
-  // "no matches" — before it corrects itself.
-  const narrow = (apply: () => void) => {
-    apply();
+  const fetchVisas = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await visaService.getAll({
+        status: status || undefined,
+        country: country || undefined,
+        documentType: documentType || undefined,
+        expiringInDays: expiringInDays ? Number(expiringInDays) : undefined,
+        search: search || undefined,
+        page,
+        limit,
+      });
+      if (res?.success) {
+        setVisas(res.data || []);
+        setTotal(res.meta?.total || 0);
+        setTotalPages(res.meta?.totalPages || 1);
+      }
+    } catch (error) {
+      console.error('Failed to fetch visas:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [status, country, documentType, expiringInDays, search, page, limit]);
+
+  useEffect(() => {
+    fetchSummary();
+  }, [fetchSummary]);
+
+  useEffect(() => {
+    fetchVisas();
+  }, [fetchVisas]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await libraryService.getAll('VISA_TYPE', true);
+        if (res?.success) setVisaTypes(res.data.map((i) => i.label));
+      } catch {
+        /* non-fatal */
+      }
+    })();
+  }, []);
+
+  const statusBadge = (visa: VisaRecord) => {
+    const expSoon = visa.status === 'ACTIVE' && visa.isExpiringSoon;
+    const cls = expSoon
+      ? VISA_EXPIRING_SOON_CLASS
+      : VISA_STATUS_CLASSES[visa.status as VisaStatus] || VISA_STATUS_CLASSES.CANCELLED;
+    const label = expSoon
+      ? t('statusExpiringSoon')
+      : t(VISA_STATUS_LABEL_KEYS[visa.status as VisaStatus] || 'statusCancelled');
+    return (
+      <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${cls}`}>
+        {label}
+      </span>
+    );
+  };
+
+  const handleExport = async () => {
+    // Export the full filtered set (not just the current page).
+    const res = await visaService.getAll({
+      status: status || undefined,
+      country: country || undefined,
+      documentType: documentType || undefined,
+      expiringInDays: expiringInDays ? Number(expiringInDays) : undefined,
+      search: search || undefined,
+      page: 1,
+      limit: 100,
+    });
+    const rows: (string | number)[][] = [
+      [
+        t('employee'),
+        t('department'),
+        t('visaNumber'),
+        t('visaType'),
+        t('country'),
+        t('issueDate'),
+        t('expiryDate'),
+        t('daysRemaining'),
+        t('status'),
+      ],
+    ];
+    let items = res?.data || [];
+    if ((res?.meta?.totalPages || 1) > 1) {
+      for (let p = 2; p <= (res.meta.totalPages || 1); p++) {
+        const next = await visaService.getAll({
+          status: status || undefined,
+          country: country || undefined,
+          documentType: documentType || undefined,
+          expiringInDays: expiringInDays ? Number(expiringInDays) : undefined,
+          search: search || undefined,
+          page: p,
+          limit: 100,
+        });
+        items = items.concat(next?.data || []);
+      }
+    }
+    for (const v of items) {
+      rows.push([
+        v.employee?.fullName || '',
+        v.employee?.department?.name || '',
+        v.documentNumber,
+        v.documentType,
+        v.country,
+        formatDate(v.issueDate),
+        formatDate(v.expiryDate),
+        v.status === 'ACTIVE' ? v.daysUntilExpiry : '',
+        v.status === 'ACTIVE' && v.isExpiringSoon ? 'EXPIRING_SOON' : v.status,
+      ]);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Visas');
+    XLSX.writeFile(wb, `Visa_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const summaryCards = [
+    {
+      key: 'active',
+      label: t('summaryActive'),
+      value: summary?.active ?? '—',
+      icon: CheckCircle,
+      cls: 'text-status-success bg-status-success-bg',
+    },
+    {
+      key: 'expiring',
+      label: t('summaryExpiringSoon'),
+      value: summary?.expiringSoon ?? '—',
+      icon: AlertTriangle,
+      cls: 'text-status-warning bg-status-warning-bg',
+    },
+    {
+      key: 'expired',
+      label: t('summaryExpired'),
+      value: summary?.expired ?? '—',
+      icon: XCircle,
+      cls: 'text-status-error bg-status-error-bg',
+    },
+    {
+      label: t('summaryRenewedThisYear'),
+      value: summary?.renewedThisYear ?? '—',
+      icon: RefreshCw,
+      cls: 'text-status-info bg-status-info-bg',
+    },
+  ];
+
+  const resetPageAnd = <T,>(setter: (v: T) => void) => (v: T) => {
     setPage(1);
-  };
-
-  const query = useMemo<LegalDocumentListQuery>(
-    () => ({
-      page,
-      limit: PAGE_SIZE,
-      search: debouncedSearch || undefined,
-      status: (status || undefined) as LegalDocumentStatus | undefined,
-      expiringWithinDays: expiringWithin ? Number(expiringWithin) : undefined,
-    }),
-    [page, debouncedSearch, status, expiringWithin],
-  );
-
-  const { data, isLoading, isError } = useVisas(query);
-  const summaryQuery = useVisaSummary();
-  const renewVisa = useRenewVisa();
-  const cancelVisa = useCancelVisa();
-
-  const permits = data?.data ?? [];
-  const summary = summaryQuery.data?.data;
-  const total = data?.meta?.total;
-
-  usePageHeader(
-    'Visa reports',
-    total === undefined ? undefined : `${total} permit${total === 1 ? '' : 's'}`,
-  );
-
-  const filtered = Boolean(debouncedSearch || status || expiringWithin);
-
-  const handleRenew = async (values: {
-    documentNumber: string;
-    issueDate: string;
-    expiryDate: string;
-  }) => {
-    if (!renewing) return;
-    try {
-      await renewVisa.mutateAsync({ id: renewing.id, payload: values });
-      toast.success('Renewal recorded');
-      setRenewing(null);
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not record that renewal'));
-    }
-  };
-
-  const handleCancel = async () => {
-    if (!cancelling) return;
-    try {
-      await cancelVisa.mutateAsync(cancelling.id);
-      toast.success('Permit cancelled');
-      setCancelling(null);
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not cancel that permit'));
-    }
+    setter(v);
   };
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="In date"
-          value={summary ? summary.active : '—'}
-          hint="Current permits with time left"
-          icon={<CheckCircle2 className="h-5 w-5" aria-hidden />}
-        />
-        {/* The window is stated, not implied. "Expiring soon" with no horizon is
-            not a fact anybody can act on, and the horizon is a company setting
-            the server owns. */}
-        <StatCard
-          label="Expiring soon"
-          value={summary ? summary.expiringSoon : '—'}
-          hint={summary ? `Within the next ${summary.alertDays} days` : 'Window not known'}
-          icon={<AlertTriangle className="h-5 w-5" aria-hidden />}
-        />
-        <StatCard
-          label="Expired"
-          value={summary ? summary.expired : '—'}
-          hint="Past their expiry date"
-          icon={<XCircle className="h-5 w-5" aria-hidden />}
-        />
-        <StatCard
-          label="Renewed this year"
-          value={summary ? summary.renewedThisYear : '—'}
-          hint="Successors issued since January"
-          icon={<RefreshCw className="h-5 w-5" aria-hidden />}
-        />
-      </div>
+    <div className="p-6 space-y-6">
+      {/* Export only — the title/subtitle live in the sticky TopHeader,
+          declared via usePageHeader above. */}
+      <PageActionRow
+        action={<ExportButton onExport={handleExport} label={t('export')} testId="visa-export" />}
+      />
 
-      {summary && (
-        <p className="text-sm text-text-muted">
-          Alerts start {summary.alertDays} days before a permit expires. Change the window in
-          system settings.
-        </p>
-      )}
-
-      <Card className="p-4">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div className="xl:col-span-2">
-            <Input
-              value={search}
-              onChange={(event) => narrow(() => setSearch(event.target.value))}
-              aria-label="Search permits"
-              placeholder="Permit number, employee code or name"
-              icon={<Search className="h-4 w-4" aria-hidden />}
-            />
-          </div>
-          <Select
-            aria-label="Filter by permit status"
-            placeholder="Every status"
-            value={status}
-            onChange={(event) => narrow(() => setStatus(event.target.value))}
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {summaryCards.map((card) => (
+          <div
+            key={card.label}
+            data-testid={`visa-summary-${card.key}`}
+            className="bg-surface-card border border-surface-border rounded-xl p-4 flex items-center gap-3"
           >
-            {STATUS_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {humanise(option)}
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label="Filter by how soon it expires"
-            placeholder="Any expiry date"
-            value={expiringWithin}
-            onChange={(event) => narrow(() => setExpiringWithin(event.target.value))}
-          >
-            {EXPIRY_WINDOWS.map((days) => (
-              <option key={days} value={days}>
-                Expiring within {days} days
-              </option>
-            ))}
-          </Select>
-        </div>
-      </Card>
-
-      <Card>
-        {isLoading && <p className="p-6 text-sm text-text-muted">Loading permits…</p>}
-
-        {isError && (
-          // Never an empty table with a reassuring caption: a request that did
-          // not answer says nothing about who is compliant.
-          <p className="p-6 text-sm text-status-error">
-            Could not load permits. Nothing here should be read as an all-clear.
-          </p>
-        )}
-
-        {!isLoading && !isError && permits.length === 0 && (
-          <EmptyState
-            icon={<IdCard className="h-6 w-6" aria-hidden />}
-            title={filtered ? 'No matches' : 'No permits on file'}
-            description={
-              filtered
-                ? 'Nothing matches that search. Try a wider window or a different status.'
-                : 'Permits are recorded against an employee record.'
-            }
-          />
-        )}
-
-        {permits.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1040px] text-sm">
-              <thead className="border-b border-surface-border-light text-xs uppercase tracking-wide text-text-muted">
-                <tr>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Employee</th>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Number</th>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Type</th>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Country</th>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Issued</th>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Expires</th>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Remaining</th>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Status</th>
-                  <th scope="col" className="px-5 py-3 text-end font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-border-light">
-                {permits.map((permit) => {
-                  const tone = expiryTone(permit.daysUntilExpiry, summary?.alertDays);
-
-                  return (
-                    <tr key={permit.id} className="hover:bg-surface-border-light/60">
-                      <td className="px-5 py-3">
-                        <Link
-                          href={`/dashboard/employees/${permit.employeeId}`}
-                          className="font-medium text-brand-primary hover:underline"
-                        >
-                          {fullName(permit.employee)}
-                        </Link>
-                        <p className="mt-0.5 text-xs text-text-muted">
-                          {[permit.employee?.employeeCode, permit.employee?.department?.name]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </p>
-                      </td>
-                      <td className="px-5 py-3 font-medium text-text-heading">
-                        {permit.documentNumber}
-                      </td>
-                      <td className="px-5 py-3 text-text-body">
-                        {permit.documentType ?? humanise(permit.category)}
-                      </td>
-                      <td className="px-5 py-3 text-text-body">{permit.country}</td>
-                      <td className="px-5 py-3 text-text-body">
-                        {formatDateOnly(permit.issueDate)}
-                      </td>
-                      <td className="px-5 py-3 text-text-body">
-                        {formatDateOnly(permit.expiryDate)}
-                      </td>
-                      <td className="px-5 py-3">
-                        {permit.status === 'ACTIVE' ? (
-                          <span
-                            className={
-                              tone === 'error'
-                                ? 'font-semibold text-status-error'
-                                : tone === 'warning'
-                                  ? 'font-semibold text-status-warning'
-                                  : 'text-text-body'
-                            }
-                          >
-                            {expiryLabel(permit.daysUntilExpiry)}
-                          </span>
-                        ) : (
-                          <span className="text-text-muted">—</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3">
-                        <Badge tone={STATUS_TONE[permit.status]}>{humanise(permit.status)}</Badge>
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex items-center justify-end gap-2">
-                          {permit.status === 'ACTIVE' || permit.status === 'EXPIRED' ? (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                aria-label={`Renew permit ${permit.documentNumber}`}
-                                onClick={() => setRenewing(permit)}
-                              >
-                                Renew
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                aria-label={`Cancel permit ${permit.documentNumber}`}
-                                onClick={() => setCancelling(permit)}
-                              >
-                                Cancel
-                              </Button>
-                            </>
-                          ) : (
-                            <span className="text-xs text-text-muted">—</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <Pagination meta={data?.meta} onPageChange={setPage} />
-      </Card>
-
-      {renewing && (
-        <RenewDialog
-          permit={renewing}
-          busy={renewVisa.isPending}
-          onConfirm={handleRenew}
-          onCancel={() => setRenewing(null)}
-        />
-      )}
-
-      {cancelling && (
-        <div
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="cancel-permit-title"
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
-        >
-          <div className="w-full max-w-sm rounded-[var(--radius-card)] bg-surface-overlay p-6 shadow-2xl">
-            <h2 id="cancel-permit-title" className="text-lg font-semibold text-text-heading">
-              Cancel this permit?
-            </h2>
-            <p className="mt-3 text-sm text-text-body">
-              {cancelling.documentNumber} stops counting towards compliance and{' '}
-              {fullName(cancelling.employee)} is left with no current permit of this kind. The
-              record stays on file.
-            </p>
-            <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => setCancelling(null)}
-                disabled={cancelVisa.isPending}
-              >
-                Keep it
-              </Button>
-              <Button variant="danger" isLoading={cancelVisa.isPending} onClick={handleCancel}>
-                Cancel the permit
-              </Button>
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${card.cls}`}>
+              <card.icon className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-text-heading">{card.value}</p>
+              <p className="text-xs text-text-muted">{card.label}</p>
             </div>
           </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="bg-surface-card border border-surface-border rounded-xl p-4 grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="relative md:col-span-2">
+          <Search className="w-4 h-4 text-text-muted absolute start-3 top-1/2 -translate-y-1/2" />
+          <input
+            data-testid="visa-search"
+            type="text"
+            value={search}
+            onChange={(e) => resetPageAnd(setSearch)(e.target.value)}
+            placeholder={t('searchPlaceholder')}
+            className="w-full ps-9 pe-3 py-2 border border-surface-border rounded-lg bg-surface-card text-text-body text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
+          />
         </div>
-      )}
+        <select
+          data-testid="visa-filter-status"
+          value={status}
+          onChange={(e) => resetPageAnd(setStatus)(e.target.value)}
+          className="px-3 py-2 border border-surface-border rounded-lg bg-surface-card text-text-body text-sm"
+        >
+          <option value="">
+            {t('filterStatus')}: {t('filterAll')}
+          </option>
+          <option value="ACTIVE">{t('statusActive')}</option>
+          <option value="EXPIRED">{t('statusExpired')}</option>
+          <option value="RENEWED">{t('statusRenewed')}</option>
+          <option value="CANCELLED">{t('statusCancelled')}</option>
+        </select>
+        <select
+          data-testid="visa-filter-type"
+          value={documentType}
+          onChange={(e) => resetPageAnd(setDocumentType)(e.target.value)}
+          className="px-3 py-2 border border-surface-border rounded-lg bg-surface-card text-text-body text-sm"
+        >
+          <option value="">
+            {t('filterType')}: {t('filterAll')}
+          </option>
+          {visaTypes.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </select>
+        <select
+          data-testid="visa-filter-expiring"
+          value={expiringInDays}
+          onChange={(e) => resetPageAnd(setExpiringInDays)(e.target.value)}
+          className="px-3 py-2 border border-surface-border rounded-lg bg-surface-card text-text-body text-sm"
+        >
+          <option value="">
+            {t('filterExpiringIn')}: {t('filterAll')}
+          </option>
+          <option value="7">7d</option>
+          <option value="15">15d</option>
+          <option value="30">30d</option>
+          <option value="60">60d</option>
+          <option value="90">90d</option>
+        </select>
+      </div>
+
+      {/* Table */}
+      <div className="bg-surface-card border border-surface-border rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-surface-page text-text-muted text-start">
+                <th className="px-4 py-3 text-start font-semibold">{t('employee')}</th>
+                <th className="px-4 py-3 text-start font-semibold">{t('visaNumber')}</th>
+                <th className="px-4 py-3 text-start font-semibold">{t('visaType')}</th>
+                <th className="px-4 py-3 text-start font-semibold">{t('country')}</th>
+                <th className="px-4 py-3 text-start font-semibold">{t('expiryDate')}</th>
+                <th className="px-4 py-3 text-start font-semibold">{t('daysRemaining')}</th>
+                <th className="px-4 py-3 text-start font-semibold">{t('status')}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-surface-border">
+              {loading ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i}>
+                    <td colSpan={7} className="px-4 py-3">
+                      <div className="h-5 bg-surface-page rounded animate-pulse" />
+                    </td>
+                  </tr>
+                ))
+              ) : visas.length === 0 ? (
+                <tr>
+                  <td data-testid="visa-empty" colSpan={7} className="px-4 py-10 text-center text-text-muted">
+                    {t('noResults')}
+                  </td>
+                </tr>
+              ) : (
+                visas.map((visa) => (
+                  <tr
+                    key={visa.id}
+                    data-testid={`visa-report-row-${visa.documentNumber}`}
+                    onClick={() =>
+                      router.push(`/dashboard/employees/${visa.employeeId}?section=visa`)
+                    }
+                    className="hover:bg-surface-page cursor-pointer transition-colors"
+                  >
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-text-heading">{visa.employee?.fullName}</p>
+                      <p className="text-xs text-text-muted">
+                        {visa.employee?.employeeCode}
+                        {visa.employee?.department?.name
+                          ? ` · ${visa.employee.department.name}`
+                          : ''}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 text-text-body">{visa.documentNumber}</td>
+                    <td className="px-4 py-3 text-text-body">{visa.documentType}</td>
+                    <td className="px-4 py-3 text-text-body">{visa.country}</td>
+                    <td className="px-4 py-3 text-text-body">{formatDate(visa.expiryDate)}</td>
+                    <td className="px-4 py-3">
+                      {visa.status === 'ACTIVE' ? (
+                        <span
+                          className={
+                            visa.daysUntilExpiry <= 7
+                              ? 'text-status-error font-semibold'
+                              : visa.isExpiringSoon
+                                ? 'text-status-warning font-semibold'
+                                : 'text-text-body'
+                          }
+                        >
+                          {t('daysCount', { count: Math.max(visa.daysUntilExpiry, 0) })}
+                        </span>
+                      ) : (
+                        <span className="text-text-muted">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">{statusBadge(visa)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        {totalPages > 1 && (
+          <div className="border-t border-surface-border px-4 py-3">
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              totalItems={total}
+              itemsPerPage={limit}
+              onPageChange={setPage}
+              onItemsPerPageChange={(n) => {
+                setLimit(n);
+                setPage(1);
+              }}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -456,7 +395,7 @@ function VisaReports() {
 export default function VisaReportsPage() {
   return (
     <ProtectedRoute requiredRoles={['ADMIN', 'HR_MANAGER']}>
-      <VisaReports />
+      <VisaReportsContent />
     </ProtectedRoute>
   );
 }

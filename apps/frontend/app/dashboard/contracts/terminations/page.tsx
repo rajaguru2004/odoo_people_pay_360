@@ -1,329 +1,240 @@
 'use client';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { UserMinus } from 'lucide-react';
-import { toast } from 'sonner';
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Select } from '@/components/ui/Select';
-import { Textarea } from '@/components/ui/Textarea';
-import { EmptyState } from '@/components/common/EmptyState';
-import { Pagination } from '@/components/common/Pagination';
-import { useReviewTermination, useTerminations } from '@/hooks/useContracts';
-import { usePageHeader } from '@/hooks/usePageHeader';
+import { useState, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
+import TerminationApprovalPanel from '@/components/contracts/TerminationApprovalPanel';
+import TerminationHistory from '@/components/contracts/TerminationHistory';
 import { useAuthStore } from '@/store/authStore';
-import { apiErrorMessage } from '@/utils/apiError';
-import { formatDateOnly } from '@/utils/formatDate';
-import { fullName } from '@/utils/formatters';
-import type { RequestStatus, ReviewAction } from '@/types/common';
-import type { TerminationRequest } from '@/types/contract';
+import { AlertCircle, Clock, Flame, CheckCircle, History } from 'lucide-react';
+import { terminationRequestService } from '@/services/terminationRequestService';
+import { usePageHeader } from '@/hooks/usePageHeader';
 
-const REQUEST_TONE: Record<RequestStatus, 'neutral' | 'success' | 'warning' | 'error'> = {
-  PENDING: 'warning',
-  APPROVED: 'success',
-  REJECTED: 'error',
-  CANCELLED: 'neutral',
-};
+export default function TerminationManagementPage() {
+    const t = useTranslations('terminationsPage');
+    const { user } = useAuthStore();
 
-const STATUS_FILTERS: RequestStatus[] = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'];
+    // The one heading for this route, rendered by TopHeader. Declared above the
+    // permission-denial early-return so the hook order never changes.
+    usePageHeader(t('title'), t('subtitle'));
 
-function humanise(value: string) {
-  return value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, ' ');
-}
+    const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
+    const [stats, setStats] = useState({
+        pending: 0,
+        urgent: 0,
+        approvedThisMonth: 0,
+    });
+    const [loading, setLoading] = useState(true);
+    const [showUrgentOnly, setShowUrgentOnly] = useState(false);
 
-/**
- * The confirm step, which exists to state the CONSEQUENCE rather than to ask
- * "are you sure".
- *
- * Approving is the only place employment actually ends: the contract closes, the
- * employee record is marked terminated and their exit date is written from this
- * request. None of that is visible from a row in a queue, so the sentence spells
- * it out with the name and the date already filled in.
- */
-function ReviewDialog({
-  request,
-  action,
-  busy,
-  onConfirm,
-  onCancel,
-}: {
-  request: TerminationRequest;
-  action: ReviewAction;
-  busy: boolean;
-  onConfirm: (note: string) => void;
-  onCancel: () => void;
-}) {
-  const [note, setNote] = useState('');
-  const name = fullName(request.contract?.employee);
-  const approving = action === 'APPROVE';
+    useEffect(() => {
+        if (user) {
+            fetchStats();
+        }
+    }, [user]);
 
-  return (
-    <div
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="review-termination-title"
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
-    >
-      <div className="w-full max-w-md rounded-[var(--radius-card)] bg-surface-overlay p-6 shadow-2xl">
-        <h2
-          id="review-termination-title"
-          className="text-lg font-semibold text-text-heading"
-        >
-          {approving ? 'Approve this termination?' : 'Reject this termination?'}
-        </h2>
+    const fetchStats = async () => {
+        try {
+            const pendingData = await terminationRequestService.getPendingTerminations();
+            const pending = pendingData?.length || 0;
 
-        <p className="mt-3 text-sm text-text-body">
-          {approving ? (
+            // Calculate urgent (≤7 days)
+            const urgent = pendingData?.filter((req: any) => {
+                const daysRemaining = Math.ceil(
+                    (new Date(req.terminationDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
+                );
+                return daysRemaining <= 7;
+            }).length || 0;
+
+            const historyData = await terminationRequestService.getTerminationHistory();
+            const now = new Date();
+            const approvedThisMonth = (historyData || []).filter((req: any) => {
+                if (req.status !== 'APPROVED' || !req.approvedAt) return false;
+                const approvedAt = new Date(req.approvedAt);
+                return (
+                    approvedAt.getMonth() === now.getMonth() &&
+                    approvedAt.getFullYear() === now.getFullYear()
+                );
+            }).length;
+
+            setStats({ pending, urgent, approvedThisMonth });
+        } catch (error) {
+            console.error('Failed to fetch stats:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Bump the stat cards immediately (before the follow-up network round trip
+    // resolves), then reconcile with the server via fetchStats for correctness.
+    const handleTerminationUpdate = (action?: 'approved' | 'rejected') => {
+        if (action === 'approved') {
+            setStats((prev) => ({
+                ...prev,
+                pending: Math.max(0, prev.pending - 1),
+                approvedThisMonth: prev.approvedThisMonth + 1,
+            }));
+        } else if (action === 'rejected') {
+            setStats((prev) => ({ ...prev, pending: Math.max(0, prev.pending - 1) }));
+        }
+        fetchStats();
+    };
+
+    // Check permissions
+    if (!user || (user.role !== 'HR_MANAGER' && user.role !== 'ADMIN')) {
+        return (
             <>
-              Approving ends {name}&apos;s employment. The contract closes, the record is marked
-              terminated and the exit date is set to{' '}
-              <span className="font-semibold">{formatDateOnly(request.terminationDate)}</span>.
+                {/* Denial by PANEL, not by redirect to /403 — the only screen
+                    in the app that does this. Recorded as finding P4;
+                    `term-noaccess` is what pins it. */}
+                <div data-testid="term-noaccess" className="flex items-center justify-center min-h-[60vh]">
+                    <div className="text-center">
+                        <AlertCircle className="w-16 h-16 text-status-error mx-auto mb-4" />
+                        <h2 className="text-2xl font-bold text-text-heading mb-2">
+                            {t('noAccessTitle')}
+                        </h2>
+                        <p className="text-text-body">
+                            {t('noAccessDesc')}
+                        </p>
+                    </div>
+                </div>
             </>
-          ) : (
-            <>
-              Rejecting leaves {name} employed and the contract untouched. The request stays on
-              file with whatever you write below.
-            </>
-          )}
-        </p>
-
-        {approving && (
-          <p className="mt-2 text-sm text-text-muted">
-            The record is not deleted — payslips and audit entries keep resolving against it.
-          </p>
-        )}
-
-        <div className="mt-4">
-          <Textarea
-            label="Review note"
-            rows={3}
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Shown to whoever raised the request."
-          />
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
-          <Button variant="outline" onClick={onCancel} disabled={busy}>
-            Cancel
-          </Button>
-          <Button
-            variant={approving ? 'danger' : 'primary'}
-            isLoading={busy}
-            onClick={() => onConfirm(note)}
-          >
-            {approving ? 'End the employment' : 'Reject the request'}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TerminationQueue() {
-  const role = useAuthStore((s) => s.user?.role);
-  // Only an ADMIN may review. HR sees the queue and what it is waiting on, which
-  // is what tells them whether to chase somebody.
-  const canReview = role === 'ADMIN';
-
-  const [status, setStatus] = useState<RequestStatus | ''>('PENDING');
-  const [page, setPage] = useState(1);
-  const [pendingReview, setPendingReview] = useState<{
-    request: TerminationRequest;
-    action: ReviewAction;
-  } | null>(null);
-
-  const { data, isLoading, isError } = useTerminations({
-    page,
-    status: status || undefined,
-  });
-  const review = useReviewTermination();
-
-  const requests = data?.data ?? [];
-  const total = data?.meta?.total;
-
-  usePageHeader(
-    'Terminations',
-    total === undefined ? undefined : `${total} request${total === 1 ? '' : 's'}`,
-  );
-
-  const handleReview = async (note: string) => {
-    if (!pendingReview) return;
-    try {
-      await review.mutateAsync({
-        id: pendingReview.request.id,
-        payload: {
-          action: pendingReview.action,
-          ...(note.trim() ? { reviewNote: note.trim() } : {}),
-        },
-      });
-      toast.success(
-        pendingReview.action === 'APPROVE'
-          ? 'Employment ended and the exit date recorded'
-          : 'Request rejected',
-      );
-      setPendingReview(null);
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not record that decision'));
+        );
     }
-  };
 
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="w-56">
-          <Select
-            aria-label="Filter by request status"
-            placeholder="Every request"
-            value={status}
-            onChange={(event) => {
-              // Reset in the handler, not an effect: page 4 of the new filter is
-              // an empty table the reader would read as "nothing waiting".
-              setStatus(event.target.value as RequestStatus | '');
-              setPage(1);
-            }}
-          >
-            {STATUS_FILTERS.map((option) => (
-              <option key={option} value={option}>
-                {humanise(option)}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <Link href="/dashboard/contracts">
-          <Button variant="outline">All contracts</Button>
-        </Link>
-      </div>
+    return (
+        <>
+            <div className="max-w-7xl mx-auto space-y-6">
+                {/* Heading lives in TopHeader via usePageHeader — no action belongs here. */}
 
-      <Card>
-        {isLoading && <p className="p-6 text-sm text-text-muted">Loading the queue…</p>}
+                {/* Stats Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Pending Requests */}
+                    <div className="bg-gradient-to-br from-status-warning-bg/40 to-status-warning-bg/90 border border-status-warning/20 rounded-[--radius-card] p-6 shadow-sm hover:shadow-lg transition-shadow">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-sm font-semibold text-status-warning mb-1">{t('statPendingApproval')}</p>
+                                <p data-testid="term-stat-pending" className="text-3xl font-bold text-status-warning">
+                                    {loading ? '-' : stats.pending}
+                                </p>
+                            </div>
+                            <div className="w-12 h-12 bg-status-warning-bg rounded-[--radius-card] flex items-center justify-center">
+                                <Clock className="text-status-warning" size={24} />
+                            </div>
+                        </div>
+                    </div>
 
-        {isError && (
-          <p className="p-6 text-sm text-status-error">
-            Could not load the queue. Is the API running?
-          </p>
-        )}
+                    {/* Urgent Requests */}
+                    <div className="bg-gradient-to-br from-status-error-bg/40 to-status-error-bg/90 border border-status-error/20 rounded-[--radius-card] p-6 shadow-sm hover:shadow-lg transition-shadow">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-sm font-semibold text-status-error mb-1">{t('statUrgent')}</p>
+                                <p data-testid="term-stat-urgent" className="text-3xl font-bold text-status-error">
+                                    {loading ? '-' : stats.urgent}
+                                </p>
+                            </div>
+                            <div className="w-12 h-12 bg-status-error-bg rounded-[--radius-card] flex items-center justify-center">
+                                <Flame className="text-status-error" size={24} />
+                            </div>
+                        </div>
+                    </div>
 
-        {!isLoading && !isError && requests.length === 0 && (
-          <EmptyState
-            icon={<UserMinus className="h-6 w-6" aria-hidden />}
-            title="Nothing waiting"
-            description={
-              status === 'PENDING'
-                ? 'No termination is waiting on a decision.'
-                : 'No request matches that filter.'
-            }
-          />
-        )}
+                    {/* Approved This Month */}
+                    <div className="bg-gradient-to-br from-status-success-bg/40 to-status-success-bg/90 border border-status-success/20 rounded-[--radius-card] p-6 shadow-sm hover:shadow-lg transition-shadow">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-sm font-semibold text-status-success mb-1">{t('statApprovedThisMonth')}</p>
+                                <p data-testid="term-stat-approved" className="text-3xl font-bold text-status-success">
+                                    {loading ? '-' : stats.approvedThisMonth}
+                                </p>
+                            </div>
+                            <div className="w-12 h-12 bg-status-success-bg rounded-[--radius-card] flex items-center justify-center">
+                                <CheckCircle className="text-status-success" size={24} />
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-        {requests.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[940px] text-sm">
-              <thead className="border-b border-surface-border-light text-xs uppercase tracking-wide text-text-muted">
-                <tr>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Employee</th>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Contract</th>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Category</th>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Notice</th>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">Last day</th>
-                  <th scope="col" className="px-5 py-3 text-start font-medium">State</th>
-                  {canReview && (
-                    <th scope="col" className="px-5 py-3 text-end font-medium">
-                      Decision
-                    </th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-border-light">
-                {requests.map((request) => (
-                  <tr key={request.id} className="hover:bg-surface-border-light/60">
-                    <td className="px-5 py-3">
-                      <p className="font-medium text-text-heading">
-                        {fullName(request.contract?.employee)}
-                      </p>
-                      <p className="mt-0.5 text-xs text-text-muted">{request.reason}</p>
-                    </td>
-                    <td className="px-5 py-3">
-                      {request.contract ? (
-                        <Link
-                          href={`/dashboard/contracts/${request.contractId}`}
-                          className="text-brand-primary hover:underline"
-                        >
-                          {request.contract.contractNumber}
-                        </Link>
-                      ) : (
-                        <span className="text-text-muted">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-text-body">{humanise(request.category)}</td>
-                    <td className="px-5 py-3 text-text-body">
-                      {formatDateOnly(request.noticeDate)}
-                      {!request.noticeServed && (
-                        <span className="ms-1 text-xs text-text-muted">(paid out)</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-text-body">
-                      {formatDateOnly(request.terminationDate)}
-                    </td>
-                    <td className="px-5 py-3">
-                      <Badge tone={REQUEST_TONE[request.status]}>{humanise(request.status)}</Badge>
-                    </td>
-                    {canReview && (
-                      <td className="px-5 py-3">
-                        {request.status === 'PENDING' ? (
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              size="sm"
-                              variant="danger"
-                              onClick={() => setPendingReview({ request, action: 'APPROVE' })}
+                {/* Filter Tabs - Simple & Practical */}
+                <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold text-text-muted">{t('showLabel')}</span>
+
+                    <button
+                        data-testid="term-filter-all"
+                        onClick={() => setShowUrgentOnly(false)}
+                        className={`px-5 py-2.5 rounded-[--radius-button] text-sm font-semibold transition-all cursor-pointer ${
+                            !showUrgentOnly
+                                ? 'bg-brand-primary text-text-on-brand shadow-lg'
+                                : 'bg-surface-card border border-surface-border text-text-body hover:border-brand-primary-light/45'
+                        }`}
+                    >
+                        <Clock className="inline-block me-2" size={16} />
+                        {t('allCount', { count: stats.pending })}
+                    </button>
+
+                    <button
+                        data-testid="term-urgent-filter"
+                        onClick={() => setShowUrgentOnly(true)}
+                        className={`px-5 py-2.5 rounded-[--radius-button] text-sm font-semibold transition-all cursor-pointer ${
+                            showUrgentOnly
+                                ? 'bg-status-error text-text-on-brand shadow-lg'
+                                : 'bg-surface-card border border-surface-border text-text-body hover:border-status-error/30'
+                        }`}
+                    >
+                        <Flame className="inline-block me-2" size={16} />
+                        {t('urgentCount', { count: stats.urgent })}
+                    </button>
+                </div>
+
+                {/* Tabs & Content */}
+                <div className="bg-surface-card rounded-[--radius-card] shadow-sm border border-surface-border">
+                    <div className="border-b border-surface-border">
+                        <nav className="flex gap-6 px-6">
+                            <button
+                                data-testid="term-tab-pending"
+                                onClick={() => setActiveTab('pending')}
+                                className={`py-4 px-1 border-b-2 font-semibold text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                                    activeTab === 'pending'
+                                        ? 'border-brand-primary text-brand-primary'
+                                        : 'border-transparent text-text-muted hover:text-text-body'
+                                }`}
                             >
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setPendingReview({ request, action: 'REJECT' })}
+                                <Clock size={18} />
+                                {t('tabWaitingApproval')}
+                                {stats.pending > 0 && (
+                                    <span className="px-2 py-0.5 bg-status-info-bg text-status-info rounded-[--radius-badge] text-xs font-bold">
+                                        {stats.pending}
+                                    </span>
+                                )}
+                            </button>
+                            <button
+                                data-testid="term-tab-history"
+                                onClick={() => setActiveTab('history')}
+                                className={`py-4 px-1 border-b-2 font-semibold text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                                    activeTab === 'history'
+                                        ? 'border-brand-primary text-brand-primary'
+                                        : 'border-transparent text-text-muted hover:text-text-body'
+                                }`}
                             >
-                              Reject
-                            </Button>
-                          </div>
-                        ) : (
-                          <p className="text-end text-xs text-text-muted">
-                            {request.reviewedAt ? formatDateOnly(request.reviewedAt) : '—'}
-                          </p>
+                                <History size={18} />
+                                {t('tabHistory')}
+                            </button>
+                        </nav>
+                    </div>
+
+                    {/* Content */}
+                    <div className="p-6">
+                        {activeTab === 'pending' && (
+                            <TerminationApprovalPanel
+                                userId={user!.id}
+                                onUpdate={handleTerminationUpdate}
+                                urgentOnly={showUrgentOnly}
+                            />
                         )}
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
 
-        <Pagination meta={data?.meta} onPageChange={setPage} />
-      </Card>
-
-      {pendingReview && (
-        <ReviewDialog
-          request={pendingReview.request}
-          action={pendingReview.action}
-          busy={review.isPending}
-          onConfirm={handleReview}
-          onCancel={() => setPendingReview(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-export default function TerminationsPage() {
-  return (
-    <ProtectedRoute requiredRoles={['ADMIN', 'HR_MANAGER']}>
-      <TerminationQueue />
-    </ProtectedRoute>
-  );
+                        {activeTab === 'history' && <TerminationHistory />}
+                    </div>
+                </div>
+            </div>
+        </>
+    );
 }

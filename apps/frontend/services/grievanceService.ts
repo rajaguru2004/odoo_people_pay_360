@@ -1,51 +1,38 @@
 import axiosInstance from '@/lib/axios';
 import { ApiResponse } from '@/types/api';
-import type {
-  CreateGrievanceData,
-  Grievance,
-  GrievanceEvent,
-  GrievanceStats,
-} from '@/types/grievance';
+import { CreateGrievanceData, Grievance } from '@/types/grievance';
 
 class GrievanceService {
   /** Nobody ever receives a grievance raised against themselves. */
-  list(status?: string): Promise<ApiResponse<Grievance[]>> {
+  async getAll(status?: string): Promise<ApiResponse<Grievance[]>> {
     return axiosInstance.get('/grievances', { params: status ? { status } : {} });
   }
 
-  get(id: string): Promise<ApiResponse<Grievance>> {
+  async getById(id: string): Promise<ApiResponse<Grievance>> {
     return axiosInstance.get(`/grievances/${id}`);
   }
 
-  stats(): Promise<ApiResponse<GrievanceStats>> {
-    return axiosInstance.get('/grievances/stats');
+  async create(data: CreateGrievanceData): Promise<ApiResponse<Grievance>> {
+    return axiosInstance.post('/grievances', data);
   }
 
-  create(payload: CreateGrievanceData): Promise<ApiResponse<Grievance>> {
-    return axiosInstance.post('/grievances', payload);
-  }
-
-  update(
+  async update(
     id: string,
-    payload: {
+    data: {
       status?: string;
       assignedToId?: string;
       resolution?: string;
       note?: string;
     },
   ): Promise<ApiResponse<Grievance>> {
-    return axiosInstance.patch(`/grievances/${id}`, payload);
+    return axiosInstance.patch(`/grievances/${id}`, data);
   }
 
-  addNote(
-    id: string,
-    note: string,
-    isInternal = false,
-  ): Promise<ApiResponse<GrievanceEvent>> {
+  async addNote(id: string, note: string, isInternal = false) {
     return axiosInstance.post(`/grievances/${id}/notes`, { note, isInternal });
   }
 
-  withdraw(id: string): Promise<ApiResponse<Grievance>> {
+  async withdraw(id: string): Promise<ApiResponse<Grievance>> {
     return axiosInstance.post(`/grievances/${id}/withdraw`, {});
   }
 }

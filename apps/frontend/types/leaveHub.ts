@@ -1,62 +1,67 @@
 /**
- * `GET /leave-requests/hub-summary` — the Leave & Overtime hub payload.
+ * The Leave & Overtime module hub payload — `GET /leave-requests/hub-summary`.
  *
- * Two questions on one page, because they are the same trade: hours the company
- * owes against hours it has bought.
+ * Same envelope as `types/attendanceHub.ts` and `types/schedulesHub.ts`: a
+ * period + anchor window, the window before it for every delta on the page,
+ * trend buckets, and an action queue. The Week / Month / Year selector moves all
+ * of it together.
  *
- * Every rate is `null` rather than 0% when there was nothing to divide by. An
- * empty month and a month where nothing was approved are different claims, and a
- * card printing 0.0% for both has told the reader something false about one of
- * them — the frontend renders `null` as an em dash.
+ * Month is the default. Leave and overtime are read in monthly cycles — that is
+ * how the balance accrues and how payroll consumes the overtime.
  *
- * Balance figures are YEAR facts (a week does not have an entitlement), scoped
- * to the year the window ENDS in.
+ * ## Two things worth knowing before reading a number here
+ *
+ * **`leaveDays` is prorated.** A request running 28 Aug → 6 Sep belongs to both
+ * months, and each month is charged only the working days that fall inside it.
+ * `totalDays` on the request itself is the WHOLE request.
+ *
+ * **`balance` is a year fact.** A week does not have an entitlement, so the
+ * balance block is always the year that `range.end` falls in, whatever period
+ * is selected. Only `remaining` is derived — there is no such column —
+ * as `allocated + carriedOver - used`.
+ *
+ * Every rate is `number | null`. `null` means there was nothing to divide by;
+ * 0% is a claim, and a different one.
  */
 
-export type HubPeriod = 'today' | 'week' | 'month' | 'year';
+import type { HubPeriod } from './attendanceHub';
 
-export interface LeaveHubRange {
-  start: string;
-  end: string;
-  /** The window clipped at today — what "so far" means on a current period. */
-  through: string;
-  /** Formatted on the server, so the browser does no calendar maths. */
-  label: string;
-  prevAnchor: string;
-  nextAnchor: string;
-  /** Leave is filed ahead, so one window forward is legitimate. */
-  hasNext: boolean;
-  isCurrent: boolean;
-}
+export type { HubPeriod };
 
-export interface LeaveHubStats {
+export interface LeaveHubPeriodStats {
   requests: number;
   approved: number;
   pending: number;
   rejected: number;
+  /** Counted here, unlike `GET /leave-balances/company-overview`, which omits it. */
   cancelled: number;
   approvalRate: number | null;
-  /** Prorated to the part of each request inside the window. */
+  /** APPROVED working days inside this window only. See the file header. */
   leaveDays: number;
   onLeaveToday: number;
   activeHeadcount: number;
   onLeaveTodayRate: number | null;
-  pendingOlderThanTwoDays: number;
+  pendingOlderThan2Days: number;
+
+  /** Year-scoped to `range.end`'s year, whatever period is selected. */
   allocated: number;
   carriedOver: number;
   used: number;
   remaining: number;
   utilisation: number | null;
+  /** Remaining days per ACTIVE employee. */
   averageBalance: number | null;
+
   overtimeHours: number;
   overtimeRequests: number;
+  /** Employees with any approved overtime — the average's denominator. */
   overtimeEmployees: number;
-  /** Divided by the employees WITH overtime, not by headcount. */
   avgOvertimePerEmployee: number | null;
+
   topLeaveType: string | null;
 }
 
-export interface LeaveHubTrendBucket {
+export interface LeaveTrendBucket {
   key: string;
   label: string;
   approved: number;
@@ -66,7 +71,7 @@ export interface LeaveHubTrendBucket {
   total: number;
 }
 
-export interface LeaveHubTypeRow {
+export interface LeaveTypeSlice {
   key: string;
   name: string;
   requests: number;
@@ -74,7 +79,7 @@ export interface LeaveHubTypeRow {
   share: number | null;
 }
 
-export interface LeaveHubBalanceRow {
+export interface LeaveTypeBalanceRow {
   key: string;
   name: string;
   allocated: number;
@@ -85,34 +90,31 @@ export interface LeaveHubBalanceRow {
   employeeCount: number;
 }
 
-export interface LeaveHubOvertimeBucket {
-  key: string;
-  label: string;
-  hours: number;
-}
-
-export interface LeaveHubNamedHours {
+export interface OvertimeSlice {
   id: string;
   name: string;
   hours: number;
 }
 
-/** A named sample beside the true count — the count is never `names.length`. */
-export interface LeaveHubAttentionItem {
-  count: number;
-  names: string[];
-}
-
 export interface LeaveHubSummary {
   period: HubPeriod;
   anchor: string;
-  range: LeaveHubRange;
-  periodStats: LeaveHubStats;
-  previousStats: LeaveHubStats;
+  range: {
+    start: string;
+    end: string;
+    through: string;
+    label: string;
+    prevAnchor: string;
+    nextAnchor: string;
+    hasNext: boolean;
+    isCurrent: boolean;
+  };
+  periodStats: LeaveHubPeriodStats;
+  previousStats: LeaveHubPeriodStats;
   previousRange: { start: string; end: string; label: string };
   trendKind: 'hour' | 'day' | 'month';
-  trend: LeaveHubTrendBucket[];
-  leaveTypes: LeaveHubTypeRow[];
+  trend: LeaveTrendBucket[];
+  leaveTypes: LeaveTypeSlice[];
   status: {
     approved: number;
     pending: number;
@@ -125,23 +127,28 @@ export interface LeaveHubSummary {
     used: number;
     remaining: number;
     utilisation: number | null;
-    byType: LeaveHubBalanceRow[];
+    byType: LeaveTypeBalanceRow[];
   };
   overtime: {
-    /** False when the company does not track overtime at all — draw nothing,
-     *  rather than a panel of zeros that reads as "nobody worked late". */
+    /**
+     * The `overtime_enabled` kill switch. False → the page drops the overtime
+     * KPI and panel rather than drawing zeros, which would read as "nobody
+     * worked late" instead of "this company does not track overtime".
+     */
     enabled: boolean;
     totalHours: number;
-    trend: LeaveHubOvertimeBucket[];
-    byDepartment: LeaveHubNamedHours[];
-    topEmployees: LeaveHubNamedHours[];
-    topDepartment: LeaveHubNamedHours | null;
-    topEmployee: LeaveHubNamedHours | null;
+    trend: Array<{ key: string; label: string; hours: number }>;
+    byDepartment: OvertimeSlice[];
+    topEmployees: OvertimeSlice[];
+    topDepartment: OvertimeSlice | null;
+    topEmployee: OvertimeSlice | null;
   };
   attention: {
-    pending: LeaveHubAttentionItem;
-    stale: LeaveHubAttentionItem;
-    onLeaveToday: LeaveHubAttentionItem;
-    highOvertime: LeaveHubAttentionItem;
+    pending: { count: number; names: string[] };
+    /** PENDING for more than two days — a queue judged by age, not size. */
+    stale: { count: number; names: string[] };
+    onLeaveToday: { count: number; names: string[] };
+    /** At or past a month's worth of overtime. A welfare signal. */
+    highOvertime: { count: number; names: string[] };
   };
 }

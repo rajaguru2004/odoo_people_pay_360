@@ -1,222 +1,501 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { AlertCircle, CalendarClock, Clock } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import AttendanceStatsBar from '@/components/attendance/AttendanceStatsBar';
+import AttendanceSearchFilterBar from '@/components/attendance/AttendanceSearchFilterBar';
+import AttendanceFilterPanel from '@/components/attendance/AttendanceFilterPanel';
+import TodayAttendanceTable from '@/components/attendance/TodayAttendanceTable';
+import AttendanceLiveFeed from '@/components/attendance/AttendanceLiveFeed';
+import AttendanceInsights from '@/components/attendance/AttendanceInsights';
+import AttendanceTrendChart from '@/components/attendance/AttendanceTrendChart';
+import AttendanceQuickStats from '@/components/attendance/AttendanceQuickStats';
+import DepartmentBreakdownChart from '@/components/attendance/DepartmentBreakdownChart';
+import TimePeriodTabs from '@/components/attendance/TimePeriodTabs';
+import { FileText, Settings, BarChart2, Download } from 'lucide-react';
+import attendanceService from '@/services/attendanceService';
+import departmentService from '@/services/departmentService';
+import { useAuthStore } from '@/store/authStore';
+import { useBranchStore } from '@/store/branchStore';
+import { Attendance } from '@/types/attendance';
+import { formatDate, formatTime } from '@/utils/formatters';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { usePageHeader } from '@/hooks/usePageHeader';
-import { useTodayAttendance } from '@/hooks/useAttendance';
-import { Card, CardBody, CardHeader } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { Badge } from '@/components/ui/Badge';
-import { EmptyState } from '@/components/common/EmptyState';
-import { StatCard } from '@/components/common/StatCard';
-import {
-  STATUS_TONE,
-  formatHours,
-  formatLateness,
-  formatTimeOfDay,
-  statusLabel,
-} from '@/components/attendance/attendanceFormat';
-import { formatDateOnly } from '@/utils/formatDate';
-import { fullName } from '@/utils/formatters';
-import type { AttendanceStatus, TodayRecord } from '@/types/attendance';
+import * as XLSX from 'xlsx';
+import { todayStr } from '@/utils/tzDate';
+import { DateTime } from 'luxon';
 
-const STATUS_OPTIONS: Array<{ value: 'ALL' | AttendanceStatus; label: string }> = [
-  { value: 'ALL', label: 'Every status' },
-  { value: 'PRESENT', label: 'Present' },
-  { value: 'LATE', label: 'Late' },
-  { value: 'ABSENT', label: 'Absent' },
-  { value: 'HALF_DAY', label: 'Half day' },
-  { value: 'ON_LEAVE', label: 'On leave' },
-  { value: 'HOLIDAY', label: 'Holiday' },
-  { value: 'WEEKEND', label: 'Weekend' },
-];
+type Period = 'today' | 'week' | 'month' | 'custom';
 
-function BoardRow({ record }: { record: TodayRecord }) {
-  const lateness = formatLateness(record.lateMinutes);
-
-  return (
-    <tr data-testid="attendance-row" className="hover:bg-surface-border-light/60">
-      <td className="px-5 py-3">
-        <p className="font-medium text-text-heading">{fullName(record.employee)}</p>
-        <p className="text-xs text-text-muted">{record.employee.employeeCode}</p>
-      </td>
-      <td className="px-5 py-3 text-text-body">{record.employee.department?.name ?? '—'}</td>
-      <td className="px-5 py-3 text-text-body">{record.employee.branch?.name ?? '—'}</td>
-      <td className="px-5 py-3 tabular-nums text-text-body">
-        {/* In the BRANCH's zone, not the reader's: two offices punch on two
-            clocks, and an 08:00 arrival shown as 05:00 is silently wrong. */}
-        {formatTimeOfDay(record.checkIn, record.zone)}
-        {lateness && <span className="ms-2 text-xs text-status-warning">{lateness}</span>}
-      </td>
-      <td className="px-5 py-3 tabular-nums text-text-body">
-        {formatTimeOfDay(record.checkOut, record.zone)}
-        {record.isEarlyLeave && <span className="ms-2 text-xs text-status-warning">early</span>}
-      </td>
-      <td className="px-5 py-3 tabular-nums text-text-body">{formatHours(record.workHours)}</td>
-      <td className="px-5 py-3">
-        <Badge tone={STATUS_TONE[record.status]}>{statusLabel(record.status)}</Badge>
-        {record.holiday && <p className="mt-1 text-xs text-text-muted">{record.holiday.name}</p>}
-      </td>
-    </tr>
-  );
+interface OverviewStats {
+  totalEmployees: number;
+  present: number;
+  late: number;
+  absent: number;
+  earlyLeave: number;
+  notCheckedOut: number;
+  avgWorkHours: number;
+  presentRate: number;
+  lateRate: number;
+  lateUsers?: string[];
+  absentUsers?: string[];
+  earlyLeaveUsers?: string[];
+  notCheckedOutUsers?: string[];
+  notCheckedInUsers?: string[];
 }
 
-/**
- * Today's board.
- *
- * Everyone still employed appears, whether or not they punched. A board built
- * from attendance rows alone lists arrivals and nothing else — the person who
- * did not come in has no row to be missing from, so their absence is invisible
- * until payroll finds it a fortnight later.
- */
-function AttendanceBoard() {
-  const { data, isLoading, isError } = useTodayAttendance();
-  const board = data?.data;
+interface DeptBreakdown {
+  department: string;
+  present: number;
+  late: number;
+  absent: number;
+  total: number;
+}
 
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<'ALL' | AttendanceStatus>('ALL');
+export default function AttendancePage() {
+  const router = useRouter();
+  const { user } = useAuthStore();
+  const t = useTranslations('attendancePage');
+  const tc = useTranslations('common');
+  // Multi-branch: re-scope overview + list when the active branch changes.
+  const selectedBranchId = useBranchStore((s) => s.selectedBranchId);
 
-  const records = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return (board?.records ?? []).filter((r) => {
-      if (status !== 'ALL' && r.status !== status) return false;
-      if (!term) return true;
-      return (
-        fullName(r.employee).toLowerCase().includes(term) ||
-        r.employee.employeeCode.toLowerCase().includes(term)
-      );
-    });
-  }, [board, search, status]);
+  const [loading, setLoading] = useState(true);
+  const [tableLoading, setTableLoading] = useState(false);
 
-  // Before the office day ends an absence is a prediction: the person may still
-  // be on their way. The board says so rather than reporting the figure flat.
-  const provisional = (board?.records ?? []).some((r) => !r.settled);
-  const totals = board?.totals;
+  // Period selection
+  const [activePeriod, setActivePeriod] = useState<Period>('today');
 
-  usePageHeader(
-    'Attendance',
-    board ? `${formatDateOnly(board.date)} · ${totals?.headcount ?? 0} people` : 'Loading…',
+  // Date range filters
+  // `toISOString()` converts an INSTANT to a UTC date, so
+  // `new Date().toISOString().split('T')[0]` answers "today" wrongly for the
+  // whole window between local midnight and the UTC offset — 00:00-05:29 at
+  // Asia/Kolkata. `todayStr()` resolves the display timezone, which is the day
+  // the user (and the attendance record) actually belongs to.
+  const [startDateFilter, setStartDateFilter] = useState(() =>
+    DateTime.fromISO(todayStr()).minus({ days: 7 }).toISODate() ?? todayStr(),
+  );
+  const [endDateFilter, setEndDateFilter] = useState(() => todayStr());
+
+  // Overview data (stats, trend, recent check-ins, department breakdown)
+  const [stats, setStats] = useState<OverviewStats>({
+    totalEmployees: 0,
+    present: 0,
+    late: 0,
+    absent: 0,
+    earlyLeave: 0,
+    notCheckedOut: 0,
+    avgWorkHours: 0,
+    presentRate: 0,
+    lateRate: 0,
+    lateUsers: [],
+    absentUsers: [],
+    earlyLeaveUsers: [],
+    notCheckedOutUsers: [],
+    notCheckedInUsers: [],
+  });
+  const [trendData, setTrendData] = useState<any[]>([]);
+  const [recentCheckIns, setRecentCheckIns] = useState<Attendance[]>([]);
+  const [deptBreakdown, setDeptBreakdown] = useState<DeptBreakdown[]>([]);
+
+  // Table / list data
+  const [attendances, setAttendances] = useState<Attendance[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [unfilteredTotal, setUnfilteredTotal] = useState(0);
+
+  // Departments (for filter dropdown)
+  const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([]);
+
+  // Filters
+  const [searchTerm, setSearchTerm] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState(() => todayStr());
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'HR_MANAGER';
+
+  // ── Fetch overview data (stats, trend, dept breakdown, recent check-ins) ──────
+  const fetchOverview = useCallback(async (period: Period, date: string, startDate?: string, endDate?: string) => {
+    try {
+      setLoading(true);
+      const [overviewRes, deptRes] = await Promise.all([
+        attendanceService.getOverview(period, date, startDate, endDate),
+        departmentService.getAll(),
+      ]);
+
+      const overview = overviewRes.data;
+      setStats(overview.stats);
+      setTrendData(overview.trendData);
+      setRecentCheckIns(overview.recentCheckIns as Attendance[]);
+      setDeptBreakdown(overview.departmentBreakdown);
+      setDepartments(deptRes.data.map((d: any) => ({ id: d.id, name: d.name })));
+    } catch (error) {
+      console.error('Failed to fetch attendance overview:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // ── Fetch paginated attendance list (table) ──────────────────────────────────
+  const fetchList = useCallback(
+    async (
+      period: Period,
+      page: number,
+      perPage: number,
+      status: string,
+      deptId: string,
+      search: string,
+      date: string,
+      startDate?: string,
+      endDate?: string,
+    ) => {
+      try {
+        setTableLoading(true);
+        const res = await attendanceService.getAttendanceList({
+          period,
+          page,
+          limit: perPage,
+          status: status !== 'all' ? status : undefined,
+          departmentId: deptId !== 'all' ? deptId : undefined,
+          search: search || undefined,
+          date,
+          startDate,
+          endDate,
+        });
+        setAttendances(res.data || []);
+        setTotalItems(res.meta?.total || 0);
+        setUnfilteredTotal(res.meta?.totalUnfiltered ?? res.meta?.total ?? 0);
+      } catch (error) {
+        console.error('Failed to fetch attendance list:', error);
+      } finally {
+        setTableLoading(false);
+      }
+    },
+    [],
   );
 
+  // ── Re-fetch overview when period, date or date range changes ──────────────────────────
+  useEffect(() => {
+    fetchOverview(activePeriod, dateFilter, startDateFilter, endDateFilter);
+    // Reset filters and pagination on period change
+    setCurrentPage(1);
+  }, [activePeriod, dateFilter, startDateFilter, endDateFilter, fetchOverview, selectedBranchId]);
+
+  // ── Re-fetch list when any filter / pagination changes ───────────────────────
+  useEffect(() => {
+    fetchList(
+      activePeriod,
+      currentPage,
+      itemsPerPage,
+      statusFilter,
+      departmentFilter,
+      searchTerm,
+      dateFilter,
+      startDateFilter,
+      endDateFilter,
+    );
+  }, [
+    activePeriod,
+    currentPage,
+    itemsPerPage,
+    statusFilter,
+    departmentFilter,
+    searchTerm,
+    dateFilter,
+    startDateFilter,
+    endDateFilter,
+    fetchList,
+    selectedBranchId,
+  ]);
+
+  // ── Handlers ─────────────────────────────────────────────────────────────────
+  const handlePeriodChange = (period: Period) => {
+    setActivePeriod(period);
+    setCurrentPage(1);
+    setSearchTerm('');
+    setDepartmentFilter('all');
+    setStatusFilter('all');
+  };
+
+  const handleClearFilters = () => {
+    setDepartmentFilter('all');
+    setStatusFilter('all');
+    setSearchTerm('');
+    setCurrentPage(1);
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    setItemsPerPage(newItemsPerPage);
+    setCurrentPage(1);
+  };
+
+  const handleExport = async () => {
+    try {
+      const res = await attendanceService.getAttendanceList({
+        period: activePeriod,
+        page: 1,
+        limit: 10000,
+        status: statusFilter !== 'all' ? statusFilter : undefined,
+        departmentId: departmentFilter !== 'all' ? departmentFilter : undefined,
+        search: searchTerm || undefined,
+        date: dateFilter,
+        startDate: startDateFilter,
+        endDate: endDateFilter,
+      });
+      
+      const recordsToExport = res.data || [];
+      if (recordsToExport.length === 0) {
+        alert(t('noDataToExport'));
+        return;
+      }
+
+      const exportData: any[] = [];
+
+      // Header row
+      exportData.push([
+        t('colDate'),
+        t('colEmployee'),
+        t('colEmployeeCode'),
+        t('colDepartment'),
+        t('colStatus'),
+        t('colCheckIn'),
+        t('colCheckOut'),
+        t('colWorkHours'),
+        t('colLate'),
+        t('colEarlyLeave')
+      ]);
+
+      // Data rows
+      recordsToExport.forEach((item: any) => {
+        exportData.push([
+          formatDate(item.date),
+          item.employee?.fullName,
+          item.employee?.employeeCode,
+          item.employee?.department?.name || '--',
+          item.status,
+          item.checkIn ? formatTime(item.checkIn) : '--:--',
+          item.checkOut ? formatTime(item.checkOut) : '--:--',
+          item.workHours ? Number(item.workHours).toFixed(1) : '0.0',
+          item.isLate ? tc('yes') : tc('no'),
+          item.isEarlyLeave ? tc('yes') : tc('no')
+        ]);
+      });
+
+      const worksheet = XLSX.utils.aoa_to_sheet(exportData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance Overview');
+      
+      const fileName = activePeriod === 'today'
+        ? `Attendance_Overview_${dateFilter}.xlsx`
+        : activePeriod === 'custom'
+        ? `Attendance_Overview_${startDateFilter}_to_${endDateFilter}.xlsx`
+        : `Attendance_Overview_${activePeriod}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert(t('failedExport'));
+    }
+  };
+
+  const handleViewDetail = (attendance: Attendance) => {
+    router.push(`/dashboard/attendance/detail/${attendance.id}`);
+  };
+
+  const activeFilterCount = [departmentFilter !== 'all', statusFilter !== 'all', searchTerm !== ''].filter(Boolean).length;
+
   return (
-    <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="In today"
-          value={totals ? totals.present : '—'}
-          hint={totals ? `of ${totals.expected} expected` : undefined}
-          icon={<Clock className="h-5 w-5" aria-hidden />}
-        />
-        <StatCard label="Late" value={totals ? totals.late : '—'} hint="Arrived after the grace window" />
-        <StatCard
-          label={provisional ? 'Not in yet' : 'Absent'}
-          value={totals ? (provisional ? totals.notCheckedIn : totals.absent) : '—'}
-          hint={provisional ? 'The day is still open' : 'No punch and no leave'}
-        />
-        <StatCard
-          label="On leave"
-          value={totals ? totals.onLeave : '—'}
-          hint="Approved, so not counted as absence"
-          icon={<CalendarClock className="h-5 w-5" aria-hidden />}
-        />
-      </div>
+    <ProtectedRoute requiredPermission="VIEW_ALL_ATTENDANCE">
+      <>
+        <div className="space-y-6">
 
-      {provisional && (
-        <p className="flex items-start gap-2 rounded-[var(--radius-card)] border border-status-warning/30 bg-status-warning-bg px-4 py-3 text-sm font-medium text-status-warning">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <span>
-            Provisional. The office day has not ended, so anyone without a punch has not arrived
-            yet rather than failed to arrive.
-          </span>
-        </p>
-      )}
-
-      <Card>
-        <CardHeader
-          title="Who is in"
-          subtitle="Everyone still employed, including the people with no punch today."
-          action={
-            <div className="flex flex-wrap items-end justify-end gap-3">
-              <div className="w-48">
-                <Input
-                  label="Find someone"
-                  placeholder="Name or code"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              <div className="w-44">
-                <Select
-                  label="Status"
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as 'ALL' | AttendanceStatus)}
-                >
-                  {STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
+          {/* ── Top Bar: Period tabs + action buttons (scrolls normally) ─────── */}
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <TimePeriodTabs activePeriod={activePeriod} onPeriodChange={handlePeriodChange} />
+            <div className="flex items-center gap-2">
+              <button
+                data-testid="att-nav-reports"
+                onClick={() => router.push('/dashboard/attendance/reports')}
+                className="flex items-center gap-2 px-4 py-2.5 bg-surface-card border border-surface-border text-text-body rounded-xl hover:bg-surface-page font-medium text-sm transition-all"
+              >
+                <BarChart2 size={16} />
+                {t('reports')}
+              </button>
+              <button
+                data-testid="att-export"
+                onClick={handleExport}
+                className="flex items-center gap-2 px-4 py-2.5 bg-brand-primary text-white rounded-xl hover:bg-brand-primary-dark font-semibold text-sm transition-all shadow-lg shadow-brand-primary/30"
+              >
+                <Download size={16} />
+                Export
+              </button>
             </div>
-          }
-        />
-
-        {isLoading && <CardBody className="text-sm text-text-muted">Loading the board…</CardBody>}
-
-        {isError && (
-          <CardBody className="text-sm text-status-error">
-            Could not read today&apos;s board. Is the API running?
-          </CardBody>
-        )}
-
-        {!isLoading && !isError && records.length === 0 && (
-          <EmptyState
-            icon={<Clock className="h-6 w-6" aria-hidden />}
-            title="Nobody matches"
-            description={
-              board?.records.length
-                ? 'Widen the search or clear the status filter.'
-                : 'No active employees to show — add someone under People.'
-            }
-          />
-        )}
-
-        {records.length > 0 && (
-          // The wrapper scrolls, not the page: a wide table must never force the
-          // whole document sideways on a phone.
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
-              <thead className="border-b border-surface-border-light text-xs uppercase tracking-wide text-text-muted">
-                <tr>
-                  <th className="px-5 py-3 text-start font-medium">Employee</th>
-                  <th className="px-5 py-3 text-start font-medium">Department</th>
-                  <th className="px-5 py-3 text-start font-medium">Branch</th>
-                  <th className="px-5 py-3 text-start font-medium">In</th>
-                  <th className="px-5 py-3 text-start font-medium">Out</th>
-                  <th className="px-5 py-3 text-start font-medium">Hours</th>
-                  <th className="px-5 py-3 text-start font-medium">Standing</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-border-light">
-                {records.map((record) => (
-                  <BoardRow key={record.employee.id} record={record} />
-                ))}
-              </tbody>
-            </table>
           </div>
-        )}
-      </Card>
-    </div>
-  );
-}
 
-export default function AttendanceOverviewPage() {
-  return (
-    <ProtectedRoute requiredRoles={['ADMIN', 'HR_MANAGER', 'PAYROLL_OFFICER', 'MANAGER']}>
-      <AttendanceBoard />
+          {/* ── Sticky slim bar: search + date + department only ─────────────── */}
+          <div className="sticky top-0 z-20 py-3">
+            <AttendanceSearchFilterBar
+              searchTerm={searchTerm}
+              onSearchChange={(v) => { setSearchTerm(v); setCurrentPage(1); }}
+              departmentFilter={departmentFilter}
+              onDepartmentChange={(v) => { setDepartmentFilter(v); setCurrentPage(1); }}
+              dateFilter={dateFilter}
+              onDateChange={setDateFilter}
+              startDateFilter={startDateFilter}
+              onStartDateChange={(v) => { setStartDateFilter(v); setCurrentPage(1); }}
+              endDateFilter={endDateFilter}
+              onEndDateChange={(v) => { setEndDateFilter(v); setCurrentPage(1); }}
+              departments={departments}
+              activePeriod={activePeriod}
+            />
+          </div>
+
+          {/* ── Status chips + result count (scrolls normally) ────────────────── */}
+          <AttendanceFilterPanel
+            statusFilter={statusFilter}
+            onStatusChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}
+            activeFilterCount={activeFilterCount}
+            onClearFilters={handleClearFilters}
+            resultCount={totalItems}
+            totalCount={unfilteredTotal}
+            period={activePeriod}
+          />
+
+          {/* ── Stats Bar ─────────────────────────────────────────────────── */}
+          <AttendanceStatsBar
+            totalEmployees={stats.totalEmployees}
+            present={stats.present}
+            late={stats.late}
+            absent={stats.absent}
+            pendingCorrections={0}
+            loading={loading}
+            period={activePeriod}
+            onViewCorrections={() => router.push('/dashboard/attendance/corrections')}
+          />
+
+          {/* ── Analytics Row: Trend + Quick Stats + Live Feed ──────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-5">
+              <AttendanceTrendChart data={trendData} loading={loading} period={activePeriod} />
+            </div>
+            <div className="lg:col-span-3">
+              <AttendanceQuickStats
+                totalEmployees={stats.totalEmployees}
+                present={stats.present}
+                late={stats.late}
+                absent={stats.absent}
+                notCheckedOut={stats.notCheckedOut}
+                earlyLeave={stats.earlyLeave}
+                avgWorkHours={stats.avgWorkHours}
+                loading={loading}
+                period={activePeriod}
+                dateFilter={dateFilter}
+              />
+            </div>
+            <div className="lg:col-span-4">
+              <AttendanceLiveFeed
+                recentCheckIns={recentCheckIns}
+                loading={loading}
+                period={activePeriod}
+                dateFilter={dateFilter}
+              />
+            </div>
+          </div>
+
+          {/* ── Department Breakdown Chart ─────────────────────────────── */}
+          <DepartmentBreakdownChart
+            data={deptBreakdown}
+            loading={loading}
+            period={activePeriod}
+            dateFilter={dateFilter}
+          />
+
+          {/* ── Attendance Table ──────────────────────────────────────────── */}
+          <TodayAttendanceTable
+            attendances={attendances}
+            loading={tableLoading}
+            onViewDetail={handleViewDetail}
+            onManualCheckIn={isAdmin ? undefined : undefined}
+            currentPage={currentPage}
+            itemsPerPage={itemsPerPage}
+            totalItems={totalItems}
+            onPageChange={handlePageChange}
+            onItemsPerPageChange={handleItemsPerPageChange}
+            period={activePeriod}
+            dateFilter={dateFilter}
+          />
+
+          {/* ── HR Insights ───────────────────────────────────────────────── */}
+          <AttendanceInsights
+            totalEmployees={stats.totalEmployees}
+            present={stats.present}
+            late={stats.late}
+            absent={stats.absent}
+            notCheckedOut={stats.notCheckedOut}
+            earlyLeave={stats.earlyLeave}
+            avgWorkHours={stats.avgWorkHours}
+            period={activePeriod}
+            lateUsers={stats.lateUsers}
+            absentUsers={stats.absentUsers}
+            earlyLeaveUsers={stats.earlyLeaveUsers}
+            notCheckedOutUsers={stats.notCheckedOutUsers}
+            notCheckedInUsers={stats.notCheckedInUsers}
+          />
+
+          {/* ── Quick Navigation Cards ────────────────────────────────────── */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button
+              data-testid="att-nav-history"
+              onClick={() => router.push('/dashboard/attendance/history')}
+              className="bg-surface-card rounded-xl p-5 border border-surface-border hover:border-brand-primary/30 hover:shadow-md transition-all text-start group"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 bg-brand-primary-light rounded-lg flex items-center justify-center group-hover:bg-brand-primary-light/50 transition-colors">
+                  <FileText size={20} className="text-brand-primary" strokeWidth={2} />
+                </div>
+                <h3 className="font-semibold text-text-heading">{t('historyTitle')}</h3>
+              </div>
+              <p className="text-sm text-text-muted">{t('historyDesc')}</p>
+            </button>
+
+            <button
+              data-testid="att-nav-corrections"
+              onClick={() => router.push('/dashboard/attendance/corrections')}
+              className="bg-surface-card rounded-xl p-5 border border-surface-border hover:border-status-warning/30 hover:shadow-md transition-all text-start group"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 bg-status-warning-bg rounded-lg flex items-center justify-center group-hover:bg-status-warning-bg/50 transition-colors">
+                  <Settings size={20} className="text-status-warning" strokeWidth={2} />
+                </div>
+                <h3 className="font-semibold text-text-heading">{t('correctionTitle')}</h3>
+              </div>
+              <p className="text-sm text-text-muted">{t('correctionDesc')}</p>
+            </button>
+
+            <button
+              onClick={() => router.push('/dashboard/attendance/reports')}
+              className="bg-surface-card rounded-xl p-5 border border-surface-border hover:border-status-success/30 hover:shadow-md transition-all text-start group"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 bg-status-success-bg rounded-lg flex items-center justify-center group-hover:bg-status-success-bg/50 transition-colors">
+                  <BarChart2 size={20} className="text-status-success" strokeWidth={2} />
+                </div>
+                <h3 className="font-semibold text-text-heading">{t('reportsTitle')}</h3>
+              </div>
+              <p className="text-sm text-text-muted">{t('reportsDesc')}</p>
+            </button>
+          </div>
+
+        </div>
+      </>
     </ProtectedRoute>
   );
 }

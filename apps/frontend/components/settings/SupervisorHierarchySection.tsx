@@ -1,514 +1,326 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowDown, ArrowUp, GitBranch, Users, X } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Select } from '@/components/ui/Select';
-import { EmptyState } from '@/components/common/EmptyState';
-import { useDebounce } from '@/hooks/useDebounce';
-import { useEmployees } from '@/hooks/useEmployees';
 import {
-  useAssignSupervisor,
-  useSupervisorReports,
-  useUnassignSupervisor,
-} from '@/hooks/useSupervisors';
-import { useApprovalKinds, useApprovalWorkflows, useUpsertApprovalWorkflow } from '@/hooks/useApprovals';
-import { apiErrorMessage } from '@/utils/apiError';
-import { cn } from '@/utils/cn';
-import { fullName } from '@/utils/formatters';
-import type { ApprovalMode, ApprovalRequestType, ApproverType } from '@/types/approval';
-import { Field, SectionCard, SettingInput, ToggleRow } from './SettingsPrimitives';
+  Loader2,
+  GitBranch,
+  Plus,
+  X,
+  ArrowUp,
+  ArrowDown,
+  Save,
+} from 'lucide-react';
+import systemSettingsService from '@/services/systemSettingsService';
+import approvalWorkflowService, {
+  ApproverType,
+  ApprovalMode,
+  ApprovalKindMeta,
+  ApprovalWorkflow,
+} from '@/services/approvalWorkflowService';
 
-/** The master switch the approval engine reads. Opt-in: absent means off. */
-export const APPROVAL_MASTER_KEY = 'supervisor_approval_enabled';
-
-const APPROVER_TYPES: ApproverType[] = ['SUPERVISOR', 'MANAGER', 'HR_MANAGER', 'ADMIN'];
-
-const APPROVER_LABEL: Record<ApproverType, string> = {
+const APPROVER_TYPES: ApproverType[] = [
+  'SUPERVISOR',
+  'MANAGER',
+  'HR_MANAGER',
+  'ADMIN',
+];
+const LABEL: Record<ApproverType, string> = {
   SUPERVISOR: 'Supervisor',
-  MANAGER: 'Department manager',
+  MANAGER: 'Dept. Manager',
   HR_MANAGER: 'HR',
-  ADMIN: 'Administrator',
+  ADMIN: 'Admin',
 };
-
 const MODE_LABEL: Record<ApprovalMode, string> = {
-  SEQUENTIAL: 'One at a time',
+  SEQUENTIAL: 'Step by step',
   PARALLEL: 'All at once',
 };
-
 const MODE_HINT: Record<ApprovalMode, string> = {
   SEQUENTIAL:
-    'Each role is asked in turn — the next one only sees the request once the current one accepts.',
-  PARALLEL: 'Every role is asked at once, in any order, and all of them have to accept.',
+    'Each role is asked in order — the next role only sees the request after the current one accepts.',
+  PARALLEL:
+    'Every role is asked at the same time, in any order. The request is approved once all of them accept.',
 };
 
-/** How many people the supervisor picker offers before it asks you to search. */
-const PICKER_LIMIT = 50;
+const inputCls =
+  'w-full h-10 px-3 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/30 transition-all';
 
-/**
- * Who signs a person's leave and their timesheet.
- *
- * Deliberately separate from the manager on the employee record, which says
- * where somebody sits in the structure. A matrixed engineer reports to a
- * functional head and is supervised by a project lead, and collapsing the two
- * is how a reorganisation silently reroutes every pending approval.
- */
-function SupervisorAssignments() {
-  const [supervisorId, setSupervisorId] = useState('');
-  const [candidateId, setCandidateId] = useState('');
-  const [search, setSearch] = useState('');
-  const debouncedSearch = useDebounce(search);
-
-  const people = useEmployees({
-    status: 'ACTIVE',
-    limit: PICKER_LIMIT,
-    search: debouncedSearch || undefined,
-    sortBy: 'firstName',
-  });
-
-  const reports = useSupervisorReports(supervisorId || undefined);
-  const assign = useAssignSupervisor();
-  const unassign = useUnassignSupervisor();
-
-  const employees = useMemo(() => people.data?.data ?? [], [people.data]);
-  // Two hops: the response envelope, then the `{ count, data }` the route answers with.
-  const team = useMemo(() => reports.data?.data ?? [], [reports.data]);
-  const teamIds = useMemo(() => new Set(team.map((row) => row.id)), [team]);
-
-  // Somebody already on this supervisor's list, or the supervisor themselves,
-  // would be refused by the server. Leaving them in the picker offers a choice
-  // whose only outcome is an error toast.
-  const candidates = employees.filter(
-    (person) => person.id !== supervisorId && !teamIds.has(person.id),
-  );
-
-  const supervisor = employees.find((person) => person.id === supervisorId);
-
-  const attach = async () => {
-    if (!supervisorId || !candidateId) return;
-    try {
-      await assign.mutateAsync({ employeeId: candidateId, supervisorId });
-      toast.success('Supervisor assigned');
-      setCandidateId('');
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not assign that supervisor'));
-    }
-  };
-
-  const detach = async (employeeId: string, name: string) => {
-    try {
-      await unassign.mutateAsync(employeeId);
-      toast.success(`${name} no longer reports to a supervisor`);
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not detach that employee'));
-    }
-  };
-
-  return (
-    <SectionCard
-      title="Supervisor assignments"
-      description="Who signs each person's leave and timesheet — not the same question as who they report to on the org chart"
-      icon={Users}
-    >
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Field
-          label="Find a person"
-          hint="Filters both pickers. The list shows the first 50 active employees until you narrow it."
-        >
-          {(id) => (
-            <SettingInput
-              id={id}
-              value={search}
-              onChange={setSearch}
-              placeholder="Name or employee code"
-            />
-          )}
-        </Field>
-
-        <Field label="Supervisor">
-          {(id) => (
-            <Select
-              id={id}
-              value={supervisorId}
-              onChange={(event) => {
-                setSupervisorId(event.target.value);
-                setCandidateId('');
-              }}
-              placeholder="Pick a supervisor"
-            >
-              {employees.map((person) => (
-                <option key={person.id} value={person.id}>
-                  {fullName(person)} · {person.employeeCode}
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
-      </div>
-
-      {!supervisorId ? (
-        <p className="text-sm text-text-muted">
-          Pick a supervisor to see who they sign for, and to route more people to them.
-        </p>
-      ) : (
-        <>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <Field label="Route someone to them" className="flex-1">
-              {(id) => (
-                <Select
-                  id={id}
-                  value={candidateId}
-                  onChange={(event) => setCandidateId(event.target.value)}
-                  placeholder={
-                    candidates.length ? 'Pick an employee' : 'Nobody left in this list'
-                  }
-                >
-                  {candidates.map((person) => (
-                    <option key={person.id} value={person.id}>
-                      {fullName(person)} · {person.employeeCode}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-            <Button
-              onClick={attach}
-              disabled={!candidateId}
-              isLoading={assign.isPending}
-              className="shrink-0"
-            >
-              Assign
-            </Button>
-          </div>
-
-          <div className="rounded-[var(--radius-card)] border border-surface-border-light">
-            <div className="flex items-center justify-between gap-3 border-b border-surface-border-light px-4 py-2.5">
-              <h4 className="text-sm font-medium text-text-heading">
-                {supervisor ? `${fullName(supervisor)} signs for` : 'Signs for'}
-              </h4>
-              <Badge>{team.length}</Badge>
-            </div>
-
-            {reports.isLoading ? (
-              <p className="px-4 py-6 text-center text-sm text-text-muted">Loading…</p>
-            ) : team.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-text-muted">
-                Nobody yet. Anything they would have approved falls to the next role in the
-                chain.
-              </p>
-            ) : (
-              <ul className="divide-y divide-surface-border-light">
-                {team.map((person) => (
-                  <li key={person.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-text-heading">
-                        {person.fullName}
-                      </p>
-                      <p className="truncate text-xs text-text-muted">
-                        {person.employeeCode}
-                        {person.department && ` · ${person.department.name}`}
-                        {person.position && ` · ${person.position}`}
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={`Detach ${person.fullName}`}
-                      disabled={unassign.isPending}
-                      onClick={() => detach(person.id, person.fullName)}
-                    >
-                      <X className="h-4 w-4" aria-hidden />
-                      Detach
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </>
-      )}
-    </SectionCard>
-  );
-}
-
-/** One request type's chain of approvers, in order. */
-function ChainEditor({
-  label,
-  steps,
-  mode,
-  onChangeSteps,
-  onChangeMode,
-  disabled,
+function Toggle({
+  checked,
+  onChange,
 }: {
-  label: string;
-  steps: ApproverType[];
-  mode: ApprovalMode;
-  onChangeSteps: (steps: ApproverType[]) => void;
-  onChangeMode: (mode: ApprovalMode) => void;
-  disabled?: boolean;
+  checked: boolean;
+  onChange: (v: boolean) => void;
 }) {
-  const move = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= steps.length) return;
-    const next = [...steps];
-    [next[index], next[target]] = [next[target], next[index]];
-    onChangeSteps(next);
-  };
-
   return (
-    <div className="rounded-[var(--radius-card)] border border-surface-border-light p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h4 className="text-sm font-medium text-text-heading">{label}</h4>
-        <div className="flex items-center gap-2">
-          <label className="sr-only" htmlFor={`mode-${label}`}>
-            How {label} steps are activated
-          </label>
-          <Select
-            id={`mode-${label}`}
-            value={mode}
-            disabled={disabled}
-            onChange={(event) => onChangeMode(event.target.value as ApprovalMode)}
-            className="!w-auto"
-          >
-            {(Object.keys(MODE_LABEL) as ApprovalMode[]).map((option) => (
-              <option key={option} value={option}>
-                {MODE_LABEL[option]}
-              </option>
-            ))}
-          </Select>
-
-          <label className="sr-only" htmlFor={`add-${label}`}>
-            Add a step to {label}
-          </label>
-          <Select
-            id={`add-${label}`}
-            value=""
-            disabled={disabled}
-            onChange={(event) => {
-              const approver = event.target.value as ApproverType;
-              if (approver) onChangeSteps([...steps, approver]);
-            }}
-            className="!w-auto"
-          >
-            <option value="">Add a step…</option>
-            {APPROVER_TYPES.map((approver) => (
-              <option key={approver} value={approver}>
-                {APPROVER_LABEL[approver]}
-              </option>
-            ))}
-          </Select>
-        </div>
-      </div>
-
-      {steps.length === 0 ? (
-        <p className="mt-3 text-sm text-text-muted">
-          No chain — this type falls back to the plain single-approver rule.
-        </p>
-      ) : (
-        <>
-          <p className="mt-2 text-xs text-text-muted">{MODE_HINT[mode]}</p>
-          <ol className="mt-3 flex flex-wrap items-center gap-2">
-            {steps.map((step, index) => (
-              <li key={`${step}-${index}`} className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-button)] border border-brand-primary/30 bg-status-info-bg px-2.5 py-1.5 text-sm font-medium text-brand-primary">
-                  <span className="text-xs text-text-muted">{index + 1}.</span>
-                  {APPROVER_LABEL[step]}
-                  <button
-                    type="button"
-                    aria-label={`Move ${APPROVER_LABEL[step]} earlier`}
-                    disabled={disabled || index === 0}
-                    onClick={() => move(index, -1)}
-                    className="disabled:opacity-30"
-                  >
-                    <ArrowUp className="h-3 w-3" aria-hidden />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Move ${APPROVER_LABEL[step]} later`}
-                    disabled={disabled || index === steps.length - 1}
-                    onClick={() => move(index, 1)}
-                    className="disabled:opacity-30"
-                  >
-                    <ArrowDown className="h-3 w-3" aria-hidden />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Remove ${APPROVER_LABEL[step]}`}
-                    disabled={disabled}
-                    onClick={() => onChangeSteps(steps.filter((_, i) => i !== index))}
-                    className="hover:text-status-error disabled:opacity-30"
-                  >
-                    <X className="h-3 w-3" aria-hidden />
-                  </button>
-                </span>
-                {index < steps.length - 1 && (
-                  <span aria-hidden className="text-text-muted">
-                    {mode === 'PARALLEL' ? '+' : '→'}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ol>
-        </>
-      )}
-    </div>
-  );
-}
-
-/**
- * The chain a request walks before it is approved.
- *
- * Steps are named by ROLE rather than by person: a `SUPERVISOR` step resolves
- * to whoever the requester's supervisor is at the moment the request is filed,
- * which is why the assignment panel above and this one belong on one screen.
- */
-function ApprovalChains({
-  settings,
-  onChangeSetting,
-  canEdit,
-}: {
-  settings: Record<string, string>;
-  onChangeSetting: (key: string, value: string) => void;
-  canEdit: boolean;
-}) {
-  const kinds = useApprovalKinds();
-  const workflows = useApprovalWorkflows();
-  const upsert = useUpsertApprovalWorkflow();
-
-  const [drafts, setDrafts] = useState<Record<string, { steps: ApproverType[]; mode: ApprovalMode }>>(
-    {},
-  );
-
-  const kindList = kinds.data?.data ?? [];
-
-  /**
-   * What is on screen: the local edit if there is one, otherwise the stored
-   * chain. Seeding state from the query in an effect instead would blank an
-   * administrator's unsaved edits every time the list refetched.
-   */
-  const chainOf = (type: ApprovalRequestType) => {
-    if (drafts[type]) return drafts[type];
-    const stored = (workflows.data?.data ?? []).find(
-      (workflow) => workflow.requestType === type && workflow.isActive,
-    );
-    return {
-      steps: [...(stored?.steps ?? [])]
-        .sort((a, b) => a.stepOrder - b.stepOrder)
-        .map((step) => step.approverType),
-      mode: stored?.mode ?? ('SEQUENTIAL' as ApprovalMode),
-    };
-  };
-
-  const edit = (type: ApprovalRequestType, patch: Partial<{ steps: ApproverType[]; mode: ApprovalMode }>) =>
-    setDrafts((current) => ({ ...current, [type]: { ...chainOf(type), ...patch } }));
-
-  const save = async () => {
-    const edited = Object.keys(drafts) as ApprovalRequestType[];
-    if (edited.length === 0) {
-      toast.success('Nothing to save');
-      return;
-    }
-
-    try {
-      for (const type of edited) {
-        const chain = drafts[type];
-        const label = kindList.find((kind) => kind.type === type)?.label ?? type;
-        await upsert.mutateAsync({
-          requestType: type,
-          name: `${label} approval chain`,
-          mode: chain.mode,
-          // A chain emptied on screen is saved as an INACTIVE workflow rather
-          // than skipped. Skipping it leaves the stored chain live, so clearing
-          // one in the UI would appear to work and change nothing.
-          isActive: chain.steps.length > 0,
-          steps: chain.steps.map((approverType) => ({ approverType })),
-        });
-      }
-      setDrafts({});
-      toast.success('Approval chains saved');
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not save the approval chains'));
-    }
-  };
-
-  return (
-    <SectionCard
-      title="Approval chains"
-      description="Route a request through an ordered set of roles rather than a single approver"
-      icon={GitBranch}
-      action={
-        canEdit ? (
-          <Button
-            size="sm"
-            onClick={save}
-            isLoading={upsert.isPending}
-            disabled={Object.keys(drafts).length === 0}
-          >
-            Save chains
-          </Button>
-        ) : undefined
-      }
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-primary/30 ${checked ? 'bg-brand-primary' : 'bg-slate-300'}`}
     >
-      <ToggleRow
-        label="Use approval chains"
-        description="With this off, every request falls back to the plain single-approver rule whatever the chains below say."
-        disabled={!canEdit}
-        checked={settings[APPROVAL_MASTER_KEY] === 'true'}
-        onChange={(value) => onChangeSetting(APPROVAL_MASTER_KEY, value ? 'true' : 'false')}
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : 'translate-x-0.5'}`}
       />
-
-      {kinds.isLoading || workflows.isLoading ? (
-        <p className="py-6 text-center text-sm text-text-muted">Loading chains…</p>
-      ) : kindList.length === 0 ? (
-        <EmptyState
-          title="No request types to govern"
-          description="The server's approval registry is empty, so there is nothing a chain could route."
-          icon={<GitBranch className="h-6 w-6" aria-hidden />}
-        />
-      ) : (
-        <div className={cn('space-y-3', !canEdit && 'opacity-80')}>
-          {kindList.map((kind) => {
-            const chain = chainOf(kind.type);
-            return (
-              <ChainEditor
-                key={kind.type}
-                label={kind.label}
-                steps={chain.steps}
-                mode={chain.mode}
-                disabled={!canEdit}
-                onChangeSteps={(steps) => edit(kind.type, { steps })}
-                onChangeMode={(mode) => edit(kind.type, { mode })}
-              />
-            );
-          })}
-        </div>
-      )}
-
-      <p className="text-xs text-text-muted">
-        A step with nobody behind it is skipped rather than left to stall the request, so
-        a chain never dead-ends. One rejection closes the request whatever the mode.
-        Being a supervisor grants no administrative permission of its own.
-      </p>
-    </SectionCard>
+    </button>
   );
 }
 
-export function SupervisorHierarchySection({
-  settings,
-  onChangeSetting,
-  canEdit,
-}: {
-  settings: Record<string, string>;
-  onChangeSetting: (key: string, value: string) => void;
-  /** ADMIN. HR may assign supervisors but only an administrator may write a chain. */
-  canEdit: boolean;
-}) {
+export default function SupervisorHierarchySection() {
+  const [enabled, setEnabled] = useState(false);
+  // Governable request types come from the backend registry, so a new approvable
+  // module appears here without a frontend change.
+  const [kinds, setKinds] = useState<ApprovalKindMeta[]>([]);
+  const [chains, setChains] = useState<Record<string, ApproverType[]>>({});
+  const [modes, setModes] = useState<Record<string, ApprovalMode>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [settingsRes, wfRes, kindsRes] = await Promise.all([
+          systemSettingsService.getAll(),
+          approvalWorkflowService.list(),
+          approvalWorkflowService.kinds(),
+        ]);
+        const enabledVal =
+          settingsRes.data.find((s) => s.key === 'supervisor_approval_enabled')
+            ?.value === 'true';
+        setEnabled(enabledVal);
+
+        const kindList = kindsRes.data || [];
+        setKinds(kindList);
+
+        const next: Record<string, ApproverType[]> = {};
+        const nextModes: Record<string, ApprovalMode> = {};
+        for (const k of kindList) {
+          next[k.type] = [];
+          nextModes[k.type] = 'SEQUENTIAL';
+        }
+        (wfRes.data || [])
+          .filter((w: ApprovalWorkflow) => w.isActive)
+          .forEach((w: ApprovalWorkflow) => {
+            next[w.requestType] = [...w.steps]
+              .sort((a, b) => a.stepOrder - b.stepOrder)
+              .map((s) => s.approverType);
+            nextModes[w.requestType] = w.mode ?? 'SEQUENTIAL';
+          });
+        setChains(next);
+        setModes(nextModes);
+      } catch (e: any) {
+        toast.error(
+          e?.response?.data?.message ||
+            e?.message ||
+            'Failed to load approval settings',
+        );
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const addStep = (type: string, approver: ApproverType) =>
+    setChains((c) => ({ ...c, [type]: [...(c[type] ?? []), approver] }));
+  const removeStep = (type: string, idx: number) =>
+    setChains((c) => ({
+      ...c,
+      [type]: (c[type] ?? []).filter((_, i) => i !== idx),
+    }));
+  const move = (type: string, idx: number, dir: -1 | 1) =>
+    setChains((c) => {
+      const arr = [...(c[type] ?? [])];
+      const j = idx + dir;
+      if (j < 0 || j >= arr.length) return c;
+      [arr[idx], arr[j]] = [arr[j], arr[idx]];
+      return { ...c, [type]: arr };
+    });
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await systemSettingsService.update({
+        supervisor_approval_enabled: String(enabled),
+      });
+      for (const kind of kinds) {
+        const steps = chains[kind.type] ?? [];
+        if (steps.length > 0) {
+          await approvalWorkflowService.upsert({
+            requestType: kind.type,
+            name: `${kind.label} approval chain`,
+            mode: modes[kind.type] ?? 'SEQUENTIAL',
+            steps: steps.map((approverType) => ({ approverType })),
+          });
+        }
+      }
+      toast.success('Approval hierarchy saved successfully!');
+    } catch (e: any) {
+      toast.error(
+        e?.response?.data?.message || e?.message || 'Failed to save',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 p-6 text-slate-500">
+        <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-4 sm:space-y-5">
-      <SupervisorAssignments />
-      <ApprovalChains settings={settings} onChangeSetting={onChangeSetting} canEdit={canEdit} />
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-primary/10 text-brand-primary">
+              <GitBranch className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">
+                Configurable Approval Hierarchy
+              </h3>
+              <p className="text-sm text-slate-500">
+                Route approvals through an ordered chain (Supervisor → HR →
+                Admin, etc.). When off, the legacy single-approver flow applies.
+              </p>
+            </div>
+          </div>
+          <Toggle checked={enabled} onChange={setEnabled} />
+        </div>
+
+        <div className="space-y-6">
+          {kinds.map(({ type, label }) => (
+            <div key={type} className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-slate-800">
+                  {label} approval chain
+                </h4>
+                <div className="flex items-center gap-2">
+                  <select
+                    className={`${inputCls} !h-9 !w-auto`}
+                    value={modes[type] ?? 'SEQUENTIAL'}
+                    onChange={(e) =>
+                      setModes((m) => ({
+                        ...m,
+                        [type]: e.target.value as ApprovalMode,
+                      }))
+                    }
+                    title="How the steps in this chain are activated"
+                  >
+                    {(['SEQUENTIAL', 'PARALLEL'] as ApprovalMode[]).map((m) => (
+                      <option key={m} value={m}>
+                        {MODE_LABEL[m]}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className={`${inputCls} !h-9 !w-auto`}
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        addStep(type, e.target.value as ApproverType);
+                        e.target.value = '';
+                      }
+                    }}
+                  >
+                    <option value="">+ Add step…</option>
+                    {APPROVER_TYPES.map((a) => (
+                      <option key={a} value={a}>
+                        {LABEL[a]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {(chains[type] ?? []).length > 0 && (
+                <p className="mb-3 text-xs text-slate-500">
+                  {MODE_HINT[modes[type] ?? 'SEQUENTIAL']}
+                </p>
+              )}
+
+              {(chains[type] ?? []).length === 0 ? (
+                <p className="text-sm italic text-slate-400">
+                  No steps — this type uses the legacy single-approver flow.
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  {(chains[type] ?? []).map((step, idx) => (
+                    <div key={idx} className="flex items-center gap-1">
+                      <span className="inline-flex items-center gap-1 rounded-lg border border-brand-primary/30 bg-brand-primary/5 px-3 py-1.5 text-sm font-medium text-brand-primary">
+                        <span className="text-xs text-slate-400">{idx + 1}.</span>
+                        {LABEL[step]}
+                        <button
+                          type="button"
+                          onClick={() => move(type, idx, -1)}
+                          className="ml-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                          disabled={idx === 0}
+                          title="Move earlier"
+                        >
+                          <ArrowUp size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => move(type, idx, 1)}
+                          className="text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                          disabled={idx === (chains[type] ?? []).length - 1}
+                          title="Move later"
+                        >
+                          <ArrowDown size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeStep(type, idx)}
+                          className="text-slate-400 hover:text-red-600"
+                          title="Remove"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                      {idx < (chains[type] ?? []).length - 1 && (
+                        <span className="text-slate-300">
+                          {(modes[type] ?? 'SEQUENTIAL') === 'PARALLEL' ? '+' : '→'}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6 flex justify-end">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand-primary px-5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Save changes
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        <strong>Note:</strong> <em>Step by step</em> asks one role at a time —
+        the request only reaches the next role after the current approver
+        accepts. <em>All at once</em> asks every role simultaneously and needs
+        all of them to accept. Either way, one rejection closes the request. A{' '}
+        <em>Supervisor</em> step routes to each
+        employee&apos;s assigned supervisor (set on the employee profile). Steps
+        with no eligible approver are skipped automatically so requests never
+        dead-end. Supervisor is an approval responsibility only — it grants no
+        administrative permissions.
+      </div>
     </div>
   );
 }

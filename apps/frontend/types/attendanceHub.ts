@@ -1,18 +1,18 @@
 /**
- * `GET /attendances/hub-summary` — the Time & Attendance hub payload.
+ * The Time & Attendance module hub payload — `GET /attendances/hub-summary`.
  *
  * The Today / Week / Month / Year selector moves everything the page REPORTS:
- * the KPI cards, the trend, the department ranking, `periodStats`. `today` is
+ * the KPI cards, the trend, the department ranking, `periodStats`. `Today` is
  * one of the four periods rather than a separate mode, so the ‹ › arrows walk
  * back through yesterday, last week, last month or last year with one control.
  *
- * `today` and `yesterday` ride along regardless, because the panels at the foot
- * of the page are explicitly about right now — who is still clocked in, what
- * today's roster says, when people arrived this morning.
+ * `today` and `yesterday` ride along regardless, because the three panels at
+ * the foot of the page are explicitly about right now — who is still clocked
+ * in, what today's roster says, when people arrived this morning.
  *
- * Every rate divides by `expected` — the working calendar minus approved leave
- * — never by headcount. A rate is `null` when there was nothing to divide by;
- * 0% is a claim that everybody failed to turn up.
+ * Every rate divides by `expected` — the branch's working calendar minus
+ * approved leave — never by headcount. A rate is `null` when there was nothing
+ * to divide by; 0% is a claim that everybody failed to turn up.
  */
 
 export type HubPeriod = 'today' | 'week' | 'month' | 'year';
@@ -32,8 +32,7 @@ export interface HubDaySnapshot {
   lateRate: number | null;
   absentRate: number | null;
   onTimeRate: number | null;
-  /** False until the branch's office end time has passed. Before that, an
-   *  absence count is a prediction rather than a fact. */
+  /** False until the configured attendance day-end passes. */
   settled: boolean;
 }
 
@@ -64,7 +63,6 @@ export interface HubDepartment {
 }
 
 export interface HubNamedCount {
-  /** The true total. `names` is a sample — never read its length as the count. */
   count: number;
   names: string[];
 }
@@ -97,7 +95,6 @@ export interface AttendanceHubSummary {
     label: string;
     prevAnchor: string;
     nextAnchor: string;
-    /** False in the current period — the stepper must not walk into the future. */
     hasNext: boolean;
     isCurrent: boolean;
   };
@@ -111,16 +108,9 @@ export interface AttendanceHubSummary {
   trendKind: 'hour' | 'day' | 'month';
   trend: HubTrendBucket[];
   departments: HubDepartment[];
-  arrivalPattern: Array<{
-    hour: number;
-    label: string;
-    onTime: number;
-    late: number;
-  }>;
+  arrivalPattern: Array<{ hour: number; label: string; onTime: number; late: number }>;
   shifts: {
     shiftCount: number;
-    /** `roster` when WorkSchedule rows cover the day, `calendar` when it falls
-     *  back to the branch office hours. */
     source: 'roster' | 'calendar';
     scheduled: number;
     checkedIn: number;

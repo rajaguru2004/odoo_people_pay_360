@@ -1,169 +1,210 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
-import { Download, Search, SlidersHorizontal, X } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import {
-  activeContractFilterCount,
-  CONTRACT_STATUS_OPTIONS,
-  CONTRACT_TYPE_OPTIONS,
-  EMPTY_CONTRACT_FILTERS,
-  humanise,
-  WORK_TYPE_OPTIONS,
-  type ContractFilters,
-} from './contractFacts';
+import { X, Filter } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslations } from 'next-intl';
 
-/**
- * Search, the filters folded behind it, and the way out to a spreadsheet.
- *
- * Each select carries a visible label rather than an `aria-label`, now that
- * they sit in a panel with room for one. A control whose only name is invisible
- * cannot be pointed at across a desk.
- */
+export interface ContractFilterState {
+    statuses: string[];
+    contractTypes: string[];
+    departments: string[];
+    expiring: boolean;
+}
+
+interface ContractFilterPanelProps {
+    isOpen: boolean;
+    onClose: () => void;
+    filters: ContractFilterState;
+    onFilterChange: (filters: ContractFilterState) => void;
+    departments: Array<{ id: string; name: string }>;
+}
+
 export default function ContractFilterPanel({
-  filters,
-  onChange,
-  shown,
-  total,
-  onExport,
-  exporting,
-  trailing,
-}: {
-  filters: ContractFilters;
-  onChange: (filters: ContractFilters) => void;
-  shown: number;
-  total?: number;
-  onExport: () => void;
-  exporting: boolean;
-  /** The view switcher, so search and view sit on one toolbar. */
-  trailing?: ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  const count = activeContractFilterCount(filters);
-  const set = (patch: Partial<ContractFilters>) => onChange({ ...filters, ...patch });
+    isOpen,
+    onClose,
+    filters,
+    onFilterChange,
+    departments,
+}: ContractFilterPanelProps) {
+    const t = useTranslations('contractFilterPanel');
 
-  return (
-    <Card className="space-y-4 p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="w-full lg:max-w-md">
-          <Input
-            value={filters.search}
-            onChange={(event) => set({ search: event.target.value })}
-            aria-label="Search contracts"
-            placeholder="Contract number, employee code or name"
-            icon={<Search className="h-4 w-4" aria-hidden />}
-          />
-        </div>
+    const statuses = [
+        { value: 'ACTIVE', label: t('statusActive') },
+        { value: 'EXPIRED', label: t('statusExpired') },
+        { value: 'TERMINATED', label: t('statusTerminated') },
+    ];
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant={open || count > 0 ? 'primary' : 'outline'}
-            size="sm"
-            aria-expanded={open}
-            aria-controls="contract-filters"
-            onClick={() => setOpen((value) => !value)}
-          >
-            <SlidersHorizontal className="h-4 w-4" aria-hidden />
-            Filters
-            {count > 0 && (
-              <span className="rounded-[var(--radius-badge)] bg-surface-card px-1.5 text-xs font-semibold tabular-nums text-brand-primary">
-                {count}
-              </span>
+    const contractTypes = [
+        { value: 'PROBATION', label: t('typeProbation') },
+        { value: 'FIXED_TERM', label: t('typeFixedTerm') },
+        { value: 'INDEFINITE', label: t('typeIndefinite') },
+    ];
+
+    const toggleArrayFilter = (key: keyof ContractFilterState, value: string) => {
+        const currentValues = filters[key] as string[];
+        const newValues = currentValues.includes(value)
+            ? currentValues.filter(v => v !== value)
+            : [...currentValues, value];
+        onFilterChange({ ...filters, [key]: newValues });
+    };
+
+    const clearFilters = () => {
+        onFilterChange({
+            statuses: [],
+            contractTypes: [],
+            departments: [],
+            expiring: false,
+        });
+    };
+
+    const activeFilterCount =
+        filters.statuses.length +
+        filters.contractTypes.length +
+        filters.departments.length +
+        (filters.expiring ? 1 : 0);
+
+    return (
+        <AnimatePresence>
+            {isOpen && (
+                <>
+                    {/* Backdrop */}
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={onClose}
+                        className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40"
+                    />
+
+                    {/* Panel */}
+                    <motion.div
+                        initial={{ x: 400, opacity: 0 }}
+                        animate={{ x: 0, opacity: 1 }}
+                        exit={{ x: 400, opacity: 0 }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                        className="fixed end-0 top-0 h-full w-96 bg-surface-card shadow-2xl z-50 overflow-y-auto"
+                    >
+                        {/* Header */}
+                        <div className="sticky top-0 bg-surface-card border-b border-surface-border p-6 z-10">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-[--radius-button] bg-brand-primary flex items-center justify-center">
+                                        <Filter className="text-white" size={20} />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl font-bold text-text-heading">{t('title')}</h2>
+                                        {activeFilterCount > 0 && (
+                                            <p className="text-sm text-text-muted">{t('filtersApplyingCount', { count: activeFilterCount })}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={onClose}
+                                    className="p-2 hover:bg-surface-page rounded-[--radius-button] transition-colors"
+                                >
+                                    <X size={20} className="text-text-muted" />
+                                </button>
+                            </div>
+                            {activeFilterCount > 0 && (
+                                <button
+                                    onClick={clearFilters}
+                                    className="text-sm text-brand-primary hover:text-brand-primary-dark font-medium"
+                                >
+                                    {t('clearAllFilters')}
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Filters */}
+                        <div className="p-6 space-y-6">
+                            {/* Status Filter */}
+                            <div>
+                                <label className="block text-sm font-semibold text-text-body mb-3">
+                                    {t('statusSection')}
+                                </label>
+                                <div className="space-y-2">
+                                    {statuses.map((status) => (
+                                        <label
+                                            key={status.value}
+                                            className="flex items-center gap-3 p-3 rounded-[--radius-button] hover:bg-surface-page cursor-pointer transition-colors"
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={filters.statuses.includes(status.value)}
+                                                onChange={() => toggleArrayFilter('statuses', status.value)}
+                                                className="w-4 h-4 text-brand-primary rounded-[--radius-input] focus:ring-2 focus:ring-brand-primary/20"
+                                            />
+                                            <span className="text-sm font-medium text-text-body">{status.label}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Contract Type Filter */}
+                            <div>
+                                <label className="block text-sm font-semibold text-text-body mb-3">
+                                    {t('typeSection')}
+                                </label>
+                                <div className="space-y-2">
+                                    {contractTypes.map((type) => (
+                                        <label
+                                            key={type.value}
+                                            className="flex items-center gap-3 p-3 rounded-[--radius-button] hover:bg-surface-page cursor-pointer transition-colors"
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={filters.contractTypes.includes(type.value)}
+                                                onChange={() => toggleArrayFilter('contractTypes', type.value)}
+                                                className="w-4 h-4 text-brand-primary rounded-[--radius-input] focus:ring-2 focus:ring-brand-primary/20"
+                                            />
+                                            <span className="text-sm font-medium text-text-body">{type.label}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Department Filter */}
+                            <div>
+                                <label className="block text-sm font-semibold text-text-body mb-3">
+                                    {t('departmentSection')}
+                                </label>
+                                <div className="space-y-2 max-h-64 overflow-y-auto">
+                                    {departments.map((dept) => (
+                                        <label
+                                            key={dept.id}
+                                            className="flex items-center gap-3 p-3 rounded-[--radius-button] hover:bg-surface-page cursor-pointer transition-colors"
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={filters.departments.includes(dept.id)}
+                                                onChange={() => toggleArrayFilter('departments', dept.id)}
+                                                className="w-4 h-4 text-brand-primary rounded-[--radius-input] focus:ring-2 focus:ring-brand-primary/20"
+                                            />
+                                            <span className="text-sm font-medium text-text-body">{dept.name}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Expiring Soon */}
+                            <div>
+                                <label className="flex items-center gap-3 p-4 rounded-[--radius-card] bg-brand-accent/10 border border-brand-accent/20 cursor-pointer hover:bg-brand-accent/20 transition-colors">
+                                    <input
+                                        type="checkbox"
+                                        checked={filters.expiring}
+                                        onChange={(e) => onFilterChange({ ...filters, expiring: e.target.checked })}
+                                        className="w-4 h-4 text-brand-accent rounded-[--radius-input] focus:ring-2 focus:ring-brand-accent/20"
+                                    />
+                                    <div>
+                                        <span className="text-sm font-semibold text-brand-accent-dark block">{t('expiringSoonLabel')}</span>
+                                        <span className="text-xs text-brand-accent-dark/80">{t('expiringSoonHelper')}</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                    </motion.div>
+                </>
             )}
-          </Button>
-          <Button variant="outline" size="sm" onClick={onExport} isLoading={exporting}>
-            <Download className="h-4 w-4" aria-hidden />
-            Export
-          </Button>
-          {trailing}
-        </div>
-      </div>
-
-      {open && (
-        <div
-          id="contract-filters"
-          className="grid gap-3 border-t border-surface-border-light pt-4 sm:grid-cols-2 lg:grid-cols-4"
-        >
-          <Select
-            label="Status"
-            placeholder="Every status"
-            value={filters.status}
-            onChange={(event) =>
-              set({ status: event.target.value as ContractFilters['status'] })
-            }
-          >
-            {CONTRACT_STATUS_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {humanise(option)}
-              </option>
-            ))}
-          </Select>
-
-          <Select
-            label="Contract type"
-            placeholder="Every type"
-            value={filters.contractType}
-            onChange={(event) =>
-              set({ contractType: event.target.value as ContractFilters['contractType'] })
-            }
-          >
-            {CONTRACT_TYPE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {humanise(option)}
-              </option>
-            ))}
-          </Select>
-
-          <Select
-            label="Work type"
-            placeholder="Every arrangement"
-            value={filters.workType}
-            onChange={(event) =>
-              set({ workType: event.target.value as ContractFilters['workType'] })
-            }
-          >
-            {WORK_TYPE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {humanise(option)}
-              </option>
-            ))}
-          </Select>
-
-          <Select
-            label="Ending within"
-            placeholder="Any time"
-            value={filters.expiringWithinDays}
-            onChange={(event) => set({ expiringWithinDays: event.target.value })}
-          >
-            <option value="30">30 days</option>
-            <option value="60">60 days</option>
-            <option value="90">90 days</option>
-          </Select>
-
-          {count > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="justify-start"
-              onClick={() => onChange({ ...EMPTY_CONTRACT_FILTERS, search: filters.search })}
-            >
-              <X className="h-4 w-4" aria-hidden />
-              Clear {count} filter{count === 1 ? '' : 's'}
-            </Button>
-          )}
-        </div>
-      )}
-
-      <p className="border-t border-surface-border-light pt-3 text-sm text-text-muted">
-        Showing <span className="font-medium tabular-nums text-text-body">{shown}</span> of{' '}
-        {/* An em dash while the count is unknown: "of 0" would read as an empty
-            file rather than an answer that has not arrived. */}
-        <span className="font-medium tabular-nums text-text-body">{total ?? '—'}</span>{' '}
-        {total === 1 ? 'contract' : 'contracts'}
-      </p>
-    </Card>
-  );
+        </AnimatePresence>
+    );
 }
