@@ -2,7 +2,18 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
 import { MotionGlobalConfig } from 'framer-motion';
+import {
+  cloneElement,
+  createElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { navigationState, resetRouterMock, routerMock } from './router-mock';
+
+/** The box every mocked chart is measured into. */
+const MOCK_CHART_WIDTH = 400;
+const MOCK_CHART_HEIGHT = 300;
 
 // App Router hooks throw outside a real router tree, and most screens call
 // useRouter() during render. Mocked here so no test file has to repeat it.
@@ -74,3 +85,36 @@ if (!window.URL.createObjectURL) {
   window.URL.createObjectURL = vi.fn(() => 'blob:mock');
   window.URL.revokeObjectURL = vi.fn();
 }
+
+/**
+ * Recharts' `ResponsiveContainer` measures its parent and renders nothing at
+ * 0×0 — which is every element in jsdom, since jsdom has no layout engine and
+ * `ResizeObserver` above is a no-op. Left alone, every chart test would assert
+ * against an empty SVG and pass for the wrong reason.
+ *
+ * The real container does not merely WRAP its child: it clones it with explicit
+ * `width` and `height` props, which is how the chart inside learns its size.
+ * A mock that only renders a sized `<div>` leaves the chart at its default zero
+ * and it still draws no marks — so the clone is the part that matters, and it
+ * is why a test can find a bar, a legend entry or an axis label at all.
+ *
+ * Written with `createElement` rather than JSX so this file stays `.ts` and the
+ * vitest config keeps pointing at it.
+ */
+vi.mock('recharts', async () => {
+  const actual = await vi.importActual<typeof import('recharts')>('recharts');
+  return {
+    ...actual,
+    ResponsiveContainer: ({ children }: { children: ReactNode }) =>
+      createElement(
+        'div',
+        { style: { width: MOCK_CHART_WIDTH, height: MOCK_CHART_HEIGHT } },
+        isValidElement(children)
+          ? cloneElement(children as ReactElement<{ width?: number; height?: number }>, {
+              width: MOCK_CHART_WIDTH,
+              height: MOCK_CHART_HEIGHT,
+            })
+          : children,
+      ),
+  };
+});

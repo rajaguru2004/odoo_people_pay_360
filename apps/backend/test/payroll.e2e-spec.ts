@@ -1141,6 +1141,217 @@ describe('Payroll (e2e)', () => {
       await http().get('/payroll-runs').expect(401);
       await http().get('/payslips/my').expect(401);
       await http().get('/payroll/hub-summary').expect(401);
+      await http().get('/payroll/dashboard').expect(401);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 10. The analytics aggregate.
+  // ---------------------------------------------------------------------------
+
+  describe('dashboard', () => {
+    /** The month this spec's lifecycle run was approved and paid in. */
+    const focus = () => lifecycle.start.slice(0, 7);
+
+    it('answers the three payroll-facing roles and refuses the employee', async () => {
+      // Deliberately the same three as hub-summary. A fourth role here would
+      // mean the rail either hides a page somebody may open or offers one the
+      // server refuses.
+      for (const actor of [admin, hr, payroll]) {
+        await actor.auth(http().get('/payroll/dashboard')).expect(200);
+      }
+      await employee.auth(http().get('/payroll/dashboard')).expect(403);
+    });
+
+    it('refuses every unoffered slicer value rather than defaulting', async () => {
+      // A page that quietly answered for twelve months when it was asked for
+      // seven has no way to tell the reader that it did.
+      await admin.auth(http().get('/payroll/dashboard?months=7')).expect(400);
+      await admin
+        .auth(http().get('/payroll/dashboard?period=2026-13'))
+        .expect(400);
+      await admin
+        .auth(http().get('/payroll/dashboard?period=not-a-month'))
+        .expect(400);
+      await admin
+        .auth(http().get('/payroll/dashboard?departmentId=nonsense'))
+        .expect(400);
+      // Well-formed, but names no department. Showing the unfiltered company
+      // under a chip reading "Finance" is worse than refusing outright.
+      await admin
+        .auth(http().get('/payroll/dashboard?departmentId=' + MISSING_ID_V4))
+        .expect(400);
+      await admin
+        .auth(http().get('/payroll/dashboard?employmentType=Not%20A%20Type'))
+        .expect(400);
+    });
+
+    it('answers for the window and the period it was asked for', async () => {
+      for (const months of [6, 12]) {
+        const res = await payroll
+          .auth(
+            http().get(
+              '/payroll/dashboard?months=' + months + '&period=' + focus(),
+            ),
+          )
+          .expect(200);
+
+        const body = res.body.data;
+        expect(body.filters.applied.months).toBe(months);
+        expect(body.filters.applied.period).toBe(focus());
+        expect(body.trend).toHaveLength(months);
+        // The server owns every bucket label; the browser does no calendar
+        // arithmetic of its own.
+        for (const bucket of body.trend) {
+          expect(bucket.label).toEqual(expect.any(String));
+        }
+      }
+    });
+
+    it('carries the run this spec paid, and closes the bridge onto its net', async () => {
+      const res = await admin
+        .auth(http().get('/payroll/dashboard?period=' + focus()))
+        .expect(200);
+
+      const body = res.body.data;
+      expect(body.payslips.total).toBeGreaterThan(0);
+      expect(money(body.money.net)).toBeGreaterThan(0);
+
+      // The bridge's own bars have to reach the net the payslips carry — the
+      // one thing a bridge cannot afford to get wrong.
+      expect(money(body.bridge.net)).toBe(money(body.money.net));
+      expect(
+        money(
+          body.bridge.gross -
+            body.bridge.deductions +
+            body.bridge.netFloorResidual,
+        ),
+      ).toBe(money(body.bridge.net));
+    });
+
+    it('walks a cumulative total that never goes backwards', async () => {
+      const res = await admin
+        .auth(http().get('/payroll/dashboard?months=12'))
+        .expect(200);
+
+      let previous = -1;
+      for (const bucket of res.body.data.trend) {
+        // Net pay is never negative, so the running total only ever climbs. A
+        // reduce on the client would restart it at the window edge instead.
+        expect(bucket.cumulativeNet).toBeGreaterThanOrEqual(previous);
+        previous = bucket.cumulativeNet;
+      }
+    });
+
+    it('reports a monotonic funnel that leaves cancelled runs out', async () => {
+      const res = await admin
+        .auth(http().get('/payroll/dashboard?months=12'))
+        .expect(200);
+
+      const funnel = res.body.data.runs.funnel;
+      expect(funnel.map((stage: { stage: string }) => stage.stage)).toEqual([
+        'DRAFT',
+        'CALCULATED',
+        'APPROVED',
+        'PAID',
+      ]);
+      // Counting the status a run is in right now gives a shape that goes up
+      // and down, which is not a funnel.
+      for (let i = 1; i < funnel.length; i += 1) {
+        expect(funnel[i].reached).toBeLessThanOrEqual(funnel[i - 1].reached);
+      }
+    });
+
+    it('reports a rate as null rather than zero, and caps a sample without capping its count', async () => {
+      const res = await admin
+        .auth(http().get('/payroll/dashboard'))
+        .expect(200);
+      const body = res.body.data;
+
+      for (const value of [
+        body.money.changePct,
+        body.money.averageNet,
+        body.coverage.attendanceRate,
+        body.coverage.payrollCompletion,
+      ]) {
+        // 0 is a claim; null is the absence of one. Both are allowed, but the
+        // field has to be able to say that it does not know.
+        expect(value === null || typeof value === 'number').toBe(true);
+      }
+
+      for (const item of body.attention) {
+        expect(item.names.length).toBeLessThanOrEqual(item.count);
+      }
+    });
+
+    it('narrows every array when a department is named, not only the KPIs', async () => {
+      const unfiltered = await admin
+        .auth(http().get('/payroll/dashboard?period=' + focus()))
+        .expect(200);
+
+      const named = unfiltered.body.data.departments.find(
+        (row: { id: string | null }) => row.id !== null,
+      );
+      // The seeded workforce may sit entirely in the unassigned row; there is
+      // nothing to narrow to then, and asserting on it would be a false pass.
+      if (!named) return;
+
+      const res = await admin
+        .auth(
+          http().get(
+            '/payroll/dashboard?period=' +
+              focus() +
+              '&departmentId=' +
+              named.id,
+          ),
+        )
+        .expect(200);
+
+      const body = res.body.data;
+      expect(body.filters.applied.departmentId).toBe(named.id);
+      // The whole point of one endpoint: a slicer moves every visual, not just
+      // the cards at the top of the page.
+      for (const row of body.departments) expect(row.id).toBe(named.id);
+      expect(body.payslips.total).toBeLessThanOrEqual(
+        unfiltered.body.data.payslips.total,
+      );
+      expect(money(body.money.net)).toBeLessThanOrEqual(
+        money(unfiltered.body.data.money.net),
+      );
+    });
+
+    it('offers only slicer values it will accept', async () => {
+      const res = await hr.auth(http().get('/payroll/dashboard')).expect(200);
+      const { departments, employmentTypes } = res.body.data.filters;
+
+      // A control that can produce a 400 is a control that can break the page,
+      // so the option lists carry the "unassigned" literal too.
+      expect(
+        departments.some((o: { value: string }) => o.value === 'unassigned'),
+      ).toBe(true);
+      expect(
+        employmentTypes.some(
+          (o: { value: string }) => o.value === 'unassigned',
+        ),
+      ).toBe(true);
+
+      for (const option of [...departments, ...employmentTypes]) {
+        expect(option.label).toEqual(expect.any(String));
+      }
+    });
+
+    it('leaves HOLIDAY and WEEKEND out of the attendance composition', async () => {
+      const res = await admin
+        .auth(http().get('/payroll/dashboard?period=' + focus()))
+        .expect(200);
+
+      for (const row of res.body.data.attendance) {
+        // The row total is event days only. Anything else would shrink every
+        // rate by however many days the branch was shut.
+        expect(row.total).toBe(
+          row.present + row.late + row.absent + row.halfDay + row.onLeave,
+        );
+      }
     });
   });
 });

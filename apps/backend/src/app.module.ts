@@ -30,6 +30,7 @@ import { LeaveAttachmentsModule } from './leave-attachments/leave-attachments.mo
 import { LeaveRequestsModule } from './leave-requests/leave-requests.module';
 import { OvertimePolicyModule } from './overtime-policy/overtime-policy.module';
 import { OvertimeModule } from './overtime/overtime.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -64,6 +65,9 @@ import { OvertimeModule } from './overtime/overtime.module';
     LeaveRequestsModule,
     OvertimePolicyModule,
     OvertimeModule,
+    // Last, and deliberately so: the main dashboard reads across every module
+    // above it and owns none of them.
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],

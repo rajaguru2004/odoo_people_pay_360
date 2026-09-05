@@ -249,6 +249,11 @@ export const adminMenuItems: NavGroup[] = [
     hubRoles: ['ADMIN', 'HR_MANAGER', 'PAYROLL_OFFICER'],
     permissions: ['VIEW_ALL_PAYROLL'],
     children: [
+      // The analytics page carries the same three roles as the group itself,
+      // because GET /payroll/dashboard is gated exactly like
+      // GET /payroll/hub-summary. No `roles` narrowing is needed, and adding
+      // one would hide a page the server would have answered.
+      { labelKey: 'payrollAnalytics', href: '/dashboard/payroll/analytics' },
       { labelKey: 'payrollRuns', href: '/dashboard/payroll/runs' },
       // Starting a run is MANAGE_PAYROLL. An HR manager reads payroll and does
       // not run it, and POST /payroll-runs refuses them.

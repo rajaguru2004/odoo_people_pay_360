@@ -579,3 +579,80 @@ Two things are worth saying when it is updated:
    `payroll/` imports from `schedules/`. If either is ever computed rather than
    typed, that import is the seam, and the midnight crossing a naive subtraction
    gets wrong by sixteen hours is why.
+
+---
+
+## 9. The analytics page's seams
+
+Added with `/dashboard/payroll/analytics` and `GET /payroll/dashboard`. Full
+detail in [`payroll-dashboard-walkthrough.md`](payroll-dashboard-walkthrough.md);
+this section records only what the page **reads from other modules** and what it
+could not build.
+
+### 9.1 What it reads, and from where
+
+The aggregate touches four modules' tables. All reads, no writes, and no file
+outside `payroll/` was edited to make them work.
+
+| Module | Read | Why payroll needs it |
+|---|---|---|
+| `attendances/` | `Attendance.status` grouped by `[employeeId, status]` | The attendance composition bar and the health gauge. `HOLIDAY` and `WEEKEND` are excluded — they are calendar facts, not attendance events. |
+| `leave-requests/` | `LeaveRequest.totalDays` where `status = APPROVED` | The "Approved time off" KPI, in **days**. `totalDays` is already working days net of the branch calendar and its holidays, and is stored rather than recomputed so it keeps the number the approver agreed to. |
+| `overtime/` | `OvertimeRequest.hours` where `status = APPROVED` | Reported as its own figure, never stacked into the attendance bar — see §9.3. |
+| `library-items/` | `LibraryItem` where `libraryType = EMPLOYMENT_TYPE` | The employment-type slicer's option list, and the validation behind it. |
+
+Two constraints these create, for whoever owns those modules:
+
+- **`LeaveRequest.totalDays` must stay working days.** If it ever becomes
+  calendar days, the KPI silently overstates time off and nothing will fail.
+- **`Employee.employmentType` stores a library LABEL, not an id.** The slicer
+  matches on the label because that is what the column holds. Renaming an
+  EMPLOYMENT_TYPE row without migrating `Employee.employmentType` orphans every
+  employee carrying the old label into the `unassigned` bucket.
+
+A leave request that **starts** inside the focus period is counted whole, even
+where it runs past the month end. Splitting it would mean re-deriving working
+days per month, which is exactly what storing `totalDays` exists to avoid.
+
+### 9.2 A role gap worth knowing about
+
+The analytics endpoint is `@Roles(ADMIN, HR_MANAGER, PAYROLL_OFFICER)`, matching
+`GET /payroll/hub-summary`. But `GET /leave-requests/hub-summary` is
+`@Roles(ADMIN, HR_MANAGER, MANAGER)` — **no `PAYROLL_OFFICER`**.
+
+So a payroll officer may read the leave FIGURE on this page while being refused
+the leave module's own hub. That is deliberate and is not a leak: the dashboard
+returns an aggregate day count with no names on it, where the leave hub answers
+by name. It is recorded here because the natural "fix" — widening the leave hub's
+roles — would be the wrong one, and because the reverse ("just drop the KPI") was
+also considered and rejected: payroll officers need to know how much of a month
+was leave when a net figure moves.
+
+The dashboard queries `LeaveRequest` through Prisma directly rather than through
+`LeaveRequestsService`, so nothing in `leave-requests/` was touched.
+
+### 9.3 Not built
+
+- **Overtime as an attendance segment.** `OvertimeRequest.hours` is
+  `Decimal(5, 2)` HOURS; the attendance segments are DAY counts, and
+  `OvertimeRequest` has no link to `PayslipLine`. Stacking them is a second scale
+  on one axis. When overtime is ever monetised into a payslip line, it belongs in
+  the component mix and the bridge, not in the attendance bar.
+- **Bank details.** No bank, IBAN or account column exists anywhere in
+  `schema.prisma`, so the "missing bank details" alert on the original brief is
+  not buildable. If one is added, it is a new pre-flight rule in
+  `payroll-preflight.rules.ts` and the alert list picks it up with no change to
+  the dashboard — which is the reason that list is fed by the pre-flight rather
+  than by its own queries.
+- **Duplicate-payslip detection.** Structurally impossible:
+  `Payslip @@unique([payrollRunId, employeeId])` and
+  `PayrollRun @@unique([periodStart, periodEnd])`.
+- **Dark mode.** `theme/types.ts` still records dark tokens as deferred and all
+  four presets are light-only. Adding them is a shared-theme change and belongs
+  to whoever owns `theme/`. Every colour on the analytics page comes from
+  `theme/chartColors.ts` or a `var(--color-…)` — there is not one hex literal in
+  `components/payroll/dashboard/` — so the page repaints for free when they land.
+- **Multi-currency totals.** `PayrollRun.currency` is per run. A trend month in
+  another currency is excluded from the totals and disclosed in
+  `money.otherCurrencies[]` rather than added in. The focus period can never be
+  mixed, because a period holds at most one run.
