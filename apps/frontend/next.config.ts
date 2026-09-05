@@ -3,7 +3,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   turbopack: {
-    root: path.resolve(__dirname),
+    // The MONOREPO root, not this app. npm workspaces hoists node_modules to
+    // the repo root, so with apps/frontend as the root Turbopack refuses to
+    // compile anything outside it and the build dies with "We couldn't find
+    // the Next.js package".
+    root: path.resolve(__dirname, '..', '..'),
   },
   /**
    * Build output directory. `.next` unless told otherwise.

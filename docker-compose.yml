@@ -14,7 +14,12 @@ services:
 
   # ── PostgreSQL ───────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    # pgvector, not plain postgres:16 — schema.prisma declares `extensions =
+    # [vector]` and stores a vector(384) embedding, so `prisma db push` runs
+    # CREATE EXTENSION vector and dies on any image that does not ship it
+    # ("extension \"vector\" is not available"). Same PG 16 data directory, so
+    # the existing volume carries over.
+    image: pgvector/pgvector:pg16
     container_name: ppx_postgres
     restart: always
     environment:
