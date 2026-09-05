@@ -12,31 +12,6 @@ import type { ThemeConfig, ThemeColors } from './types';
 import { getPreset } from './presets';
 import { getFont, buildGoogleFontUrl } from './fonts';
 
-/**
- * Arabic-glyph-coverage font, composed in front of whatever brand font is
- * active (Dashboard-module locale PoC). Kept separate from THEME_FONTS since
- * this is a script-coverage axis, not a brand-choice axis.
- */
-const ARABIC_FONT_STACK = '"Noto Sans Arabic"';
-const ARABIC_GOOGLE_FONTS_URL =
-  'https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap';
-
-/** Merge two Google Fonts css2 stylesheet URLs into one (union of `family` params). */
-function combineGoogleFontUrls(a: string | null, b: string): string {
-  if (!a) return b;
-  try {
-    const urlA = new URL(a);
-    const urlB = new URL(b);
-    const families = [...urlA.searchParams.getAll('family'), ...urlB.searchParams.getAll('family')];
-    const merged = new URL(a);
-    merged.searchParams.delete('family');
-    families.forEach((f) => merged.searchParams.append('family', f));
-    return merged.toString();
-  } catch {
-    return a;
-  }
-}
-
 /** Brand color keys the user may override in "Custom" mode. */
 export const CUSTOM_COLOR_KEYS = [
   'brandPrimary',
@@ -65,7 +40,6 @@ export function resolveTheme(
   presetId: string | undefined | null,
   fontId: string | undefined | null,
   custom?: ThemeCustom,
-  locale?: string,
 ): ThemeConfig {
   const isCustomColors = presetId === 'custom';
   const base = getPreset(isCustomColors ? 'default' : presetId);
@@ -95,15 +69,6 @@ export function resolveTheme(
     fontSans = font.fontStack;
     googleFontsUrl = font.googleFontsUrl;
     fontTag = font.id;
-  }
-
-  // ── Locale font layering (Dashboard-module Arabic PoC) ───────────────────
-  // Prepend the Arabic-capable face so Arabic glyphs render correctly; the
-  // brand font stays in the stack for any Latin runs mixed into Arabic UI.
-  if (locale === 'ar') {
-    fontSans = `${ARABIC_FONT_STACK}, ${fontSans}`;
-    googleFontsUrl = combineGoogleFontUrls(googleFontsUrl, ARABIC_GOOGLE_FONTS_URL);
-    fontTag = `${fontTag}__ar`;
   }
 
   // Encode every input into the id so font/CSS re-apply on any change.

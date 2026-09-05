@@ -3,105 +3,110 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { SystemSettingsService } from '../system-settings/system-settings.service';
 import { ApprovalEngineService } from '../approvals/approval-engine.service';
-import { withFullName } from '../common/utils/employee-name.util';
+import { assertInBranch } from '../common/branch/branch-scope.util';
+import { getBranchContext } from '../common/branch/branch-context';
+import { isDeptInManagerScope } from '../common/services/manager-scope.util';
 import { CreateCourseDto } from './dto/create-course.dto';
-import { UpdateCourseDto } from './dto/update-course.dto';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { NominateDto } from './dto/nominate.dto';
 import { DecideNominationDto } from './dto/decide-nomination.dto';
 import { RecordAttendanceDto } from './dto/record-attendance.dto';
-import type { Principal } from '../auth/auth.service';
 
-/** Seats a session has actually committed. */
-const COMMITTED_STATUSES = ['APPROVED', 'ATTENDED'];
-
-/** Roles that may settle a nomination when no approval chain governs it. */
-const DEFAULT_APPROVER_ROLES: string[] = [UserRole.ADMIN, UserRole.HR_MANAGER];
-
-const NOMINATION_INCLUDE = {
-  employee: {
-    select: {
-      id: true,
-      employeeCode: true,
-      firstName: true,
-      lastName: true,
-      departmentId: true,
-      branchId: true,
-      department: { select: { id: true, name: true } },
-      user: { select: { id: true } },
-    },
-  },
-  session: {
-    include: {
-      course: {
-        select: {
-          id: true,
-          code: true,
-          title: true,
-          category: true,
-          certValidMonths: true,
-        },
-      },
-      branch: { select: { id: true, name: true } },
-    },
-  },
-} satisfies Prisma.TrainingNominationInclude;
-
-type NominationRow = Prisma.TrainingNominationGetPayload<{
-  include: typeof NOMINATION_INCLUDE;
-}>;
 
 @Injectable()
 export class TrainingService {
+  private readonly logger = new Logger(TrainingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
+    private readonly settings: SystemSettingsService,
     private readonly engine: ApprovalEngineService,
   ) {}
 
-  private serialize(row: NominationRow) {
-    return { ...row, employee: withFullName(row.employee) };
-  }
+  private readonly nominationInclude = {
+    employee: {
+      select: {
+        id: true,
+        employeeCode: true,
+        fullName: true,
+        departmentId: true,
+        branchId: true,
+        department: { select: { id: true, name: true } },
+        user: { select: { id: true } },
+      },
+    },
+    session: {
+      include: {
+        course: {
+          select: {
+            id: true,
+            code: true,
+            title: true,
+            category: true,
+            certValidMonths: true,
+          },
+        },
+      },
+    },
+  };
 
-  // ── Course catalogue ───────────────────────────────────────────────────────
+  // ── Course catalogue ──────────────────────────────────────────────────────
 
-  async createCourse(dto: CreateCourseDto) {
+  async createCourse(dto: CreateCourseDto, userId: string) {
     try {
-      return await this.prisma.course.create({ data: { ...dto } });
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
+      const course = await this.prisma.course.create({ data: { ...dto } });
+      await this.audit.log({
+        userId,
+        action: 'COURSE_CREATED',
+        resourceType: 'Course',
+        resourceId: course.id,
+        newData: { code: course.code, title: course.title },
+      });
+      return { success: true, data: course };
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new ConflictException(`Course code "${dto.code}" already exists`);
       }
-      throw error;
+      throw e;
     }
   }
 
   async listCourses(activeOnly = false) {
-    return this.prisma.course.findMany({
+    const data = await this.prisma.course.findMany({
       where: activeOnly ? { isActive: true } : {},
       orderBy: { title: 'asc' },
     });
+    return { success: true, data };
   }
 
-  async updateCourse(id: string, dto: UpdateCourseDto) {
-    const existing = await this.prisma.course.findUnique({
-      where: { id },
-      select: { id: true },
-    });
+  async updateCourse(id: string, dto: Partial<CreateCourseDto>, userId: string) {
+    const existing = await this.prisma.course.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Course not found');
-    return this.prisma.course.update({ where: { id }, data: dto });
+    const course = await this.prisma.course.update({ where: { id }, data: dto });
+    await this.audit.log({
+      userId,
+      action: 'COURSE_UPDATED',
+      resourceType: 'Course',
+      resourceId: id,
+      newData: dto as any,
+    });
+    return { success: true, data: course };
   }
 
-  // ── Sessions ───────────────────────────────────────────────────────────────
+  // ── Sessions ──────────────────────────────────────────────────────────────
 
-  async createSession(dto: CreateSessionDto) {
+  async createSession(dto: CreateSessionDto, userId: string) {
     const course = await this.prisma.course.findUnique({
       where: { id: dto.courseId },
       select: { id: true, defaultCost: true },
@@ -111,10 +116,10 @@ export class TrainingService {
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
     if (endDate < startDate) {
-      throw new BadRequestException('A session cannot end before it starts');
+      throw new BadRequestException('Session end date cannot be before its start');
     }
 
-    return this.prisma.trainingSession.create({
+    const session = await this.prisma.trainingSession.create({
       data: {
         courseId: dto.courseId,
         branchId: dto.branchId ?? null,
@@ -123,15 +128,25 @@ export class TrainingService {
         location: dto.location ?? null,
         trainer: dto.trainer ?? null,
         seats: dto.seats ?? null,
-        // Falls back to the course default so a session always has a cost for
-        // its nominations to snapshot.
+        // Fall back to the course's default so a session always has a cost to
+        // snapshot onto its nominations.
         costPerSeat: dto.costPerSeat ?? course.defaultCost ?? null,
       },
       include: { course: true },
     });
+
+    await this.audit.log({
+      userId,
+      action: 'TRAINING_SESSION_CREATED',
+      resourceType: 'TrainingSession',
+      resourceId: session.id,
+      newData: { courseId: dto.courseId, startDate: dto.startDate },
+      branchId: dto.branchId ?? null,
+    });
+    return { success: true, data: session };
   }
 
-  async listSessions(params: { status?: string; from?: string; to?: string }) {
+  async listSessions(params: { status?: string; from?: string; to?: string } = {}) {
     const where: Prisma.TrainingSessionWhereInput = {};
     if (params.status) where.status = params.status;
     if (params.from || params.to) {
@@ -140,37 +155,43 @@ export class TrainingService {
         ...(params.to ? { lte: new Date(params.to) } : {}),
       };
     }
-
-    return this.prisma.trainingSession.findMany({
+    const data = await this.prisma.trainingSession.findMany({
       where,
       include: {
         course: true,
         branch: { select: { id: true, name: true } },
         _count: {
-          select: {
-            nominations: { where: { status: { in: COMMITTED_STATUSES } } },
-          },
+          select: { nominations: { where: { status: { in: ['APPROVED', 'ATTENDED'] } } } },
         },
       },
       orderBy: { startDate: 'desc' },
     });
+    return { success: true, data };
   }
 
-  // ── Nominations ────────────────────────────────────────────────────────────
+  // ── Nominations ───────────────────────────────────────────────────────────
 
-  async nominate(dto: NominateDto, user: Principal) {
+  async nominate(dto: NominateDto, user: any) {
     const [session, employee] = await Promise.all([
       this.prisma.trainingSession.findUnique({
         where: { id: dto.sessionId },
-        include: { course: { select: { title: true } } },
+        include: { course: true },
       }),
       this.prisma.employee.findUnique({
         where: { id: dto.employeeId },
-        select: { id: true, status: true },
+        select: {
+          id: true,
+          fullName: true,
+          branchId: true,
+          status: true,
+          departmentId: true,
+          user: { select: { id: true } },
+        },
       }),
     ]);
     if (!session) throw new NotFoundException('Training session not found');
     if (!employee) throw new NotFoundException('Employee not found');
+    assertInBranch(employee.branchId);
 
     if (['CANCELLED', 'COMPLETED'].includes(session.status)) {
       throw new BadRequestException(
@@ -179,13 +200,13 @@ export class TrainingService {
     }
     if (employee.status !== 'ACTIVE') {
       throw new BadRequestException(
-        `Cannot nominate an employee whose status is ${employee.status}`,
+        `Cannot nominate an employee with status ${employee.status}`,
       );
     }
 
-    // The duplicate check runs BEFORE the seat cap. On a full session the
-    // unique constraint would otherwise be reported as "session full", which
-    // sends the nominator hunting for a seat this person already holds.
+    // Duplicate check BEFORE the seat cap: on a full session the unique
+    // constraint would otherwise be reported as "session full", which sends the
+    // nominator looking for a seat that this employee already holds.
     const existing = await this.prisma.trainingNomination.findUnique({
       where: {
         sessionId_employeeId: {
@@ -193,7 +214,7 @@ export class TrainingService {
           employeeId: dto.employeeId,
         },
       },
-      select: { status: true },
+      select: { id: true, status: true },
     });
     if (existing) {
       throw new ConflictException(
@@ -201,9 +222,10 @@ export class TrainingService {
       );
     }
 
+    // Seat capacity, counted against seats actually committed.
     if (session.seats !== null) {
       const taken = await this.prisma.trainingNomination.count({
-        where: { sessionId: dto.sessionId, status: { in: COMMITTED_STATUSES } },
+        where: { sessionId: dto.sessionId, status: { in: ['APPROVED', 'ATTENDED'] } },
       });
       if (taken >= session.seats) {
         throw new BadRequestException(
@@ -212,35 +234,44 @@ export class TrainingService {
       }
     }
 
-    const nomination = await this.prisma.trainingNomination.create({
-      data: {
-        sessionId: dto.sessionId,
-        employeeId: dto.employeeId,
-        nominatedById: user.id,
-        justification: dto.justification ?? null,
-        // Snapshotted: an approved cost must not move when somebody edits the
-        // session afterwards.
-        cost: session.costPerSeat,
-        status: 'PENDING',
-      },
-      include: NOMINATION_INCLUDE,
-    });
-
-    await this.prisma.auditLog.create({
-      data: {
-        userId: user.id,
-        action: 'TRAINING_NOMINATED',
-        entityType: 'TrainingNomination',
-        entityId: nomination.id,
-        metadata: {
+    let nomination;
+    try {
+      nomination = await this.prisma.trainingNomination.create({
+        data: {
+          sessionId: dto.sessionId,
           employeeId: dto.employeeId,
-          course: session.course.title,
+          nominatedById: user.id,
+          source: dto.source ?? 'MANUAL',
+          appraisalResultId: dto.appraisalResultId ?? null,
+          justification: dto.justification ?? null,
+          // Snapshot, for the same reason travel snapshots its per-diem.
+          cost: session.costPerSeat,
+          status: 'PENDING',
         },
+        include: this.nominationInclude,
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException(
+          'This employee is already nominated for this session',
+        );
+      }
+      throw e;
+    }
+
+    await this.audit.log({
+      userId: user.id,
+      action: 'TRAINING_NOMINATED',
+      resourceType: 'TrainingNomination',
+      resourceId: nomination.id,
+      newData: {
+        employeeId: dto.employeeId,
+        course: session.course.title,
+        source: dto.source ?? 'MANUAL',
       },
+      branchId: employee.branchId,
     });
 
-    // With no configured chain the nomination is settled by the nominator's own
-    // authority, exactly as a fresh install behaves.
     const init = await this.engine.initiate(
       'TRAINING',
       nomination.id,
@@ -251,12 +282,16 @@ export class TrainingService {
       return this.applyApproved(nomination.id, user.id);
     }
 
-    return this.serialize(nomination);
+    return {
+      success: true,
+      message: 'Nomination submitted for approval.',
+      data: nomination,
+    };
   }
 
   async decide(
     id: string,
-    user: Principal,
+    user: any,
     decision: 'APPROVE' | 'REJECT',
     dto: DecideNominationDto = {},
   ) {
@@ -276,39 +311,64 @@ export class TrainingService {
       dto.remarks,
     );
 
-    // `engaged: false` means no chain governs this one, so the module falls
-    // back to its own single-approver rule rather than letting anybody settle it.
-    if (!result.engaged && !DEFAULT_APPROVER_ROLES.includes(user.role)) {
+    if (!result.engaged) {
+      await this.assertLegacyApprover(user, nomination.employee.departmentId);
+    }
+
+    if (decision === 'REJECT' && (!result.engaged || result.finalized)) {
+      return this.applyRejected(id, user.id, dto.remarks);
+    }
+    if (decision === 'APPROVE' && (!result.engaged || result.finalized)) {
+      return this.applyApproved(id, user.id, dto.remarks);
+    }
+
+    return {
+      success: true,
+      message: 'Decision recorded. Awaiting the next approval step.',
+      data: { id, status: 'PENDING' },
+    };
+  }
+
+  private async assertLegacyApprover(user: any, departmentId: string | null) {
+    const raw = await this.settings.getSetting(
+      'training_approver_roles',
+      'HR_MANAGER,ADMIN',
+    );
+    const roles = raw.split(',').map((r) => r.trim()).filter(Boolean);
+    if (!roles.includes(user?.role)) {
       throw new ForbiddenException(
-        'Your role is not permitted to decide training nominations',
+        'Your role is not configured to approve training nominations',
       );
     }
-
-    if (!result.engaged || result.finalized) {
-      return decision === 'APPROVE'
-        ? this.applyApproved(id, user.id, dto.remarks)
-        : this.applyRejected(id, user.id, dto.remarks);
+    if (user.role === 'MANAGER' && !isDeptInManagerScope(user, departmentId ?? '')) {
+      throw new ForbiddenException(
+        'You can only review nominations from your own department',
+      );
     }
-
-    // The chain has more steps to run; the nomination stays PENDING.
-    return this.serialize(await this.getNominationOrThrow(id));
   }
 
   private async getNominationOrThrow(id: string) {
     const nomination = await this.prisma.trainingNomination.findUnique({
       where: { id },
-      include: NOMINATION_INCLUDE,
+      include: this.nominationInclude,
     });
     if (!nomination) throw new NotFoundException('Nomination not found');
+    assertInBranch(nomination.employee.branchId);
     return nomination;
   }
 
-  private async applyApproved(
-    id: string,
-    approverUserId: string,
-    remarks?: string,
-  ) {
+  /**
+   * Approved nomination side-effects.
+   *
+   * Who pays decides whether a claim is spawned. `training_paid_by = COMPANY`
+   * (the default) means the company settles with the provider directly and
+   * there is nothing to reimburse — the cost is still recorded on the
+   * nomination so budgeting can see it. `EMPLOYEE` means the employee paid and
+   * gets it back through the ordinary reimbursement path.
+   */
+  private async applyApproved(id: string, approverUserId: string, remarks?: string) {
     const nomination = await this.getNominationOrThrow(id);
+
     const updated = await this.prisma.trainingNomination.update({
       where: { id },
       data: {
@@ -316,30 +376,14 @@ export class TrainingService {
         approverId: approverUserId,
         approvedAt: new Date(),
       },
-      include: NOMINATION_INCLUDE,
+      include: this.nominationInclude,
     });
 
-    await this.prisma.auditLog.create({
-      data: {
-        userId: approverUserId,
-        action: 'TRAINING_APPROVED',
-        entityType: 'TrainingNomination',
-        entityId: id,
-        metadata: {
-          course: nomination.session.course.title,
-          remarks: remarks ?? null,
-        },
-      },
-    });
-
-    return this.serialize(updated);
+    return { success: true, message: 'Nomination approved.', data: updated };
   }
 
-  private async applyRejected(
-    id: string,
-    approverUserId: string,
-    reason?: string,
-  ) {
+  private async applyRejected(id: string, approverUserId: string, reason?: string) {
+    const nomination = await this.getNominationOrThrow(id);
     const updated = await this.prisma.trainingNomination.update({
       where: { id },
       data: {
@@ -348,26 +392,41 @@ export class TrainingService {
         approvedAt: new Date(),
         rejectedReason: reason ?? null,
       },
-      include: NOMINATION_INCLUDE,
+      include: this.nominationInclude,
     });
 
-    await this.prisma.auditLog.create({
-      data: {
-        userId: approverUserId,
-        action: 'TRAINING_REJECTED',
-        entityType: 'TrainingNomination',
-        entityId: id,
-        metadata: { reason: reason ?? null },
-      },
+
+    await this.audit.log({
+      userId: approverUserId,
+      action: 'TRAINING_REJECTED',
+      resourceType: 'TrainingNomination',
+      resourceId: id,
+      newData: { reason },
+      branchId: getBranchContext()?.effectiveBranchId ?? null,
     });
 
-    return this.serialize(updated);
+    if (nomination.employee.user?.id) {
+      await this.notifications
+        .create({
+          userId: nomination.employee.user.id,
+          title: 'Training nomination rejected',
+          message: `Your nomination for ${nomination.session.course.title} was rejected.${reason ? ` Reason: ${reason}` : ''}`,
+          type: 'ERROR' as any,
+          link: '/dashboard/my-training',
+          waTemplate: 'training_nomination',
+          waData: { courseName: nomination.session.course.title, status: 'REJECTED' },
+          waDedupeKey: `training:${id}:rejected`,
+        })
+        .catch(() => undefined);
+    }
+
+    return { success: true, message: 'Nomination rejected.', data: updated };
   }
 
-  async cancelNomination(id: string, user: Principal) {
+  async cancelNomination(id: string, user: any) {
     const nomination = await this.getNominationOrThrow(id);
-    const isOwner = nomination.employeeId === user?.employeeId;
-    if (!isOwner && !DEFAULT_APPROVER_ROLES.includes(user?.role)) {
+    const isOwner = nomination.employee.user?.id === user?.id;
+    if (!isOwner && !['ADMIN', 'HR_MANAGER'].includes(user?.role)) {
       throw new ForbiddenException('Not permitted to cancel this nomination');
     }
     if (!['PENDING', 'APPROVED'].includes(nomination.status)) {
@@ -376,40 +435,37 @@ export class TrainingService {
       );
     }
 
-    // Close the live trail first, so no approver can finalise something that
-    // has already been withdrawn.
     await this.engine.abandon('TRAINING', id);
 
     const updated = await this.prisma.trainingNomination.update({
       where: { id },
       data: { status: 'CANCELLED' },
-      include: NOMINATION_INCLUDE,
+      include: this.nominationInclude,
     });
 
-    await this.prisma.auditLog.create({
-      data: {
-        userId: user?.id ?? null,
-        action: 'TRAINING_CANCELLED',
-        entityType: 'TrainingNomination',
-        entityId: id,
-      },
+    await this.audit.log({
+      userId: user?.id,
+      action: 'TRAINING_CANCELLED',
+      resourceType: 'TrainingNomination',
+      resourceId: id,
+      branchId: getBranchContext()?.effectiveBranchId ?? null,
     });
 
-    return this.serialize(updated);
+    return { success: true, message: 'Nomination cancelled.', data: updated };
   }
 
   /**
-   * Record attendance, the score and the certificate.
+   * Record attendance, score and the certificate.
    *
-   * The certificate's expiry is derived from the course's validity window and
-   * the attendance date, which is what puts it in front of the employee in the
-   * vault before it lapses — no separate expiry job.
+   * Certificate expiry is derived from the course's validity window and the
+   * attendance date, which is what registers this nomination with the reminder
+   * engine — no separate expiry cron.
    */
   async recordAttendance(id: string, dto: RecordAttendanceDto, userId: string) {
     const nomination = await this.getNominationOrThrow(id);
     if (!['APPROVED', 'ATTENDED', 'NO_SHOW'].includes(nomination.status)) {
       throw new BadRequestException(
-        'Only an approved nomination can have attendance recorded against it',
+        'Only an approved nomination can have attendance recorded',
       );
     }
 
@@ -434,106 +490,71 @@ export class TrainingService {
         certificateUrl: dto.certificateUrl ?? null,
         certificateExpiry,
       },
-      include: NOMINATION_INCLUDE,
+      include: this.nominationInclude,
     });
 
-    await this.prisma.auditLog.create({
-      data: {
-        userId,
-        action: dto.attended ? 'TRAINING_ATTENDED' : 'TRAINING_NO_SHOW',
-        entityType: 'TrainingNomination',
-        entityId: id,
-        metadata: {
-          score: dto.score ?? null,
-          passed: dto.passed ?? null,
-          certificateExpiry: certificateExpiry?.toISOString() ?? null,
-        },
-      },
+    await this.audit.log({
+      userId,
+      action: dto.attended ? 'TRAINING_ATTENDED' : 'TRAINING_NO_SHOW',
+      resourceType: 'TrainingNomination',
+      resourceId: id,
+      newData: { score: dto.score, passed: dto.passed, certificateExpiry },
+      branchId: getBranchContext()?.effectiveBranchId ?? null,
     });
 
-    return this.serialize(updated);
+    return { success: true, message: 'Attendance recorded.', data: updated };
   }
 
-  // ── Reads ──────────────────────────────────────────────────────────────────
+  // ── Reads ─────────────────────────────────────────────────────────────────
 
-  async listNominations(
-    params: { sessionId?: string; status?: string },
-    user: Principal,
-  ) {
+  async listNominations(params: { sessionId?: string; status?: string }, user: any) {
     const where: Prisma.TrainingNominationWhereInput = {};
     if (params.sessionId) where.sessionId = params.sessionId;
     if (params.status) where.status = params.status;
-
-    if (user?.role === UserRole.MANAGER) {
-      const scope = await this.managedDepartmentIds(user);
-      if (scope.length === 0) return [];
-      where.employee = { departmentId: { in: scope } };
+    if (user?.role === 'MANAGER') {
+      const deptIds = (user.managedDepartmentIds ?? []).filter(Boolean);
+      if (deptIds.length === 0) return { success: true, data: [] };
+      where.employee = { departmentId: { in: deptIds } };
     }
-
-    const rows = await this.prisma.trainingNomination.findMany({
+    const data = await this.prisma.trainingNomination.findMany({
       where,
-      include: NOMINATION_INCLUDE,
+      include: this.nominationInclude,
       orderBy: { createdAt: 'desc' },
     });
-    return rows.map((row) => this.serialize(row));
+    return { success: true, data };
   }
 
   async findByEmployee(employeeId: string) {
-    const rows = await this.prisma.trainingNomination.findMany({
+    const data = await this.prisma.trainingNomination.findMany({
       where: { employeeId },
-      include: NOMINATION_INCLUDE,
+      include: this.nominationInclude,
       orderBy: { createdAt: 'desc' },
     });
-    return rows.map((row) => this.serialize(row));
+    return { success: true, data };
   }
 
   /** The training calendar in four numbers. */
   async stats() {
     const now = new Date();
-    const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-    const [activeCourses, sessionsByStatus, upcoming, nominations] =
-      await Promise.all([
-        this.prisma.course.count({ where: { isActive: true } }),
-        this.prisma.trainingSession.groupBy({
-          by: ['status'],
-          _count: { _all: true },
-        }),
-        this.prisma.trainingSession.count({
-          where: {
-            status: 'SCHEDULED',
-            startDate: { gte: now, lte: in30Days },
-          },
-        }),
-        this.prisma.trainingNomination.groupBy({
-          by: ['status'],
-          _count: { _all: true },
-        }),
-      ]);
+    const [activeCourses, sessionsByStatus, upcomingSessions, nominations] = await Promise.all([
+      this.prisma.course.count({ where: { isActive: true } }),
+      this.prisma.trainingSession.groupBy({ by: ['status'], _count: { _all: true } }),
+      this.prisma.trainingSession.count({
+        where: { status: 'SCHEDULED', startDate: { gte: now, lte: in30 } },
+      }),
+      this.prisma.trainingNomination.groupBy({ by: ['status'], _count: { _all: true } }),
+    ]);
 
     return {
-      activeCourses,
-      upcomingSessions30Days: upcoming,
-      sessionsByStatus: Object.fromEntries(
-        sessionsByStatus.map((row) => [row.status, row._count._all]),
-      ),
-      nominationsByStatus: Object.fromEntries(
-        nominations.map((row) => [row.status, row._count._all]),
-      ),
+      success: true,
+      data: {
+        activeCourses,
+        upcomingSessions30Days: upcomingSessions,
+        sessionsByStatus: Object.fromEntries(sessionsByStatus.map((r) => [r.status, r._count._all])),
+        nominationsByStatus: Object.fromEntries(nominations.map((r) => [r.status, r._count._all])),
+      },
     };
-  }
-
-  /** The departments a manager speaks for: the ones they head, plus their own. */
-  private async managedDepartmentIds(user: Principal): Promise<string[]> {
-    const ids = new Set<string>();
-    if (user.departmentId) ids.add(user.departmentId);
-    if (user.employeeId) {
-      const headed = await this.prisma.department.findMany({
-        where: { managerId: user.employeeId },
-        select: { id: true },
-      });
-      headed.forEach((department) => ids.add(department.id));
-    }
-    return [...ids];
   }
 }

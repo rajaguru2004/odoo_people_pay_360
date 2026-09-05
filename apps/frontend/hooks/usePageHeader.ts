@@ -5,40 +5,35 @@ import { usePathname } from 'next/navigation';
 import { usePageHeaderStore, type Crumb } from '@/store/pageHeaderStore';
 
 /**
- * Declares this page's heading to the single slot in Topbar.
+ * Declares this page's title/subtitle to the global TopHeader.
  *
- * Pass the strings the page already has:
+ * The dashboard renders exactly one heading slot, in TopHeader. A page must not
+ * paint its own `<h1>` + subtitle as well — that is the duplicate-title defect
+ * this hook exists to remove. Pass the strings the page already translates:
  *
- *     usePageHeader('Employees', `${total} records`);
+ *   usePageHeader(t('title'), t('subtitle'));
  *
- * A page that calls this must not also render an `<h1>` — the shell is drawing
- * one, and two headings on a screen leave a reader (and a screen reader) with
- * two answers to "where am I". A page that declares nothing keeps the title
- * Topbar derives from the nav tree.
+ * Pages that declare nothing keep TopHeader's static `getPageInfo()` fallback.
  *
- * The third argument overrides the derived breadcrumb trail. Most pages should
- * omit it; it earns its place on a record page whose crumb should name the
- * record.
+ * The optional third argument overrides the breadcrumb trail TopHeader derives
+ * from the nav tree. Most pages should omit it: the derived trail is already
+ * correct for anything the sidebar links to, and a hand-written one is one more
+ * place to forget when a route moves. Pass it for record pages whose crumb
+ * should name the record.
  */
 export function usePageHeader(title: string, subtitle?: string, breadcrumbs?: Crumb[]) {
   const pathname = usePathname();
   const set = usePageHeaderStore((s) => s.set);
   const clear = usePageHeaderStore((s) => s.clear);
 
-  // Depend on the CONTENT of the trail, not on its identity. Callers pass array
-  // literals, which are a fresh reference on every render, so an identity
-  // dependency here is an infinite loop: set() → render → new array → set().
+  // Callers pass array literals, which are a new reference every render. Depend
+  // on the content instead, or the effect re-runs forever: set() → render →
+  // new array → set().
   const crumbKey = breadcrumbs ? JSON.stringify(breadcrumbs) : '';
 
   useEffect(() => {
-    set({
-      pathname,
-      title,
-      subtitle,
-      breadcrumbs: crumbKey ? (JSON.parse(crumbKey) as Crumb[]) : undefined,
-    });
+    set({ pathname, title, subtitle, breadcrumbs: crumbKey ? JSON.parse(crumbKey) : undefined });
     return () => clear(pathname);
-    // `breadcrumbs` is deliberately absent from the dependencies — `crumbKey`
-    // stands in for it, and adding the array back is the loop described above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, title, subtitle, crumbKey, set, clear]);
 }

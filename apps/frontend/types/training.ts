@@ -1,3 +1,5 @@
+export type SessionStatus = 'SCHEDULED' | 'RUNNING' | 'COMPLETED' | 'CANCELLED';
+
 export type NominationStatus =
   | 'PENDING'
   | 'APPROVED'
@@ -5,6 +7,8 @@ export type NominationStatus =
   | 'CANCELLED'
   | 'ATTENDED'
   | 'NO_SHOW';
+
+export type NominationSource = 'MANUAL' | 'APPRAISAL';
 
 export interface Course {
   id: string;
@@ -15,7 +19,7 @@ export interface Course {
   description: string | null;
   durationHours: string | number | null;
   defaultCost: string | number | null;
-  /** Months a certificate stays valid; null means it never expires. */
+  /** Months a certificate stays valid; null = never expires. */
   certValidMonths: number | null;
   isActive: boolean;
 }
@@ -30,9 +34,10 @@ export interface TrainingSession {
   trainer: string | null;
   seats: number | null;
   costPerSeat: string | number | null;
-  status: string;
+  status: SessionStatus;
   course?: Course;
   branch?: { id: string; name: string } | null;
+  /** Seats actually committed (APPROVED + ATTENDED). */
   _count?: { nominations: number };
 }
 
@@ -40,32 +45,44 @@ export interface TrainingNomination {
   id: string;
   sessionId: string;
   employeeId: string;
+  source: NominationSource;
+  /** Provenance when derived from the AI appraisal engine. */
+  appraisalResultId: string | null;
   justification: string | null;
   cost: string | number | null;
   status: NominationStatus;
+  approvedAt: string | null;
   rejectedReason: string | null;
   attendedAt: string | null;
   score: string | number | null;
   passed: boolean | null;
   certificateUrl: string | null;
   certificateExpiry: string | null;
-  createdAt: string;
   employee?: {
     id: string;
     employeeCode: string;
-    firstName: string;
-    lastName: string;
     fullName: string;
-    department?: { id: string; name: string } | null;
+    department?: { name: string } | null;
   };
   session?: TrainingSession;
 }
 
-export interface TrainingStats {
-  activeCourses: number;
-  upcomingSessions30Days: number;
-  sessionsByStatus: Record<string, number>;
-  nominationsByStatus: Record<string, number>;
+/** One employee's derived development need, with the evidence behind it. */
+export interface TrainingNeed {
+  appraisalResultId: string;
+  employeeId: string | null;
+  employeeName: string;
+  employeeCode: string;
+  departmentName: string | null;
+  recommendation: string | null;
+  improvements: string[];
+  suggestedCourses: Array<{
+    courseId: string;
+    code: string;
+    title: string;
+    reason: string;
+  }>;
+  matchedBy: 'llm' | 'keyword' | 'none';
 }
 
 export interface CreateCourseData {
@@ -77,7 +94,6 @@ export interface CreateCourseData {
   durationHours?: number;
   defaultCost?: number;
   certValidMonths?: number;
-  isActive?: boolean;
 }
 
 export interface CreateSessionData {

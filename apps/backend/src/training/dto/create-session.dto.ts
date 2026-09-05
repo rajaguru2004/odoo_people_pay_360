@@ -1,13 +1,4 @@
-import {
-  IsDateString,
-  IsInt,
-  IsNumber,
-  IsOptional,
-  IsString,
-  IsUUID,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsDateString, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateSessionDto {
@@ -15,9 +6,7 @@ export class CreateSessionDto {
   @IsUUID()
   courseId: string;
 
-  @ApiPropertyOptional({
-    description: 'Omit to open the session to every branch',
-  })
+  @ApiPropertyOptional({ description: 'Omit to open the session to every branch' })
   @IsOptional()
   @IsUUID()
   branchId?: string;
@@ -48,7 +37,7 @@ export class CreateSessionDto {
   @Min(1)
   seats?: number;
 
-  @ApiPropertyOptional({ description: "Defaults to the course's default cost" })
+  @ApiPropertyOptional({ description: 'Defaults to the course default cost' })
   @IsOptional()
   @IsNumber()
   @Min(0)

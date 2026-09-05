@@ -1,220 +1,284 @@
 'use client';
+import { getApiErrorMessage } from '@/lib/apiError';
 
-import { useMemo, useState } from 'react';
-import Link from 'next/link';
-import { ArrowRight, CheckCircle2, Clock, FileText, XCircle } from 'lucide-react';
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { Card } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
-import { EmptyState } from '@/components/common/EmptyState';
-import { StatCard } from '@/components/common/StatCard';
+import { useEffect, useState } from 'react';
+import { getCompanyTz } from '@/utils/formatters';
+import { Clock, CheckCircle2, XCircle, AlertCircle, FileText, User, Calendar } from 'lucide-react';
+import { motion } from 'framer-motion';
+import departmentChangeRequestService from '@/services/departmentChangeRequestService';
+import { DepartmentChangeRequest, ChangeRequestStatus } from '@/types/department-change-request';
+import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { usePageHeader } from '@/hooks/usePageHeader';
-import { useChangeRequests } from '@/hooks/useChangeRequests';
-import { formatDateOnly } from '@/utils/formatDate';
-import { fullName } from '@/utils/formatters';
-import type { RequestStatus } from '@/types/common';
-import type { DepartmentChangeRequest } from '@/types/department';
 
-const STATUS_TABS: Array<{ value: RequestStatus | 'ALL'; label: string }> = [
-  { value: 'ALL', label: 'All' },
-  { value: 'PENDING', label: 'Pending' },
-  { value: 'APPROVED', label: 'Approved' },
-  { value: 'REJECTED', label: 'Rejected' },
-  { value: 'CANCELLED', label: 'Cancelled' },
-];
+export default function ChangeRequestsPage() {
+  const router = useRouter();
+  const t = useTranslations('changeRequestsListPage');
+  const tc = useTranslations('common');
 
-const STATUS_TONE: Record<RequestStatus, 'warning' | 'success' | 'error' | 'neutral'> = {
-  PENDING: 'warning',
-  APPROVED: 'success',
-  REJECTED: 'error',
-  CANCELLED: 'neutral',
-};
+  // The one heading for this route, rendered by TopHeader.
+  usePageHeader(t('title'), t('subtitle'));
 
-const CHANGE_LABELS: Record<DepartmentChangeRequest['changeType'], string> = {
-  MANAGER: 'Department head',
-  PARENT: 'Reports to',
-  RENAME: 'Name',
-  DEACTIVATE: 'Status',
-};
+  const [requests, setRequests] = useState<DepartmentChangeRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<ChangeRequestStatus | 'ALL'>('ALL');
 
-/**
- * The before and the after, taken from the SNAPSHOT the request was raised
- * with rather than from the department as it stands now. That is the point of
- * the `old*` columns: the queue keeps showing the value somebody objected to,
- * even if the record has moved on since.
- */
-function beforeAfter(request: DepartmentChangeRequest): { before: string; after: string } {
-  switch (request.changeType) {
-    case 'MANAGER':
-      return { before: fullName(request.oldManager), after: fullName(request.newManager) };
-    case 'PARENT':
-      return {
-        before: request.oldParent?.name ?? 'Top level',
-        after: request.newParent?.name ?? 'Top level',
-      };
-    case 'RENAME':
-      return { before: request.oldName ?? '—', after: request.newName ?? '—' };
-    case 'DEACTIVATE':
-      return { before: 'Open', after: 'Closed' };
-    default:
-      return { before: '—', after: '—' };
-  }
-}
+  useEffect(() => {
+    fetchRequests();
+  }, [filter]);
 
-function raisedBy(request: DepartmentChangeRequest): string {
-  const employee = request.requestedBy?.employee;
-  if (employee) return fullName(employee);
-  return request.requestedBy?.email ?? 'Unknown';
-}
+  const fetchRequests = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await departmentChangeRequestService.getChangeRequests(
+        filter !== 'ALL' ? { status: filter } : undefined
+      );
+      setRequests(response.data || []);
+    } catch (error: any) {
+      console.error('Error fetching change requests:', error);
+      setRequests([]);
+      setError(getApiErrorMessage(error, t('loadFailed')));
+    } finally {
+      setLoading(false);
+    }
+  };
 
-function RequestRow({ request }: { request: DepartmentChangeRequest }) {
-  const { before, after } = beforeAfter(request);
+  const getStatusBadge = (status: ChangeRequestStatus) => {
+    const styles = {
+      PENDING: 'bg-status-warning-bg text-status-warning border-status-warning/20',
+      APPROVED: 'bg-status-success-bg text-status-success border-status-success/20',
+      REJECTED: 'bg-status-error-bg text-status-error border-status-error/20',
+      CANCELLED: 'bg-surface-page text-text-muted border-surface-border',
+    };
 
-  return (
-    <Link
-      href={`/dashboard/departments/change-requests/${request.id}`}
-      data-testid="change-request-row"
-      className="surface-panel grid gap-3 rounded-[var(--radius-card)] p-4 transition-all md:grid-cols-12 md:items-center"
-    >
-      <div className="md:col-span-3">
-        <p className="truncate text-sm font-semibold text-text-heading">
-          {request.department?.name ?? 'Unknown unit'}
-        </p>
-        <p className="mt-0.5 text-xs uppercase tracking-wide text-text-muted">
-          {CHANGE_LABELS[request.changeType]}
-        </p>
-      </div>
+    const icons = {
+      PENDING: Clock,
+      APPROVED: CheckCircle2,
+      REJECTED: XCircle,
+      CANCELLED: AlertCircle,
+    };
 
-      {/* The whole reason the queue exists: what this would change, in one line. */}
-      <div className="flex min-w-0 items-center gap-2 text-sm md:col-span-4">
-        <span className="truncate text-text-muted line-through decoration-text-muted/50">
-          {before}
-        </span>
-        <ArrowRight className="h-4 w-4 shrink-0 text-text-muted rtl:rotate-180" aria-hidden />
-        <span className="truncate font-medium text-text-heading">{after}</span>
-      </div>
+    const labels = {
+      PENDING: t('pending'),
+      APPROVED: t('approved'),
+      REJECTED: t('rejected'),
+      CANCELLED: t('cancelled'),
+    };
 
-      <div className="text-xs text-text-muted md:col-span-3">
-        <p className="truncate">Raised by {raisedBy(request)}</p>
-        <p className="mt-0.5 truncate">Takes effect {formatDateOnly(request.effectiveDate)}</p>
-      </div>
+    const Icon = icons[status];
 
-      <div className="md:col-span-2 md:text-end">
-        <Badge tone={STATUS_TONE[request.status]}>{request.status.toLowerCase()}</Badge>
-      </div>
-    </Link>
-  );
-}
+    return (
+      <span data-testid="cr-status" className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-[--radius-badge] text-xs font-semibold border-2 ${styles[status]}`}>
+        <Icon size={14} />
+        {labels[status]}
+      </span>
+    );
+  };
 
-function ChangeRequestsContent() {
-  const [status, setStatus] = useState<RequestStatus | 'ALL'>('ALL');
+  const getRequestTypeLabel = (type: string) => {
+    const labels = {
+      CHANGE_MANAGER: t('typeChangeHead'),
+      CHANGE_PARENT: t('typeChangeSuperior'),
+      RESTRUCTURE: t('typeRestructuring'),
+    };
+    return labels[type as keyof typeof labels] || type;
+  };
 
-  const { data, isLoading, isError } = useChangeRequests(
-    status === 'ALL' ? {} : { status },
-  );
-  const requests = useMemo(() => data?.data ?? [], [data]);
-  const total = data?.meta?.total ?? requests.length;
-
-  usePageHeader(
-    'Change requests',
-    status === 'ALL'
-      ? `${total} raised against the structure`
-      : `${total} ${status.toLowerCase()}`,
-  );
-
-  const counts = useMemo(
-    () => ({
-      pending: requests.filter((request) => request.status === 'PENDING').length,
-      approved: requests.filter((request) => request.status === 'APPROVED').length,
-      rejected: requests.filter((request) => request.status === 'REJECTED').length,
-    }),
-    [requests],
-  );
+  const filteredRequests = requests;
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="In this view"
-          value={requests.length}
-          icon={<FileText className="h-5 w-5" aria-hidden />}
-        />
-        <StatCard
-          label="Waiting"
-          value={counts.pending}
-          hint="Somebody has to decide"
-          icon={<Clock className="h-5 w-5" aria-hidden />}
-        />
-        <StatCard
-          label="Applied"
-          value={counts.approved}
-          icon={<CheckCircle2 className="h-5 w-5" aria-hidden />}
-        />
-        <StatCard
-          label="Turned down"
-          value={counts.rejected}
-          icon={<XCircle className="h-5 w-5" aria-hidden />}
-        />
+      {/* Heading lives in TopHeader via usePageHeader — the gradient hero held
+          nothing but the title, subtitle and a decorative icon, so it is gone. */}
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-surface-card rounded-[--radius-card] p-4 border border-surface-border shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-[--radius-card] bg-brand-primary-light/20 flex items-center justify-center">
+              <FileText className="text-brand-primary" size={24} />
+            </div>
+            <div>
+              <p className="text-sm text-text-muted">{t('all')}</p>
+              <p data-testid="cr-stat-all" className="text-2xl font-bold text-text-heading">{requests?.length || 0}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-surface-card rounded-[--radius-card] p-4 border border-surface-border shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-[--radius-card] bg-status-warning-bg flex items-center justify-center">
+              <Clock className="text-status-warning" size={24} />
+            </div>
+            <div>
+              <p className="text-sm text-text-muted">{t('pending')}</p>
+              <p data-testid="cr-stat-pending" className="text-2xl font-bold text-status-warning">
+                {requests?.filter(r => r.status === 'PENDING').length || 0}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-surface-card rounded-[--radius-card] p-4 border border-surface-border shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-[--radius-card] bg-status-success-bg flex items-center justify-center">
+              <CheckCircle2 className="text-status-success" size={24} />
+            </div>
+            <div>
+              <p className="text-sm text-text-muted">{t('approved')}</p>
+              <p data-testid="cr-stat-approved" className="text-2xl font-bold text-status-success">
+                {requests?.filter(r => r.status === 'APPROVED').length || 0}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-surface-card rounded-[--radius-card] p-4 border border-surface-border shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-[--radius-card] bg-status-error-bg flex items-center justify-center">
+              <XCircle className="text-status-error" size={24} />
+            </div>
+            <div>
+              <p className="text-sm text-text-muted">{t('rejected')}</p>
+              <p data-testid="cr-stat-rejected" className="text-2xl font-bold text-status-error">
+                {requests?.filter(r => r.status === 'REJECTED').length || 0}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <Card className="p-3">
-        {/* Toggle buttons rather than a tablist: a tab implies a panel it
-            controls, and what these move is the query behind the whole page. */}
-        <div role="group" aria-label="Filter by status" className="flex flex-wrap items-center gap-2">
-          {STATUS_TABS.map((tab) => {
-            const active = status === tab.value;
-            return (
-              <button
-                key={tab.value}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setStatus(tab.value)}
-                className={`rounded-[var(--radius-button)] px-4 py-2 text-sm font-medium transition-colors ${
-                  active
-                    ? 'bg-brand-primary text-text-on-brand'
-                    : 'bg-surface-page text-text-muted hover:text-text-heading'
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
+      {/* Filters */}
+      <div className="bg-surface-card rounded-[--radius-card] border border-surface-border p-6 shadow-sm">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-bold text-text-heading">{t('filterByStatus')}</span>
+          {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map((status) => (
+            <button
+              key={status}
+              data-testid={`cr-filter-${status}`}
+              onClick={() => setFilter(status)}
+              className={`px-6 py-2.5 rounded-[--radius-button] text-sm font-semibold transition-all cursor-pointer ${
+                filter === status
+                  ? 'bg-gradient-to-r from-brand-primary to-brand-primary-dark text-text-on-brand shadow-lg scale-105'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 hover:scale-105' /* neutral */
+              }`}
+            >
+              {status === 'ALL' ? t('all') : status === 'PENDING' ? t('pending') : status === 'APPROVED' ? t('approved') : t('rejected')}
+            </button>
+          ))}
         </div>
-      </Card>
+      </div>
 
-      {isLoading && <Card className="p-6 text-sm text-text-muted">Loading the queue…</Card>}
+      {/* Requests List */}
+      {loading ? (
+        <div className="grid gap-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="bg-surface-card rounded-[--radius-card] border border-surface-border p-6 animate-pulse">
+              <div className="h-6 bg-slate-200 rounded w-1/3 mb-4"></div> {/* neutral */}
+              <div className="h-4 bg-slate-100 rounded w-2/3"></div> {/* neutral */}
+            </div>
+          ))}
+        </div>
+      ) : error ? (
+        <div data-testid="cr-error" className="bg-status-error-bg rounded-[--radius-card] border border-status-error/20 p-12 text-center">
+          <AlertCircle className="mx-auto text-status-error mb-4" size={48} />
+          <p className="text-status-error font-medium mb-2">{error}</p>
+          <button
+            onClick={fetchRequests}
+            className="mt-4 px-4 py-2 bg-status-error text-white rounded-[--radius-button] hover:bg-status-error/90 transition-colors cursor-pointer"
+          >
+            {tc('retry')}
+          </button>
+        </div>
+      ) : filteredRequests.length === 0 ? (
+        <div data-testid="cr-empty" className="bg-surface-page rounded-[--radius-card] border-2 border-dashed border-surface-border p-16 text-center">
+          <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-surface-card shadow-lg flex items-center justify-center">
+            <FileText className="text-text-muted" size={48} />
+          </div>
+          <h3 className="text-xl font-bold text-text-heading mb-2">{t('noRequests')}</h3>
+          <p className="text-text-muted">{t('noRequestsDesc')}</p>
+        </div>
+      ) : (
+        <div className="grid gap-6">
+          {filteredRequests.map((request, index) => (
+            <motion.div
+              key={request.id}
+              data-testid={`cr-card-${request.id}`}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
+              className="bg-surface-card rounded-[--radius-card] border-2 border-surface-border p-6 hover:border-brand-primary hover:shadow-2xl transition-all cursor-pointer group"
+              onClick={() => router.push(`/dashboard/departments/change-requests/${request.id}`)}
+            >
+              <div className="flex items-start justify-between mb-6">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-12 h-12 rounded-[--radius-card] bg-gradient-to-br from-brand-primary to-brand-primary-dark flex items-center justify-center">
+                      <FileText className="text-text-on-brand" size={24} />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-text-heading group-hover:text-brand-primary transition-colors">
+                        {request.department?.name || tc('notAvailable')}
+                      </h3>
+                      <p className="text-sm text-text-muted font-medium">
+                        {getRequestTypeLabel(request.requestType)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                {getStatusBadge(request.status)}
+              </div>
 
-      {isError && (
-        <Card className="p-6 text-sm text-status-error">
-          The queue could not be read, so this page is not claiming it is empty.
-        </Card>
-      )}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-[--radius-card] bg-brand-primary-light/20 flex items-center justify-center flex-shrink-0">
+                    <User size={18} className="text-brand-primary" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted font-semibold mb-1">{t('requester')}</p>
+                    <p className="text-sm font-bold text-text-heading">
+                      {request.requester?.employee?.fullName || tc('notAvailable')}
+                    </p>
+                  </div>
+                </div>
 
-      {!isLoading && !isError && requests.length === 0 && (
-        <Card>
-          <EmptyState
-            icon={<FileText className="h-6 w-6" aria-hidden />}
-            title="Nothing waiting"
-            description="No request matches this filter."
-          />
-        </Card>
-      )}
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-[--radius-card] bg-brand-accent/10 flex items-center justify-center flex-shrink-0">
+                    <Calendar size={18} className="text-brand-accent" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted font-semibold mb-1">{t('effectiveDate')}</p>
+                    <p className="text-sm font-bold text-text-heading">
+                      {new Date(request.effectiveDate).toLocaleDateString('en-IN', { timeZone: getCompanyTz() })}
+                    </p>
+                  </div>
+                </div>
 
-      {requests.length > 0 && (
-        <div className="space-y-3">
-          {requests.map((request) => (
-            <RequestRow key={request.id} request={request} />
+                {request.requestType === 'CHANGE_MANAGER' && (
+                  <>
+                    <div>
+                      <p className="text-xs text-text-muted font-semibold mb-1">{t('formerDeptHead')}</p>
+                      <p className="text-sm font-bold text-text-heading">
+                        {request.oldManager?.fullName || tc('notYet')}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted font-semibold mb-1">{t('newDeptHead')}</p>
+                      <p className="text-sm font-bold text-brand-primary">
+                        {request.newManager?.fullName || tc('notAvailable')}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="bg-surface-page rounded-[--radius-card] p-4 border border-surface-border">
+                <p className="text-xs text-text-muted font-bold mb-2">{t('reasonLabel')}</p>
+                <p className="text-sm text-text-body leading-relaxed">{request.reason}</p>
+              </div>
+            </motion.div>
           ))}
         </div>
       )}
     </div>
-  );
-}
-
-export default function ChangeRequestsPage() {
-  return (
-    <ProtectedRoute requiredRoles={['ADMIN', 'HR_MANAGER']}>
-      <ChangeRequestsContent />
-    </ProtectedRoute>
   );
 }

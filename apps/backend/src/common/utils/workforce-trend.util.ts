@@ -1,172 +1,141 @@
-/** One calendar month of joiner/leaver movement. */
-export interface TrendBucket {
+/**
+ * Month bucketing for the workforce trend charts on the Organization and People
+ * hubs.
+ *
+ * Both hubs draw the same underlying series — people who joined and people who
+ * left, by calendar month — so the bucketing lives here rather than twice. The
+ * two hubs differ only in what they draw on top of it.
+ *
+ * Deliberately NOT built on `DashboardService.getTurnoverStats`, which keys off
+ * `updated_at` + `status='INACTIVE'`: that is "a record was touched while
+ * inactive", not "somebody left in March". Joiners come from
+ * `Employee.startDate` and leavers from `Employee.endDate`, which are the dates
+ * the business actually recorded.
+ */
+
+const MONTH_LABELS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/** Trailing windows the hubs offer. A value outside this list is refused. */
+export const TREND_MONTH_OPTIONS = [6, 12] as const;
+export type TrendMonths = (typeof TREND_MONTH_OPTIONS)[number];
+
+export interface MonthBucket {
+  /** `YYYY-MM`, stable across locales and safe as a react key. */
   key: string;
+  /** `Aug 2026` — the axis label. */
   label: string;
+  start: Date;
+  /** Exclusive: the first instant of the following month. */
+  end: Date;
   joiners: number;
   leavers: number;
   net: number;
   /**
-   * Active headcount at the close of this month, or `null` when it cannot be
-   * reconstructed — see the backwards walk in `buildWorkforceTrend`.
+   * Active headcount at the close of this bucket. Filled in by
+   * `walkHeadcountBackwards`, because only *today's* headcount is a fact — every
+   * earlier one is derived from it.
    */
   headcountEnd: number | null;
 }
 
-export interface WorkforceTrend {
-  months: number;
-  buckets: TrendBucket[];
-  netChange: number;
-  growthPct: number | null;
-}
-
-export interface WorkforceTrendInput {
-  months: number;
-  /** `Employee.hireDate` values. Anything outside the window is ignored. */
-  hireDates: Date[];
-  /** `Employee.exitDate` values. Anything outside the window is ignored. */
-  exitDates: Date[];
-  /** Active headcount right now — the anchor the backwards walk starts from. */
-  currentHeadcount: number;
-  now?: Date;
-}
-
-const MONTH_NAMES = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
-
 /**
- * `YYYY-MM` for a date-only column.
+ * `months` calendar buckets ending with the current (partial) month.
  *
- * UTC getters, always. Prisma hands a `@db.Date` back as midnight UTC, so
- * reading it with local getters moves a first-of-the-month hire into the
- * previous month for any server west of Greenwich — which is exactly the class
- * of bug `formatDateOnly` exists to avoid on the other side of the wire.
+ * All arithmetic is UTC. The hubs render dates the server has already labelled
+ * so the browser never does calendar maths — the same rule the attendance hub
+ * follows for its period stepper.
  */
-export function monthKey(date: Date): string {
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-  return `${date.getUTCFullYear()}-${month}`;
+export function buildMonthBuckets(months: number, now: Date = new Date()): MonthBucket[] {
+  const buckets: MonthBucket[] = [];
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+
+  for (let i = months - 1; i >= 0; i--) {
+    const start = new Date(Date.UTC(y, m - i, 1));
+    const end = new Date(Date.UTC(y, m - i + 1, 1));
+    buckets.push({
+      key: `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`,
+      label: `${MONTH_LABELS[start.getUTCMonth()]} ${start.getUTCFullYear()}`,
+      start,
+      end,
+      joiners: 0,
+      leavers: 0,
+      net: 0,
+      headcountEnd: null,
+    });
+  }
+  return buckets;
 }
 
 /**
- * `2026-08` becomes `Aug 2026`.
+ * Drop a column of dates into the buckets.
  *
- * The server owns the label so the browser never does calendar maths on a
- * bucket key, and so every reader sees the same month name whatever their
- * locale data happens to contain.
+ * Two single-column `findMany`s bucketed here beat `months × 2` count queries:
+ * a year of joiners on a real database is a few thousand dates, and twenty-four
+ * round trips is twenty-four round trips.
+ *
+ * Dates outside the window are ignored rather than clamped into the first
+ * bucket — somebody who joined three years ago is not a joiner this March.
  */
-export function monthLabel(key: string): string {
-  const [year, month] = key.split('-');
-  return `${MONTH_NAMES[Number(month) - 1] ?? month} ${year}`;
-}
+export function bucketiseByMonth(
+  dates: Array<Date | null | undefined>,
+  buckets: MonthBucket[],
+  field: 'joiners' | 'leavers',
+): void {
+  if (!buckets.length) return;
+  const index = new Map(buckets.map((b) => [b.key, b]));
 
-/** Ascending month keys, the last of which is the month `now` falls in. */
-export function trendMonthKeys(months: number, now = new Date()): string[] {
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth();
-  const keys: string[] = [];
-  for (let back = months - 1; back >= 0; back -= 1) {
-    keys.push(monthKey(new Date(Date.UTC(year, month - back, 1))));
+  for (const d of dates) {
+    if (!d) continue;
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const bucket = index.get(key);
+    if (bucket) bucket[field] += 1;
   }
-  return keys;
-}
-
-/** First instant of the window — the lower bound for the hire/exit queries. */
-export function trendWindowStart(months: number, now = new Date()): Date {
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1),
-  );
-}
-
-/** First instant AFTER the window, so the bound can be used as `lt`. */
-export function trendWindowEnd(now = new Date()): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  for (const b of buckets) b.net = b.joiners - b.leavers;
 }
 
 /**
- * Turn raw hire and exit dates into a month-by-month headcount trend.
+ * Fill `headcountEnd` backwards from today.
  *
- * Callers pass two flat lists of dates rather than per-month counts: reading
- * one column per list is two queries whatever the window length, where a count
- * per bucket would be `months × 2` round trips for the same answer.
+ * Only the current active headcount is a fact — it is a live `count()`. Every
+ * earlier month is that figure minus the net movement since, which is why the
+ * LAST bucket always reconciles with the KPI card printed above the chart. A
+ * forward walk from an invented starting figure would let the chart and the
+ * card disagree, and the reader would have no way to tell which one lied.
  *
- * `headcountEnd` is walked BACKWARDS from today. Only the current headcount is
- * known for certain — an employee record carries its status now, not its status
- * last March — so the last bucket is anchored to it and each earlier bucket is
- * the later one minus that later one's net movement. A bucket whose walk would
- * go negative is reported as `null` rather than clamped to zero: the movement
- * rows and the current headcount disagree at that point, and a zero would
- * present that disagreement as a fact.
+ * The floor at 0 matters on a partially-backfilled database: an employee whose
+ * `startDate` predates the window but whose record was created inside it can
+ * otherwise walk the line negative, and a negative headcount is visibly absurd
+ * in a way a merely wrong one is not.
  */
-export function buildWorkforceTrend({
-  months,
-  hireDates,
-  exitDates,
-  currentHeadcount,
-  now = new Date(),
-}: WorkforceTrendInput): WorkforceTrend {
-  const buckets: TrendBucket[] = trendMonthKeys(months, now).map((key) => ({
-    key,
-    label: monthLabel(key),
-    joiners: 0,
-    leavers: 0,
-    net: 0,
-    headcountEnd: null,
-  }));
+export function walkHeadcountBackwards(buckets: MonthBucket[], activeNow: number): void {
+  let running = activeNow;
+  for (let i = buckets.length - 1; i >= 0; i--) {
+    buckets[i].headcountEnd = Math.max(0, running);
+    running -= buckets[i].net;
+  }
+}
 
-  const byKey = new Map(buckets.map((b) => [b.key, b]));
-  for (const date of hireDates) {
-    const bucket = byKey.get(monthKey(date));
-    if (bucket) bucket.joiners += 1;
-  }
-  for (const date of exitDates) {
-    const bucket = byKey.get(monthKey(date));
-    if (bucket) bucket.leavers += 1;
-  }
-  for (const bucket of buckets) {
-    bucket.net = bucket.joiners - bucket.leavers;
-  }
+/** `null` when there was nothing to divide by — never 0%, which is a claim. */
+export function pct(numerator: number, denominator: number): number | null {
+  if (!denominator) return null;
+  return Math.round((numerator / denominator) * 1000) / 10;
+}
 
-  let running: number | null = currentHeadcount;
-  for (let i = buckets.length - 1; i >= 0; i -= 1) {
-    buckets[i].headcountEnd = running;
-    if (running === null) continue;
-    // The explicit annotation breaks the circular inference between `running`
-    // (narrowed by the null check above) and the value it is reassigned from,
-    // which TypeScript otherwise resolves to `any`.
-    const earlier: number = running - buckets[i].net;
-    running = earlier < 0 ? null : earlier;
-  }
-
+/**
+ * Growth over the whole window, against the headcount it started from.
+ *
+ * `buckets[0].headcountEnd - buckets[0].net` is the opening headcount: what the
+ * business had before the first month's movement.
+ */
+export function growthPercent(buckets: MonthBucket[]): number | null {
+  if (!buckets.length) return null;
+  const first = buckets[0];
+  if (first.headcountEnd === null) return null;
+  const opening = first.headcountEnd - first.net;
   const netChange = buckets.reduce((sum, b) => sum + b.net, 0);
-
-  // The baseline is the headcount the window OPENED with, which is the first
-  // bucket's close undone by its own movement. Unknown baseline, or nobody to
-  // measure against, means no percentage at all — a 0% would read as "the
-  // organisation did not grow", which is a claim the data cannot support.
-  const first: TrendBucket | undefined = buckets[0];
-  const opening =
-    first === undefined || first.headcountEnd === null
-      ? null
-      : first.headcountEnd - first.net;
-
-  return {
-    months,
-    buckets,
-    netChange,
-    growthPct:
-      opening === null || opening <= 0
-        ? null
-        : Math.round((netChange / opening) * 1000) / 10,
-  };
+  return pct(netChange, opening);
 }

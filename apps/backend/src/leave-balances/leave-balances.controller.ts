@@ -1,200 +1,193 @@
 import {
-  Body,
   Controller,
   Get,
-  Param,
-  ParseIntPipe,
-  ParseUUIDPipe,
-  Patch,
   Post,
+  Patch,
+  Param,
   Query,
+  Body,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiQuery,
   ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { LeaveBalancesService } from './leave-balances.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { Principal } from '../auth/auth.service';
-import { LeaveBalancesService } from './leave-balances.service';
-import { UpdateBalanceDto } from './dto/update-balance.dto';
-import { UpdateTypeBalanceDto } from './dto/update-type-balance.dto';
-import { AccrueLeaveDto } from './dto/accrue-leave.dto';
 
-@ApiTags('Leave balances')
-@ApiBearerAuth('JWT-auth')
+@ApiTags('Leave Balances')
 @Controller('leave-balances')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@ApiBearerAuth('JWT-auth')
 export class LeaveBalancesController {
   constructor(private readonly service: LeaveBalancesService) {}
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Every employee balance for a year' })
-  @ApiQuery({ name: 'year', required: false, type: Number })
-  getAll(@Query('year') year?: string) {
-    return this.service.getAllBalances(year ? Number(year) : undefined);
-  }
-
-  // Literals before the `:employeeId`-shaped routes, or "leave-types" and
-  // "company-overview" are parsed as uuids and answer 400.
-  @Get('leave-types')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.HR_MANAGER,
-    UserRole.PAYROLL_OFFICER,
-    UserRole.MANAGER,
-    UserRole.EMPLOYEE,
-  )
+  @Roles('ADMIN', 'HR_MANAGER')
   @ApiOperation({
-    summary: 'The leave types that may be filed, with their rules',
-    description:
-      'Open to everybody: an employee filing leave has to see what they may pick.',
+    summary: 'Get all leave balances',
+    description: 'Get leave balances for all employees',
   })
-  getLeaveTypes() {
-    return this.service.getLeaveTypes();
+  @ApiQuery({ name: 'year', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Leave balances retrieved' })
+  getAllBalances(@Query('year') year?: number) {
+    return this.service.getAllBalances(year ? +year : undefined);
   }
 
-  @Get('company-overview')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Company-wide entitlement by leave type' })
+  @Get('employee/:employeeId')
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Get employee leave balance' })
+  @ApiParam({ name: 'employeeId', description: 'Employee UUID' })
   @ApiQuery({ name: 'year', required: false, type: Number })
-  companyOverview(@Query('year') year?: string) {
-    return this.service.getCompanyLeaveOverview(
-      year ? Number(year) : undefined,
-    );
-  }
-
-  @Get('accrual/history')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Every credit ever made, automatic or by hand' })
-  @ApiQuery({ name: 'employeeId', required: false })
-  @ApiQuery({ name: 'year', required: false, type: Number })
-  @ApiQuery({ name: 'month', required: false, type: Number })
-  accrualHistory(
-    @Query('employeeId') employeeId?: string,
-    @Query('year') year?: string,
-    @Query('month') month?: string,
+  @ApiResponse({ status: 200, description: 'Leave balance retrieved' })
+  getBalance(
+    @Param('employeeId') employeeId: string,
+    @CurrentUser() user: any,
+    @Query('year') year?: number,
   ) {
-    return this.service.getAccrualHistory(
+    return this.service.getBalance(employeeId, year ? +year : undefined, user);
+  }
+
+  @Post('employee/:employeeId/init/:year')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Initialize leave balance for year' })
+  @ApiParam({ name: 'employeeId', description: 'Employee UUID' })
+  @ApiParam({ name: 'year', description: 'Year', example: 2026 })
+  @ApiResponse({ status: 201, description: 'Leave balance initialized' })
+  initBalance(
+    @Param('employeeId') employeeId: string,
+    @Param('year') year: number,
+  ) {
+    return this.service.initBalance(employeeId, +year);
+  }
+
+  @Patch('employee/:employeeId/year/:year')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Update leave balance' })
+  @ApiParam({ name: 'employeeId', description: 'Employee UUID' })
+  @ApiParam({ name: 'year', description: 'Year' })
+  @ApiResponse({ status: 200, description: 'Leave balance updated' })
+  updateBalance(
+    @Param('employeeId') employeeId: string,
+    @Param('year') year: number,
+    @Body('annualLeave') annualLeave: number,
+    @Body('sickLeave') sickLeave?: number,
+  ) {
+    return this.service.updateBalance(
       employeeId,
-      year ? Number(year) : undefined,
-      month ? Number(month) : undefined,
+      +year,
+      annualLeave,
+      sickLeave,
     );
   }
+
+  // ==================== LEAVE ACCRUAL ENDPOINTS ====================
 
   @Post('accrual/run')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
+  @Roles('ADMIN', 'HR_MANAGER')
   @ApiOperation({
-    summary: 'Run the monthly accrual now',
+    summary: 'Run leave accrual manually',
     description:
-      'Idempotent: an employee already credited for the company month is skipped.',
+      'Manually trigger leave accrual for all active employees (1 day per month)',
   })
-  runAccrual(@CurrentUser() user: Principal) {
+  @ApiResponse({ status: 200, description: 'Leave accrual completed' })
+  runAccrual(@CurrentUser() user: any) {
     return this.service.accrueLeaveForAllEmployees(user.id);
   }
 
   @Post('accrual/employee/:employeeId')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Credit days to one employee by hand' })
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Accrue leave for specific employee',
+    description: 'Manually add leave days to an employee',
+  })
+  @ApiParam({ name: 'employeeId', description: 'Employee UUID' })
+  @ApiResponse({ status: 200, description: 'Leave accrued successfully' })
   accrueForEmployee(
-    @Param('employeeId', ParseUUIDPipe) employeeId: string,
-    @Body() dto: AccrueLeaveDto,
-    @CurrentUser() user: Principal,
+    @Param('employeeId') employeeId: string,
+    @Body('daysToAdd') daysToAdd: number,
+    @Body('notes') notes: string,
+    @CurrentUser() user: any,
   ) {
     return this.service.accrueLeaveForEmployee(
       employeeId,
-      dto.daysToAdd,
+      daysToAdd,
       user.id,
-      dto.notes,
+      notes,
     );
+  }
+
+  @Get('accrual/history')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Get leave accrual history' })
+  @ApiQuery({ name: 'employeeId', required: false })
+  @ApiQuery({ name: 'year', required: false, type: Number })
+  @ApiQuery({ name: 'month', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Accrual history retrieved' })
+  getAccrualHistory(
+    @Query('employeeId') employeeId?: string,
+    @Query('year') year?: number,
+    @Query('month') month?: number,
+  ) {
+    return this.service.getAccrualHistory(
+      employeeId,
+      year ? +year : undefined,
+      month ? +month : undefined,
+    );
+  }
+
+  @Get('company-overview')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Get company-wide leave overview stats' })
+  @ApiQuery({ name: 'year', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Company leave overview retrieved' })
+  getCompanyLeaveOverview(@Query('year') year?: number) {
+    return this.service.getCompanyLeaveOverview(year ? +year : undefined);
+  }
+
+  @Get('leave-types')
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Get active leave types configuration' })
+  @ApiResponse({ status: 200, description: 'Active leave types retrieved' })
+  getLeaveTypes() {
+    return this.service.getLeaveTypes();
   }
 
   @Post('set-default-allocation')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({
-    summary: 'Reset every allocation to the library defaults for a year',
-    description: 'Allocations only — what has already been taken is untouched.',
-  })
-  setDefaults(@Body('year', ParseIntPipe) year: number) {
-    return this.service.setBulkDefaultBalances(year);
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Bulk-reset allocations from library defaults' })
+  @ApiResponse({ status: 200, description: 'Bulk reset completed' })
+  setBulkDefaultBalances(@Body('year') year: number) {
+    return this.service.setBulkDefaultBalances(+year);
   }
 
-  /**
-   * Open to every role. An employee reads their own; a supervisor reads the
-   * balance of somebody whose leave they are being asked to decide, because
-   * "they have four days left" is the context that decision needs. The narrowing
-   * is in the service, since it depends on WHOSE record it is.
-   */
-  @Get('employee/:employeeId')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.HR_MANAGER,
-    UserRole.PAYROLL_OFFICER,
-    UserRole.MANAGER,
-    UserRole.EMPLOYEE,
-  )
-  @ApiOperation({ summary: 'One employee balance for a year' })
-  @ApiQuery({ name: 'year', required: false, type: Number })
-  getForEmployee(
-    @Param('employeeId', ParseUUIDPipe) employeeId: string,
-    @CurrentUser() user: Principal,
-    @Query('year') year?: string,
-  ) {
-    return this.service.getBalance(
-      employeeId,
-      year ? Number(year) : undefined,
-      user,
-    );
-  }
-
-  @Post('employee/:employeeId/init/:year')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Create the balance rows for an employee-year' })
-  init(
-    @Param('employeeId', ParseUUIDPipe) employeeId: string,
-    @Param('year', ParseIntPipe) year: number,
-  ) {
-    return this.service.initBalance(employeeId, year);
-  }
-
-  @Patch('employee/:employeeId/year/:year')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Edit the headline annual and sick entitlement' })
-  updateBalance(
-    @Param('employeeId', ParseUUIDPipe) employeeId: string,
-    @Param('year', ParseIntPipe) year: number,
-    @Body() dto: UpdateBalanceDto,
-  ) {
-    return this.service.updateBalance(
-      employeeId,
-      year,
-      dto.annualLeave,
-      dto.sickLeave,
-    );
-  }
-
-  @Patch('employee/:employeeId/year/:year/type/:leaveTypeKey')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Edit the allocation for one leave type' })
+  @Patch(':employeeId/:year/:leaveTypeKey')
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Update allocation per leave type' })
+  @ApiParam({ name: 'employeeId', description: 'Employee UUID' })
+  @ApiParam({ name: 'year', description: 'Year' })
+  @ApiParam({ name: 'leaveTypeKey', description: 'Leave type label' })
+  @ApiResponse({ status: 200, description: 'Allocation updated' })
   updateTypeBalance(
-    @Param('employeeId', ParseUUIDPipe) employeeId: string,
-    @Param('year', ParseIntPipe) year: number,
+    @Param('employeeId') employeeId: string,
+    @Param('year') year: number,
     @Param('leaveTypeKey') leaveTypeKey: string,
-    @Body() dto: UpdateTypeBalanceDto,
+    @Body('allocated') allocated: number,
+    @Body('carriedOver') carriedOver?: number,
   ) {
     return this.service.updateTypeBalance(
       employeeId,
-      year,
-      decodeURIComponent(leaveTypeKey),
-      dto.allocated,
-      dto.carriedOver,
+      +year,
+      leaveTypeKey,
+      allocated,
+      carriedOver,
     );
   }
 }

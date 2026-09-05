@@ -1,327 +1,717 @@
 import {
-  BadRequestException,
-  ConflictException,
   Injectable,
   NotFoundException,
+  BadRequestException,
+  ConflictException,
+  Logger,
 } from '@nestjs/common';
-import { ContractStatus, Prisma } from '@prisma/client';
+import { Cron } from '@nestjs/schedule';
+import { DeductionCarryForwardService } from '../payrolls/deduction-carry-forward.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { paginated, resolvePagination } from '../common/utils/pagination.util';
-import { addDays, daysUntil, startOfUtcDay } from '../common/utils/expiry.util';
+import { assertInBranch } from '../common/branch/branch-scope.util';
+import { ContractValidationService } from './contract-validation.service';
 import { CreateContractDto } from './dto/create-contract.dto';
-import { UpdateContractDto } from './dto/update-contract.dto';
-import { ListContractsDto } from './dto/list-contracts.dto';
-import { RenewContractDto } from './dto/renew-contract.dto';
+import {
+  UpdateContractDto,
+  RenewContractDto,
+  TerminateContractDto,
+} from './dto/update-contract.dto';
+import { MailService } from '../mail/mail.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/dto/create-notification.dto';
+import { SystemSettingsService } from '../system-settings/system-settings.service';
+import { ClearanceService } from '../assets/clearance.service';
+import { isDailyWage } from '../payrolls/payroll-earnings.util';
+import { parseDateOnlyUTC } from '../common/utils/start-date-policy.util';
+import { TimezoneService } from '../common/timezone/timezone.service';
+import {
+  CompanyCronGate,
+  COMPANY_CRON_TICK,
+} from '../common/timezone/company-cron.gate';
 
-const CONTRACT_INCLUDE = {
-  employee: {
-    select: {
-      id: true,
-      employeeCode: true,
-      firstName: true,
-      lastName: true,
-      position: true,
-      // The employment status travels with the contract because the two can
-      // legitimately disagree: a terminated employee keeps their contract row,
-      // and a list that cannot say so shows an ACTIVE contract against somebody
-      // who left months ago.
-      status: true,
-      department: { select: { id: true, name: true } },
-    },
-  },
-} satisfies Prisma.ContractInclude;
+const CONTRACT_ALERT_RECIPIENT_ROLES = ['ADMIN', 'HR_MANAGER'];
 
 @Injectable()
 export class ContractsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(ContractsService.name);
+  /** Auto-expire fires at midnight in the COMPANY timezone, not the server's. */
+  private readonly expireGate: CompanyCronGate;
 
-  async findAll(query: ListContractsDto) {
-    const { page, limit, skip, take } = resolvePagination(query);
-    const insensitive = Prisma.QueryMode.insensitive;
-    const today = startOfUtcDay(new Date());
+  constructor(
+    private prisma: PrismaService,
+    private validationService: ContractValidationService,
+    private mailService: MailService,
+    private notificationsService: NotificationsService,
+    private settingsService: SystemSettingsService,
+    private clearance: ClearanceService,
+    private tzSvc: TimezoneService,
+    private readonly carryForward: DeductionCarryForwardService,
+  ) {
+    this.expireGate = new CompanyCronGate(this.tzSvc, '00:00');
+  }
 
-    const where: Prisma.ContractWhereInput = {
-      ...(query.employeeId ? { employeeId: query.employeeId } : {}),
-      ...(query.status ? { status: query.status } : {}),
-      ...(query.contractType ? { contractType: query.contractType } : {}),
-      ...(query.expiringWithinDays !== undefined
-        ? {
-            endDate: {
-              gte: today,
-              lte: addDays(today, query.expiringWithinDays),
-            },
-          }
-        : {}),
-      ...(query.search
-        ? {
-            OR: [
-              { contractNumber: { contains: query.search, mode: insensitive } },
-              {
-                employee: {
-                  employeeCode: { contains: query.search, mode: insensitive },
-                },
-              },
-              {
-                employee: {
-                  firstName: { contains: query.search, mode: insensitive },
-                },
-              },
-              {
-                employee: {
-                  lastName: { contains: query.search, mode: insensitive },
-                },
-              },
-            ],
-          }
-        : {}),
+  async create(dto: CreateContractDto) {
+    // Validate employee
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: dto.employeeId },
+    });
+    if (!employee) {
+      throw new BadRequestException('Employee not found');
+    }
+
+    // Parse dates
+    const startDate = new Date(dto.startDate);
+    const endDate = dto.endDate ? new Date(dto.endDate) : null;
+
+    // A backdated contract whose end date has already passed is born expired.
+    // Writing it ACTIVE and waiting for the midnight autoExpireContracts cron
+    // leaves it wrong for up to a day: it shows as current, blocks the next
+    // contract, and is the one payroll picks. Same boundary as the cron (`lt`),
+    // so a contract ending today is still ACTIVE.
+    const todayUtc = parseDateOnlyUTC(new Date())!;
+    const endDateOnly = parseDateOnlyUTC(endDate);
+    const resolvedStatus =
+      endDateOnly && endDateOnly < todayUtc ? 'EXPIRED' : 'ACTIVE';
+
+    // Only a contract that would actually be current can collide with an
+    // existing one. Without this scoping, entering an employee's historical
+    // contract chain is impossible once they have a current contract.
+    if (resolvedStatus === 'ACTIVE') {
+      const activeContract = await this.prisma.contract.findFirst({
+        where: {
+          employeeId: dto.employeeId,
+          status: 'ACTIVE',
+        },
+      });
+      if (activeContract) {
+        throw new ConflictException('Employee already has an active contract');
+      }
+    }
+
+    // `contractNumber` is @unique, but nothing caught Prisma's P2002, so a
+    // duplicate answered 500 with the raw driver error while every other
+    // uniqueness conflict in People answers 409 with a sentence a user can act
+    // on ('Team code already exists', 'Email already exists'). Checked up front
+    // rather than caught, to match how the employee service reports its three.
+    if (dto.contractNumber) {
+      const existingNumber = await this.prisma.contract.findUnique({
+        where: { contractNumber: dto.contractNumber },
+        select: { id: true },
+      });
+      if (existingNumber) {
+        throw new ConflictException(
+          `Contract number "${dto.contractNumber}" already exists`,
+        );
+      }
+    }
+
+    // Labor-law-citation validation rules — neutralized per business decision:
+    // these will become customizable toggles in the settings panel instead of
+    // hardcoded contract-creation blockers. Left in place (commented) so the
+    // exact rules/messages are easy to reinstate or wire up to settings later.
+    //
+    // if (dto.contractType === 'PROBATION') {
+    //   if (!endDate) {
+    //     throw new BadRequestException(
+    //       'Probation contracts must have an end date',
+    //     );
+    //   }
+    //   const validation = this.validationService.validateProbationDuration(
+    //     startDate,
+    //     endDate,
+    //   );
+    //   if (!validation.isValid) {
+    //     throw new BadRequestException({
+    //       message: validation.errorMessage,
+    //       code: validation.errorCode,
+    //       details: validation.details,
+    //     });
+    //   }
+    // } else if (dto.contractType === 'FIXED_TERM') {
+    //   if (!endDate) {
+    //     throw new BadRequestException(
+    //       'Fixed-term contracts must have an end date',
+    //     );
+    //   }
+    //   const validation = this.validationService.validateFixedTermDuration(
+    //     startDate,
+    //     endDate,
+    //   );
+    //   if (!validation.isValid) {
+    //     throw new BadRequestException({
+    //       message: validation.errorMessage,
+    //       code: validation.errorCode,
+    //       details: validation.details,
+    //     });
+    //   }
+    //
+    //   // Validate contract conversion rules
+    //   const conversionValidation =
+    //     await this.validationService.validateContractConversion(
+    //       dto.employeeId,
+    //       dto.contractType,
+    //     );
+    //   if (!conversionValidation.isValid) {
+    //     throw new BadRequestException({
+    //       message: conversionValidation.errorMessage,
+    //       code: conversionValidation.errorCode,
+    //       details: conversionValidation.details,
+    //     });
+    //   }
+    // } else if (dto.contractType === 'INDEFINITE') {
+    //   if (endDate) {
+    //     throw new BadRequestException(
+    //       'Indefinite contracts must not have an end date',
+    //     );
+    //   }
+    // }
+
+    // Validate workType and workHoursPerWeek
+    const workType = dto.workType || 'FULL_TIME';
+    const workHoursPerWeek = dto.workHoursPerWeek || 40;
+
+    // Neutralized per business decision (see note above):
+    // if (workType === 'FULL_TIME') {
+    //   workHoursPerWeek = 40;
+    // } else if (workType === 'PART_TIME') {
+    //   if (dto.workHoursPerWeek && dto.workHoursPerWeek < 1) {
+    //     throw new BadRequestException(
+    //       'Work hours must be at least 1 hour per week',
+    //     );
+    //   }
+    // }
+
+    // Generate contract number if not provided
+    const contractNumber =
+      dto.contractNumber || (await this.generateContractNumber());
+
+    const contract = await this.prisma.contract.create({
+      data: {
+        employeeId: dto.employeeId,
+        contractType: dto.contractType,
+        contractNumber,
+        startDate,
+        endDate,
+        salary: dto.salary,
+        workType,
+        workHoursPerWeek,
+        terms: dto.terms || dto.notes, // Store both terms and notes in terms field for now
+        status: resolvedStatus,
+      },
+      include: {
+        employee: {
+          select: { id: true, employeeCode: true, fullName: true },
+        },
+      },
+    });
+
+    // Mirror the contract salary onto the employee — unless they are paid daily.
+    await this.syncEmployeeBaseSalary(dto.employeeId, dto.salary);
+
+    return {
+      success: true,
+      message: 'Contract created successfully',
+      data: contract,
     };
+  }
 
-    const [data, total] = await this.prisma.$transaction([
+  async findAll(query: {
+    employeeId?: string;
+    status?: string;
+    page?: number | string;
+    limit?: number | string;
+    search?: string;
+  }) {
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (query.employeeId) where.employeeId = query.employeeId;
+    if (query.status) where.status = query.status;
+    if (query.search) {
+      where.OR = [
+        { contractNumber: { contains: query.search, mode: 'insensitive' } },
+        {
+          employee: {
+            fullName: { contains: query.search, mode: 'insensitive' },
+          },
+        },
+      ];
+    }
+
+    const [contracts, total] = await Promise.all([
       this.prisma.contract.findMany({
         where,
-        include: CONTRACT_INCLUDE,
         skip,
-        take,
+        take: limit,
+        include: {
+          employee: {
+            select: {
+              id: true,
+              employeeCode: true,
+              fullName: true,
+              position: true,
+              department: { select: { id: true, name: true } },
+            },
+          },
+        },
         orderBy: { startDate: 'desc' },
       }),
       this.prisma.contract.count({ where }),
     ]);
 
-    return paginated(data, total, page, limit);
-  }
-
-  /**
-   * The expiry report.
-   *
-   * Only ACTIVE contracts: a DRAFT has not started and a RENEWED one has
-   * already been replaced, so counting either down to its end date would put
-   * work on somebody's desk that has already been done.
-   */
-  async expiring(days = 30) {
-    const today = startOfUtcDay(new Date());
-    const rows = await this.prisma.contract.findMany({
-      where: {
-        status: ContractStatus.ACTIVE,
-        endDate: { gte: today, lte: addDays(today, days) },
-      },
-      include: CONTRACT_INCLUDE,
-      orderBy: { endDate: 'asc' },
-    });
-
-    return rows
-      .filter((row): row is typeof row & { endDate: Date } => !!row.endDate)
-      .map((row) => ({ ...row, daysUntilExpiry: daysUntil(row.endDate) }));
+    return {
+      success: true,
+      data: contracts,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   async findOne(id: string) {
     const contract = await this.prisma.contract.findUnique({
       where: { id },
       include: {
-        ...CONTRACT_INCLUDE,
-        terminations: {
-          orderBy: { createdAt: 'desc' },
-          include: {
-            requestedBy: { select: { id: true, email: true } },
-            reviewedBy: { select: { id: true, email: true } },
+        employee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            fullName: true,
+            email: true,
+            phone: true,
+            position: true,
+            branchId: true,
+            department: { select: { id: true, code: true, name: true } },
           },
         },
       },
     });
-    if (!contract) throw new NotFoundException('Contract not found');
-    return contract;
-  }
 
-  async create(dto: CreateContractDto) {
-    await this.assertEmployeeExists(dto.employeeId);
-
-    const startDate = new Date(dto.startDate);
-    const endDate = dto.endDate ? new Date(dto.endDate) : null;
-    const probationEndDate = dto.probationEndDate
-      ? new Date(dto.probationEndDate)
-      : null;
-    this.assertTermIsCoherent(startDate, endDate, probationEndDate);
-
-    const contractNumber = await this.resolveContractNumber(
-      dto.contractNumber,
-      startDate,
-    );
-
-    // The converted dates and the resolved number overwrite the DTO's own
-    // values, which are ISO strings and an optional.
-    return this.prisma.contract.create({
-      data: { ...dto, contractNumber, startDate, endDate, probationEndDate },
-      include: CONTRACT_INCLUDE,
-    });
-  }
-
-  async update(id: string, dto: UpdateContractDto) {
-    const current = await this.findOne(id);
-
-    // A terminated contract is the record of how somebody's employment ended.
-    // Editing it after the fact rewrites that record; a correction belongs in a
-    // new contract, and a mistaken termination is reversed by the review flow.
-    if (current.status === ContractStatus.TERMINATED) {
-      throw new BadRequestException(
-        'A terminated contract can no longer be edited',
-      );
+    if (!contract) {
+      throw new NotFoundException('Contract not found');
     }
 
-    const startDate = dto.startDate
-      ? new Date(dto.startDate)
-      : current.startDate;
-    const endDate =
-      dto.endDate !== undefined
-        ? dto.endDate
-          ? new Date(dto.endDate)
-          : null
-        : current.endDate;
-    const probationEndDate =
-      dto.probationEndDate !== undefined
-        ? dto.probationEndDate
-          ? new Date(dto.probationEndDate)
-          : null
-        : current.probationEndDate;
-    this.assertTermIsCoherent(startDate, endDate, probationEndDate);
+    // Object-level branch guard (findUnique bypasses auto-scoping).
+    assertInBranch(contract.employee.branchId);
 
-    if (dto.contractNumber && dto.contractNumber !== current.contractNumber) {
-      await this.assertContractNumberFree(dto.contractNumber);
-    }
-
-    // `undefined` is Prisma's "leave this column alone", so an untouched date
-    // stays put while an explicit null clears the column.
-    return this.prisma.contract.update({
-      where: { id },
-      data: {
-        ...dto,
-        startDate: dto.startDate ? startDate : undefined,
-        endDate: dto.endDate !== undefined ? endDate : undefined,
-        probationEndDate:
-          dto.probationEndDate !== undefined ? probationEndDate : undefined,
-      },
-      include: CONTRACT_INCLUDE,
-    });
+    return { success: true, data: contract };
   }
 
-  /**
-   * Closes the current contract and opens its successor.
-   *
-   * Both writes or neither: a contract marked RENEWED with no successor leaves
-   * the employee with no live contract at all, and a successor created while
-   * the old row is still ACTIVE gives them two — either half on its own is
-   * worse than the renewal not happening.
-   */
-  async renew(id: string, dto: RenewContractDto) {
-    const current = await this.findOne(id);
+  async findByEmployee(employeeId: string) {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+    });
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
 
-    if (current.status === ContractStatus.TERMINATED)
-      throw new BadRequestException('A terminated contract cannot be renewed');
-    if (current.status === ContractStatus.RENEWED)
-      throw new BadRequestException('This contract has already been renewed');
+    const contracts = await this.prisma.contract.findMany({
+      where: { employeeId },
+      orderBy: { startDate: 'desc' },
+    });
 
-    const startDate = new Date(dto.startDate);
-    const endDate = dto.endDate ? new Date(dto.endDate) : null;
-    const probationEndDate = dto.probationEndDate
-      ? new Date(dto.probationEndDate)
-      : null;
-    this.assertTermIsCoherent(startDate, endDate, probationEndDate);
+    return { success: true, data: contracts };
+  }
 
-    const contractNumber = await this.resolveContractNumber(
-      dto.contractNumber,
-      startDate,
-    );
+  async getStatistics() {
+    const now = new Date();
+    const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-    const [, successor] = await this.prisma.$transaction([
-      this.prisma.contract.update({
-        where: { id },
-        data: { status: ContractStatus.RENEWED },
-      }),
-      this.prisma.contract.create({
-        data: {
-          employeeId: current.employeeId,
-          contractNumber,
-          contractType: dto.contractType ?? current.contractType,
-          workType: dto.workType ?? current.workType,
-          status: ContractStatus.ACTIVE,
-          startDate,
-          endDate,
-          probationEndDate,
-          workHoursPerWeek: dto.workHoursPerWeek ?? current.workHoursPerWeek,
-          salary: dto.salary ?? current.salary,
-          currency: current.currency,
-          noticePeriodDays: current.noticePeriodDays,
-          annualLeaveDays: current.annualLeaveDays,
-          terms: current.terms,
-          notes: dto.notes ?? null,
+    const [total, active, expired, expiringSoon] = await Promise.all([
+      this.prisma.contract.count(),
+      this.prisma.contract.count({ where: { status: 'ACTIVE' } }),
+      this.prisma.contract.count({ where: { status: 'EXPIRED' } }),
+      this.prisma.contract.count({
+        where: {
+          status: 'ACTIVE',
+          endDate: { gte: now, lte: thirtyDaysLater },
         },
-        include: CONTRACT_INCLUDE,
       }),
     ]);
 
-    return successor;
+    return {
+      success: true,
+      data: { total, active, expired, expiringSoon },
+    };
+  }
+
+  async update(id: string, dto: UpdateContractDto) {
+    const contract = await this.prisma.contract.findUnique({
+      where: { id },
+      include: { employee: { select: { branchId: true } } },
+    });
+    if (!contract) {
+      throw new NotFoundException('Contract not found');
+    }
+
+    // Object-level branch guard (findUnique bypasses auto-scoping).
+    assertInBranch(contract.employee.branchId);
+
+    const updateData: any = { ...dto };
+    if (dto.endDate) updateData.endDate = new Date(dto.endDate);
+
+    const updated = await this.prisma.contract.update({
+      where: { id },
+      data: updateData,
+      include: {
+        employee: {
+          select: { id: true, employeeCode: true, fullName: true },
+        },
+      },
+    });
+
+    // Update employee salary if changed
+    if (dto.salary) {
+      await this.syncEmployeeBaseSalary(contract.employeeId, dto.salary);
+    }
+
+    return {
+      success: true,
+      message: 'Contract updated successfully',
+      data: updated,
+    };
+  }
+
+  async renew(id: string, dto: RenewContractDto) {
+    const contract = await this.prisma.contract.findUnique({
+      where: { id },
+      include: { employee: { select: { branchId: true } } },
+    });
+    if (!contract) {
+      throw new NotFoundException('Contract not found');
+    }
+
+    // Object-level branch guard (findUnique bypasses auto-scoping).
+    assertInBranch(contract.employee.branchId);
+
+    // Terminate old contract
+    await this.prisma.contract.update({
+      where: { id },
+      data: { status: 'EXPIRED' },
+    });
+
+    // Create new contract
+    const newContractNumber = await this.generateContractNumber();
+    const newContract = await this.prisma.contract.create({
+      data: {
+        employeeId: contract.employeeId,
+        contractType: dto.newContractType || contract.contractType,
+        contractNumber: newContractNumber,
+        startDate: contract.endDate || new Date(),
+        endDate: new Date(dto.newEndDate),
+        salary: dto.newSalary || contract.salary,
+        status: 'ACTIVE',
+      },
+      include: {
+        employee: {
+          select: { id: true, employeeCode: true, fullName: true },
+        },
+      },
+    });
+
+    // Update employee salary
+    if (dto.newSalary) {
+      await this.syncEmployeeBaseSalary(contract.employeeId, dto.newSalary);
+    }
+
+    return {
+      success: true,
+      message: 'Contract renewed successfully',
+      data: newContract,
+    };
   }
 
   /**
-   * `CTR-<year>-<sequence>`, the sequence being how many contracts already
-   * carry that year's prefix. The year comes from the START DATE rather than
-   * today: a 2027 contract signed in December 2026 belongs in the 2027 run.
+   * Mirror a contract's salary onto Employee.baseSalary — but never for
+   * daily-wage staff.
+   *
+   * A Contract has no pay basis of its own, so `salary` is just a number: HR
+   * enters a monthly figure. For an employee whose baseSalary is a PER-DAY rate,
+   * writing that number through turns e.g. 500/day into 13000/day, roughly a
+   * 26x overpayment on the next payroll run. The contract still records its own
+   * salary; only the employee's rate is left alone.
    */
-  private async generateContractNumber(startDate: Date): Promise<string> {
-    const prefix = `CTR-${startDate.getUTCFullYear()}-`;
-    const used = await this.prisma.contract.count({
-      where: { contractNumber: { startsWith: prefix } },
+  private async syncEmployeeBaseSalary(employeeId: string, salary: number) {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { salaryType: true, employeeCode: true },
     });
-    return `${prefix}${String(used + 1).padStart(4, '0')}`;
-  }
 
-  private async resolveContractNumber(
-    supplied: string | undefined,
-    startDate: Date,
-  ): Promise<string> {
-    if (!supplied) return this.generateContractNumber(startDate);
-    await this.assertContractNumberFree(supplied);
-    return supplied;
-  }
-
-  private async assertContractNumberFree(contractNumber: string) {
-    const clash = await this.prisma.contract.findUnique({
-      where: { contractNumber },
-      select: { id: true },
-    });
-    if (clash)
-      throw new ConflictException(
-        `Contract number ${contractNumber} is already in use`,
+    if (isDailyWage(employee?.salaryType)) {
+      this.logger.log(
+        `Contract salary ${salary} NOT copied to employee ${employee?.employeeCode ?? employeeId}: ` +
+          `they are paid daily, so baseSalary is a per-day rate. Edit the daily rate on the employee record instead.`,
       );
+      return;
+    }
+
+    await this.prisma.employee.update({
+      where: { id: employeeId },
+      data: { baseSalary: salary },
+    });
   }
 
-  private assertTermIsCoherent(
-    startDate: Date,
-    endDate: Date | null,
-    probationEndDate: Date | null,
+  /**
+   * Direct termination, with no approval workflow. Still an offboarding path,
+   * so it carries the same asset-clearance gate as the approved route —
+   * otherwise this endpoint would be the way around it.
+   */
+  async terminate(
+    id: string,
+    dto: TerminateContractDto,
+    actor?: { id?: string; role?: string },
   ) {
-    if (endDate && endDate <= startDate) {
-      throw new BadRequestException(
-        'The end date must fall after the start date',
-      );
+    const contract = await this.prisma.contract.findUnique({
+      where: { id },
+      include: { employee: { select: { branchId: true } } },
+    });
+    if (!contract) {
+      throw new NotFoundException('Contract not found');
     }
-    if (probationEndDate) {
-      if (probationEndDate < startDate) {
-        throw new BadRequestException(
-          'Probation cannot end before the contract starts',
-        );
-      }
-      if (endDate && probationEndDate > endDate) {
-        throw new BadRequestException(
-          'Probation cannot end after the contract does',
-        );
-      }
-    }
+
+    // Object-level branch guard (findUnique bypasses auto-scoping).
+    assertInBranch(contract.employee.branchId);
+
+    await this.clearance.assertCleared(contract.employeeId, {
+      actorUserId: actor?.id,
+      actorRole: actor?.role,
+      reason: dto.clearanceOverrideReason,
+    });
+
+    const endDate = new Date();
+
+    const terminated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.contract.update({
+        where: { id },
+        data: {
+          status: 'TERMINATED',
+          terminatedReason: dto.reason,
+          endDate,
+        },
+      });
+      // R72: `INACTIVE` is the ONE value every offboarding path writes for
+      // "this person has left" — this one,
+      // `TerminationRequestService.approveTermination` and
+      // `EmployeesService.delete`, which used to write `TERMINATED` and split
+      // the leaver population in two. The CONTRACT above is `TERMINATED`;
+      // that is the contract's status, not the person's.
+      await tx.employee.update({
+        where: { id: contract.employeeId },
+        data: {
+          status: 'INACTIVE',
+          endDate,
+        },
+      });
+      // G29: leaving does NOT clear what is owed. An unrecovered carry-forward
+      // balance becomes a RECEIVABLE — a debt on record — rather than being
+      // written off silently. `GarnishmentsService.waive`waiving one stays a deliberate act
+      // that erases one, and it demands a reason.
+      await this.carryForward.markOutstandingAsReceivable(contract.employeeId, tx);
+
+      return row;
+    });
+
+    return {
+      success: true,
+      message: 'Contract terminated successfully',
+      data: terminated,
+    };
   }
 
-  private async assertEmployeeExists(id: string) {
-    const found = await this.prisma.employee.findUnique({
-      where: { id },
-      select: { id: true },
+  async getExpiringContracts(days: number = 30) {
+    const today = new Date();
+    const futureDate = new Date();
+    futureDate.setDate(today.getDate() + days);
+
+    const contracts = await this.prisma.contract.findMany({
+      where: {
+        status: 'ACTIVE',
+        endDate: {
+          gte: today,
+          lte: futureDate,
+        },
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            fullName: true,
+            email: true,
+            position: true,
+            department: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { endDate: 'asc' },
     });
-    if (!found) throw new NotFoundException('Employee not found');
+
+    // Calculate days until expiry for each contract
+    const expiringContracts = contracts.map((contract) => {
+      const daysUntilExpiry = contract.endDate
+        ? Math.ceil(
+            (new Date(contract.endDate).getTime() - today.getTime()) /
+              (1000 * 60 * 60 * 24),
+          )
+        : 0;
+
+      return {
+        contract,
+        daysUntilExpiry,
+      };
+    });
+
+    return {
+      success: true,
+      data: expiringContracts,
+      meta: { total: expiringContracts.length, days },
+    };
+  }
+
+  // Cron job: Auto-expire contracts daily at company-local midnight
+  @Cron(COMPANY_CRON_TICK, { name: 'auto-expire-contracts' })
+  async autoExpireContractsTick() {
+    if (!(await this.expireGate.due())) return;
+    return this.autoExpireContracts();
+  }
+
+  async autoExpireContracts() {
+    // Day boundary in the company timezone — `endDate` is a @db.Date, so the
+    // comparison must use the company's calendar day, not the server's.
+    const today = await this.tzSvc.nowDateKeyCompany();
+
+    const expiredContracts = await this.prisma.contract.updateMany({
+      where: {
+        status: 'ACTIVE',
+        endDate: {
+          not: null,
+          lt: today,
+        },
+      },
+      data: {
+        status: 'EXPIRED',
+      },
+    });
+
+    if (expiredContracts.count > 0) {
+      console.log(`[Cron] Auto-expired ${expiredContracts.count} contracts`);
+    }
+
+    return {
+      success: true,
+      message: `Auto-expired ${expiredContracts.count} contracts`,
+      count: expiredContracts.count,
+    };
+  }
+
+  /**
+   * Superseded by `RemindersModule` (see `sources/contract-reminder.source.ts`),
+   * which alerts at configurable tiers and also notifies the employee. Kept as a
+   * plain method — no longer scheduled — so existing callers and tests still
+   * work.
+   *
+   * @deprecated Use `RemindersService.runAll()`.
+   */
+  async sendContractExpiryAlerts() {
+    const alertDaysStr = await this.settingsService.getSetting(
+      'contract_expiry_alert_days',
+      '30',
+    );
+    const alertDays = parseInt(alertDaysStr, 10) || 30;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const alertHorizon = new Date(today);
+    alertHorizon.setDate(alertHorizon.getDate() + alertDays);
+
+    const expiringContracts = await this.prisma.contract.findMany({
+      where: {
+        status: 'ACTIVE',
+        expiryAlertSentAt: null,
+        endDate: { not: null, gte: today, lte: alertHorizon },
+      },
+      include: {
+        employee: {
+          select: {
+            employeeCode: true,
+            fullName: true,
+            department: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    if (expiringContracts.length === 0) {
+      return { success: true, message: 'No contracts due for expiry alert', count: 0 };
+    }
+
+    const recipients = await this.prisma.user.findMany({
+      where: { role: { in: CONTRACT_ALERT_RECIPIENT_ROLES }, isActive: true },
+      select: {
+        id: true,
+        email: true,
+        employee: { select: { fullName: true } },
+      },
+    });
+
+    for (const contract of expiringContracts) {
+      const daysRemaining = Math.ceil(
+        (new Date(contract.endDate!).getTime() - today.getTime()) /
+          (1000 * 60 * 60 * 24),
+      );
+      const endDateStr = new Date(contract.endDate!).toLocaleDateString(
+        'en-US',
+      );
+
+      for (const recipient of recipients) {
+        try {
+          await this.mailService.sendContractExpiringAdminAlert(
+            recipient.email,
+            {
+              recipientName: recipient.employee?.fullName || 'there',
+              employeeName: contract.employee.fullName,
+              employeeCode: contract.employee.employeeCode,
+              department: contract.employee.department?.name,
+              contractType: contract.contractType,
+              endDate: endDateStr,
+              daysRemaining,
+            },
+          );
+
+          await this.notificationsService.create({
+            userId: recipient.id,
+            title: 'Contract Expiring Soon',
+            message: `${contract.employee.fullName}'s ${contract.contractType} contract expires in ${daysRemaining} day(s) on ${endDateStr}.`,
+            type: NotificationType.CONTRACT_EXPIRING,
+            link: `/dashboard/contracts/${contract.id}`,
+          });
+        } catch (error) {
+          console.error(
+            `[Cron] Failed to send contract expiry alert for contract ${contract.id} to ${recipient.email}: ${error.message}`,
+          );
+        }
+      }
+
+      await this.prisma.contract.update({
+        where: { id: contract.id },
+        data: { expiryAlertSentAt: new Date() },
+      });
+    }
+
+    return {
+      success: true,
+      message: `Sent expiry alerts for ${expiringContracts.length} contract(s) to ${recipients.length} recipient(s)`,
+      count: expiringContracts.length,
+    };
+  }
+
+  private async generateContractNumber(): Promise<string> {
+    const year = new Date().getFullYear();
+    const count = await this.prisma.contract.count({
+      where: {
+        contractNumber: { startsWith: `HD-${year}` },
+      },
+    });
+    return `HD-${year}-${(count + 1).toString().padStart(3, '0')}`;
   }
 }

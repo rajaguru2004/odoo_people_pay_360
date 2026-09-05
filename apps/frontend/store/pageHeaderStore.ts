@@ -8,49 +8,50 @@ export interface Crumb {
 
 export interface PageHeaderEntry {
   /**
-   * The route that declared this entry. Load-bearing: the shell renders it only
-   * while it still matches the current pathname, so a page that has already
-   * unmounted can never paint its title over the next one mid-navigation.
+   * The route that declared this entry. Load-bearing: TopHeader renders the
+   * override only while it still matches the current pathname, so a page that
+   * has already unmounted can never paint its title over the next one during a
+   * navigation.
    */
   pathname: string;
   title: string;
   subtitle?: string;
   /**
-   * Overrides the trail the shell derives from the nav tree. Worth declaring
-   * only where the route cannot describe the page — a record whose crumb should
-   * carry its name. Everything else is better left derived, because a
-   * hand-written crumb is one more place to forget when a route moves.
+   * Overrides the trail TopHeader would otherwise derive from the nav tree.
+   * Worth declaring only where the route cannot describe the page — a record
+   * detail whose crumb should name the record, or a screen the nav never links
+   * to. Everything else is better left to the derived trail.
    */
   breadcrumbs?: Crumb[];
 }
 
 interface PageHeaderState {
   /**
-   * What the currently-rendered page wants the shell to show, or null when the
-   * page declares nothing and the derived nav location should be used instead.
+   * What the currently-rendered page wants TopHeader to show, or null when the
+   * page declares nothing (TopHeader then falls back to its own static
+   * `getPageInfo(pathname)` map).
    */
   entry: PageHeaderEntry | null;
   set: (entry: PageHeaderEntry) => void;
   /**
    * Drops the entry only if `pathname` still owns it. An unmounting page must
-   * not wipe the heading the NEXT page has already declared, which is what an
+   * not wipe the heading the *next* page has already declared, which is what an
    * unguarded clear does whenever the incoming effect runs before the outgoing
-   * cleanup — and React runs them in exactly that order.
+   * cleanup.
    */
   clear: (pathname: string) => void;
 }
 
 /**
- * The channel between a page and the one heading slot in Topbar.
+ * The page title/subtitle slot lives in TopHeader, which renders OUTSIDE the
+ * routed page subtree — so a page cannot pass it down as props. This store is
+ * that channel: a page declares its heading through `usePageHeader`, TopHeader
+ * reads it here.
  *
- * The dashboard renders exactly one `<h1>`, and it lives in Topbar — outside the
- * routed subtree, so a page cannot pass it down as props. A page declares its
- * title through `usePageHeader` instead of painting a second heading of its own;
- * two headings on one screen is the defect this exists to prevent.
- *
- * The page owns the text rather than a lookup table in Topbar because a page
- * already holds its own translated strings, and many titles name a record
- * ("Contract — Aisha Al Balushi") which a path-to-string map cannot express.
+ * Why the page owns the text rather than a map inside TopHeader: pages already
+ * hold their own translated `t('title')`/`t('subtitle')` keys, and many titles
+ * are per-record ("Monthly salary slip 8/2026") which a static path->string
+ * table cannot express at all.
  */
 export const usePageHeaderStore = create<PageHeaderState>((set) => ({
   entry: null,

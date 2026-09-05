@@ -1,139 +1,161 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  OnModuleInit,
-} from '@nestjs/common';
-import { LibraryType, Prisma } from '@prisma/client';
+import { Injectable, OnModuleInit, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { LibraryType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLibraryItemDto } from './dto/create-library-item.dto';
 import { UpdateLibraryItemDto } from './dto/update-library-item.dto';
-import { ListLibraryItemsDto } from './dto/list-library-items.dto';
 import { seedLibraryDefaults } from './library-defaults';
 
-/**
- * The admin-managed pick lists behind leave types and employment types.
- *
- * Two of them, not thirteen: a library value nothing reads is a value an
- * administrator can set and then wonder why nothing happened.
- */
 @Injectable()
 export class LibraryItemsService implements OnModuleInit {
-  private readonly logger = new Logger(LibraryItemsService.name);
+  constructor(private readonly prisma: PrismaService) {} // Trigger restart
 
-  constructor(private readonly prisma: PrismaService) {}
+  async onModuleInit() {
+    await this.seedDefaultPositions();
+  }
 
   /**
-   * Seed the defaults on every boot.
+   * Create every default library item (positions, leave types, employment types
+   * with their pay basis, ...). Kept in `library-defaults.ts` so `prisma/seed.ts`
+   * — which has no Nest container — can create the same rows.
    *
-   * Idempotent, and a failure is logged rather than fatal: a container that
-   * starts before `db push` has run must still come up, or the migration that
-   * would fix it can never be applied.
+   * Name retained for the `POST /library-items/seed` endpoint that calls it.
    */
-  async onModuleInit(): Promise<void> {
-    try {
-      await this.seedDefaults();
-    } catch (e) {
-      this.logger.warn(
-        `Could not seed library defaults: ${(e as Error)?.message ?? e}`,
+  async seedDefaultPositions() {
+    return seedLibraryDefaults(this.prisma);
+  }
+
+  async create(createLibraryItemDto: CreateLibraryItemDto) {
+    const existing = await this.prisma.libraryItem.findUnique({
+      where: {
+        libraryType_label: {
+          libraryType: createLibraryItemDto.libraryType,
+          label: createLibraryItemDto.label,
+        },
+      },
+    });
+
+    if (existing) {
+      throw new ConflictException(
+        `Item with label "${createLibraryItemDto.label}" already exists in ${createLibraryItemDto.libraryType}`,
+      );
+    }
+
+    this.assertPayBasisAllowed(
+      createLibraryItemDto.payBasis,
+      createLibraryItemDto.libraryType,
+    );
+    this.assertPerDiemRateAllowed(
+      createLibraryItemDto.perDiemRate,
+      createLibraryItemDto.libraryType,
+    );
+    return this.prisma.libraryItem.create({
+      data: createLibraryItemDto,
+    });
+  }
+
+  /**
+   * payBasis drives what an employee's baseSalary MEANS, and only the employment
+   * type does that. Setting it on a Position or Leave Type would be read by
+   * nothing and would mislead whoever set it.
+   */
+  private assertPayBasisAllowed(
+    payBasis: string | null | undefined,
+    libraryType: LibraryType,
+  ) {
+    if (payBasis && libraryType !== LibraryType.EMPLOYMENT_TYPE) {
+      throw new BadRequestException(
+        `payBasis applies to EMPLOYMENT_TYPE items only, not ${libraryType}.`,
       );
     }
   }
 
-  async seedDefaults(): Promise<void> {
-    await seedLibraryDefaults(this.prisma);
+  /**
+   * Same reasoning as payBasis: a rate on a Position or a Leave Type would be
+   * read by nothing, and would mislead whoever set it.
+   */
+  private assertPerDiemRateAllowed(
+    perDiemRate: number | null | undefined,
+    libraryType: LibraryType,
+  ) {
+    if (
+      perDiemRate !== undefined &&
+      perDiemRate !== null &&
+      libraryType !== LibraryType.PER_DIEM_DESTINATION
+    ) {
+      throw new BadRequestException(
+        `perDiemRate applies to PER_DIEM_DESTINATION items only, not ${libraryType}.`,
+      );
+    }
   }
 
-  async findAll(query: ListLibraryItemsDto = {}) {
-    const data = await this.prisma.libraryItem.findMany({
-      where: {
-        ...(query.type ? { libraryType: query.type } : {}),
-        ...(query.activeOnly === undefined
-          ? {}
-          : { isActive: query.activeOnly }),
-      },
-      orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
+  async findAll(type?: LibraryType, activeOnly?: boolean) {
+    const where: any = {};
+    if (type) {
+      where.libraryType = type;
+    }
+    if (activeOnly !== undefined) {
+      where.isActive = activeOnly;
+    }
+
+    return this.prisma.libraryItem.findMany({
+      where,
+      orderBy: [
+        { sortOrder: 'asc' },
+        { label: 'asc' },
+      ],
     });
-    return { success: true as const, data };
   }
 
   async findOne(id: string) {
-    const item = await this.prisma.libraryItem.findUnique({ where: { id } });
-    if (!item) throw new NotFoundException('Library item not found');
+    const item = await this.prisma.libraryItem.findUnique({
+      where: { id },
+    });
+    if (!item) {
+      throw new NotFoundException(`Library item with ID "${id}" not found`);
+    }
     return item;
   }
 
-  async create(dto: CreateLibraryItemDto) {
-    this.assertLeaveMetadataAllowed(dto, dto.libraryType);
-    try {
-      return await this.prisma.libraryItem.create({ data: dto });
-    } catch (e) {
-      throw this.mapWriteError(e, dto.label);
-    }
-  }
+  async update(id: string, updateLibraryItemDto: UpdateLibraryItemDto) {
+    const current = await this.findOne(id); // Throws if not found
 
-  async update(id: string, dto: UpdateLibraryItemDto) {
-    const current = await this.findOne(id);
-    this.assertLeaveMetadataAllowed(
-      dto,
-      dto.libraryType ?? current.libraryType,
+    this.assertPayBasisAllowed(
+      updateLibraryItemDto.payBasis,
+      updateLibraryItemDto.libraryType ?? current.libraryType,
     );
-    try {
-      return await this.prisma.libraryItem.update({ where: { id }, data: dto });
-    } catch (e) {
-      throw this.mapWriteError(e, dto.label ?? current.label);
+    this.assertPerDiemRateAllowed(
+      updateLibraryItemDto.perDiemRate,
+      updateLibraryItemDto.libraryType ?? current.libraryType,
+    );
+    // Only a label change can collide. Guarding on libraryType alone would run
+    // the check with `label: undefined` — a PATCH that only sets payBasis would
+    // then match any other row in the same library and 409 spuriously.
+    if (updateLibraryItemDto.label) {
+      // Check if another item with same type and label exists
+      const existing = await this.prisma.libraryItem.findFirst({
+        where: {
+          id: { not: id },
+          libraryType: updateLibraryItemDto.libraryType ?? current.libraryType,
+          label: updateLibraryItemDto.label,
+        },
+      });
+      if (existing) {
+        throw new ConflictException(
+          `Item with label "${updateLibraryItemDto.label}" already exists in ${updateLibraryItemDto.libraryType || 'same library'}`,
+        );
+      }
     }
-  }
 
-  /**
-   * Deactivate rather than delete.
-   *
-   * Every balance row, leave request and accrual record stores the LABEL, so
-   * removing the row would leave a year of history naming a type the list no
-   * longer offers. Deactivating takes it out of the picker and leaves the
-   * history resolving.
-   */
-  async deactivate(id: string) {
-    await this.findOne(id);
     return this.prisma.libraryItem.update({
       where: { id },
-      data: { isActive: false },
+      data: updateLibraryItemDto,
     });
   }
 
-  /**
-   * Leave metadata on an employment type would be read by nothing and would
-   * mislead whoever set it.
-   */
-  private assertLeaveMetadataAllowed(
-    dto: Partial<CreateLibraryItemDto>,
-    libraryType: LibraryType,
-  ) {
-    if (libraryType === LibraryType.LEAVE_TYPE) return;
-    const leaveOnly = (
-      [
-        'defaultDays',
-        'requiresNoticeDays',
-        'affectsBalance',
-        'genderRestriction',
-      ] as const
-    ).filter((field) => dto[field] !== undefined && dto[field] !== null);
-    if (leaveOnly.length) {
-      throw new BadRequestException(
-        `${leaveOnly.join(', ')} apply to LEAVE_TYPE items only, not ${libraryType}`,
-      );
-    }
-  }
-
-  private mapWriteError(e: unknown, label: string): Error {
-    if (
-      e instanceof Prisma.PrismaClientKnownRequestError &&
-      e.code === 'P2002'
-    ) {
-      return new ConflictException(`"${label}" already exists in this library`);
-    }
-    return e as Error;
+  async remove(id: string) {
+    await this.findOne(id); // Throws if not found
+    return this.prisma.libraryItem.delete({
+      where: { id },
+    });
   }
 }

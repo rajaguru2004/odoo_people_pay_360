@@ -1,15 +1,20 @@
 import { Module } from '@nestjs/common';
-import { AttendanceCorrectionsService } from './attendance-corrections.service';
 import { AttendanceCorrectionsController } from './attendance-corrections.controller';
-import { AttendancesModule } from '../attendances/attendances.module';
+import { AttendanceCorrectionsService } from './attendance-corrections.service';
+import { PrismaModule } from '../prisma/prisma.module';
+import { MailModule } from '../mail/mail.module';
+import { SystemSettingsModule } from '../system-settings/system-settings.module';
+import { TimezoneModule } from '../common/timezone/timezone.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
-/**
- * Imports AttendancesModule for the calendar service alone: approving a
- * correction has to re-derive the day's verdict with the same rules a punch
- * would, and a second copy of those rules here would drift from the first.
- */
 @Module({
-  imports: [AttendancesModule],
+  imports: [
+    PrismaModule,
+    MailModule,
+    SystemSettingsModule,
+    TimezoneModule,
+    NotificationsModule,
+  ],
   controllers: [AttendanceCorrectionsController],
   providers: [AttendanceCorrectionsService],
   exports: [AttendanceCorrectionsService],

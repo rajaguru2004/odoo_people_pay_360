@@ -1,7 +1,14 @@
-import { Prisma, ApprovalRequestType } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 
-export type { ApprovalRequestType };
+/**
+ * Every request type the approval engine can govern.
+ *
+ * Must stay in lockstep with the Prisma `ApprovalRequestType` enum. Add both in
+ * the same change: the DB enum value (`ALTER TYPE ... ADD VALUE`, which cannot
+ * run inside a transaction block, so it needs its own migration file) and the
+ * `APPROVAL_KINDS` entry below.
+ */
+export type ApprovalRequestType = 'LEAVE' | 'OVERTIME' | 'TRAINING';
 
 /** One row in the approver's inbox, already hydrated from its domain table. */
 export interface InboxRequest {
@@ -9,39 +16,35 @@ export interface InboxRequest {
   [key: string]: unknown;
 }
 
-export interface HydrateOpts {
-  /** Include decided rows. Default false — the inbox wants pending only. */
-  anyStatus?: boolean;
-}
-
 /**
  * Everything the engine needs to know about a request type that is NOT generic.
  *
- * `RequestApproval` is a side table keyed by (requestType, requestId) with no
- * foreign key to the domain row, so the engine cannot resolve a requester or
- * render an inbox without a per-type hook. Keeping those hooks here rather than
- * as branches inside the engine means adding a governable type is one entry in
- * this file plus the enum value, not an edit across the whole module.
+ * `RequestApproval` is a polymorphic side-table keyed by (requestType, requestId)
+ * with no FK to the domain row, so the engine cannot resolve a requester or
+ * render an inbox without a per-type hook. Before this registry those hooks were
+ * hardcoded ternaries inside the engine, and adding a type meant editing ~10
+ * files; now it is one entry here plus the enum value.
  */
 export interface ApprovalKind {
   type: ApprovalRequestType;
-  /** Deep link carried on the inbox card. */
+  /** Deep link used in approver + requester notifications. */
   link: string;
-  /** Human label for the chain builder and the inbox headers. */
+  /** Human label for the settings chain builder and inbox headers. */
   label: string;
   /**
-   * The employee who raised this request, or null when the row is gone. The
-   * engine treats "not resolvable" as a dead row rather than an error, so a
+   * The employee who raised this request. Returns null when the row is gone —
+   * the engine treats that as "not resolvable" rather than throwing, so a
    * deleted request cannot wedge an approver's queue.
    */
   requesterOf(prisma: PrismaService, requestId: string): Promise<string | null>;
   /**
    * Hydrate rows for the approver's screens.
    *
-   * Filters to requests still awaiting a decision by default, so anything
-   * omitted drops off the inbox. `opts.anyStatus` lifts that filter for the
-   * decided history, whose whole point is rows the approver has already
-   * settled — hydrating those pending-only renders it permanently empty.
+   * By default it filters to requests still awaiting a decision, so anything
+   * omitted is dropped from the INBOX by the caller. `opts.anyStatus` lifts
+   * that filter for the DECIDED history, where the whole point is the rows an
+   * approver has already settled — filtering them to PENDING would return an
+   * empty list and the history would look permanently empty.
    */
   hydrate(
     prisma: PrismaService,
@@ -50,53 +53,34 @@ export interface ApprovalKind {
   ): Promise<InboxRequest[]>;
 }
 
+export interface HydrateOpts {
+  /** Include decided rows. Default false — the inbox wants pending only. */
+  anyStatus?: boolean;
+}
+
 /** `{ status: 'PENDING' }` unless the caller asked for decided rows too. */
 const statusFilter = (opts?: HydrateOpts) =>
   opts?.anyStatus ? {} : { status: 'PENDING' as const };
 
-/**
- * Employee shape shown on every inbox card.
- *
- * `fullName` is joined below rather than selected: employees are stored as
- * `firstName`/`lastName` here, and the screens read one field.
- */
-const EMPLOYEE_CARD_SELECT = {
+/** Employee shape shown on every inbox card. */
+const empSelect = {
   id: true,
-  firstName: true,
-  lastName: true,
+  fullName: true,
   employeeCode: true,
   department: { select: { name: true } },
-} satisfies Prisma.EmployeeSelect;
-
-type EmployeeCard = Prisma.EmployeeGetPayload<{
-  select: typeof EMPLOYEE_CARD_SELECT;
-}>;
-
-function withFullName(employee: EmployeeCard | null | undefined) {
-  if (!employee) return employee ?? null;
-  return {
-    ...employee,
-    fullName: [employee.firstName, employee.lastName].filter(Boolean).join(' '),
-  };
-}
-
-/** Attach the joined name to every hydrated row's employee. */
-function cards<T extends { employee?: EmployeeCard | null }>(rows: T[]) {
-  return rows.map((row) => ({
-    ...row,
-    employee: withFullName(row.employee),
-  })) as unknown as InboxRequest[];
-}
+} as const;
 
 /** Shared `requesterOf` for any model with a plain `employeeId` column. */
 function employeeIdOf(
-  read: (
-    prisma: PrismaService,
-    requestId: string,
-  ) => Promise<{ employeeId: string } | null>,
+  delegate: (prisma: PrismaService) => {
+    findUnique(args: any): Promise<{ employeeId: string } | null>;
+  },
 ) {
   return async (prisma: PrismaService, requestId: string) => {
-    const row = await read(prisma, requestId);
+    const row = await delegate(prisma).findUnique({
+      where: { id: requestId },
+      select: { employeeId: true },
+    });
     return row?.employeeId ?? null;
   };
 }
@@ -106,78 +90,66 @@ export const APPROVAL_KINDS: Record<ApprovalRequestType, ApprovalKind> = {
     type: 'LEAVE',
     link: '/dashboard/leaves',
     label: 'Leave',
-    requesterOf: employeeIdOf((prisma, id) =>
-      prisma.leaveRequest.findUnique({
-        where: { id },
-        select: { employeeId: true },
-      }),
-    ),
-    hydrate: async (prisma, ids, opts) =>
-      cards(
-        await prisma.leaveRequest.findMany({
-          where: { id: { in: ids }, ...statusFilter(opts) },
-          include: { employee: { select: EMPLOYEE_CARD_SELECT } },
-        }),
-      ),
+    requesterOf: employeeIdOf((p) => p.leaveRequest as any),
+    hydrate: (prisma, ids, opts) =>
+      prisma.leaveRequest.findMany({
+        where: { id: { in: ids }, ...statusFilter(opts) },
+        include: { employee: { select: empSelect } },
+      }) as unknown as Promise<InboxRequest[]>,
   },
 
   OVERTIME: {
     type: 'OVERTIME',
     link: '/dashboard/overtime',
     label: 'Overtime',
-    requesterOf: employeeIdOf((prisma, id) =>
-      prisma.overtimeRequest.findUnique({
-        where: { id },
-        select: { employeeId: true },
-      }),
-    ),
-    hydrate: async (prisma, ids, opts) =>
-      cards(
-        await prisma.overtimeRequest.findMany({
-          where: { id: { in: ids }, ...statusFilter(opts) },
-          include: { employee: { select: EMPLOYEE_CARD_SELECT } },
-        }),
-      ),
+    requesterOf: employeeIdOf((p) => p.overtimeRequest as any),
+    hydrate: (prisma, ids, opts) =>
+      prisma.overtimeRequest.findMany({
+        where: { id: { in: ids }, ...statusFilter(opts) },
+        include: { employee: { select: empSelect } },
+      }) as unknown as Promise<InboxRequest[]>,
   },
 
   TRAINING: {
     type: 'TRAINING',
     link: '/dashboard/training',
     label: 'Training',
-    requesterOf: employeeIdOf((prisma, id) =>
-      prisma.trainingNomination.findUnique({
-        where: { id },
-        select: { employeeId: true },
-      }),
-    ),
-    hydrate: async (prisma, ids, opts) =>
-      cards(
-        await prisma.trainingNomination.findMany({
-          where: { id: { in: ids }, ...statusFilter(opts) },
-          select: {
-            id: true,
-            status: true,
-            cost: true,
-            justification: true,
-            session: {
-              select: {
-                startDate: true,
-                endDate: true,
-                course: { select: { code: true, title: true } },
-              },
+    requesterOf: employeeIdOf((p) => p.trainingNomination as any),
+    hydrate: (prisma, ids, opts) =>
+      prisma.trainingNomination.findMany({
+        where: { id: { in: ids }, ...statusFilter(opts) },
+        select: {
+          id: true,
+          status: true,
+          cost: true,
+          source: true,
+          justification: true,
+          session: {
+            select: {
+              startDate: true,
+              endDate: true,
+              course: { select: { code: true, title: true } },
             },
-            employee: { select: EMPLOYEE_CARD_SELECT },
           },
-        }),
-      ),
+          employee: { select: empSelect },
+        },
+      }) as unknown as Promise<InboxRequest[]>,
   },
+
 };
 
-/** Every governable request type, for DTO validation and the frontend picker. */
+/** All governable request types, for DTO validation and the frontend picker. */
 export const APPROVAL_REQUEST_TYPES = Object.keys(
   APPROVAL_KINDS,
 ) as ApprovalRequestType[];
 
 export function isApprovalRequestType(v: unknown): v is ApprovalRequestType {
   return typeof v === 'string' && v in APPROVAL_KINDS;
+}
+
+/** Registry entry for a type, or undefined when the type is unknown. */
+export function approvalKind(
+  type: string,
+): ApprovalKind | undefined {
+  return APPROVAL_KINDS[type as ApprovalRequestType];
 }

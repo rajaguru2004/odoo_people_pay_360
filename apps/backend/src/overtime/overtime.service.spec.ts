@@ -1,555 +1,574 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-} from '@nestjs/common';
-import { OvertimeDayType, OvertimeType, RequestStatus } from '@prisma/client';
-import type { PrismaService } from '../prisma/prisma.service';
-import type { SystemSettingsService } from '../system-settings/system-settings.service';
-import type { Principal } from '../auth/auth.service';
-import type { WorkingDaysService } from '../leave-requests/working-days.service';
-import type { OvertimePolicyService } from '../overtime-policy/overtime-policy.service';
-import {
-  OVERTIME_SETTING_DEFAULTS,
-  loadOvertimeConfig,
-} from '../overtime-policy/overtime-config';
-import { resolvedFromGlobal } from '../overtime-policy/overtime-policy.types';
-import type { ResolvedOvertimeConfig } from '../overtime-policy/overtime-policy.types';
+import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
 import { OvertimeService } from './overtime.service';
-import { writtenData } from '../common/testing/prisma-mock.util';
+import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
+import { SystemSettingsService } from '../system-settings/system-settings.service';
+import { ApprovalEngineService } from '../approvals/approval-engine.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { HolidaysService } from '../holidays/holidays.service';
+import { OvertimePolicyService } from '../overtime-policy/overtime-policy.service';
+import { AuditService } from '../audit/audit.service';
 
-const EMPLOYEE = {
-  id: 'emp-1',
-  employeeCode: 'EMP-0011',
-  firstName: 'Ravi',
-  lastName: 'Kumar',
-  avatarUrl: null,
-  position: 'Shift Supervisor',
-  branchId: 'branch-1',
-  departmentId: 'dept-ops',
-  supervisorId: 'emp-boss',
-  employmentType: null,
-  overtimePolicyId: null,
-  department: { id: 'dept-ops', name: 'Operations' },
-  branch: { id: 'branch-1', code: 'SOH', name: 'Sohar' },
-};
+// Engine disengaged => approve/reject take the legacy single-approver path,
+// which is what these breakdown tests exercise.
+const engineMock = () => ({
+  initiate: jest.fn().mockResolvedValue({ engaged: false, finalized: false }),
+  decide: jest.fn().mockResolvedValue({ engaged: false, finalized: false }),
+});
+const notifyMock = () => ({ notifyUser: jest.fn(), notifyUsers: jest.fn() });
 
-const HR: Principal = {
-  id: 'user-hr',
-  email: 'hr@peoplepay360.com',
-  role: 'HR_MANAGER',
-  employeeId: 'emp-hr',
-  departmentId: 'dept-hr',
-  branchId: 'branch-1',
-};
+// Holidays engine: no holidays; rest day = Sunday (getUTCDay()===0), matching the
+// pre-policy default. Tests override isHoliday to exercise holiday classification.
+const holidaysMock = () => ({
+  isHoliday: jest.fn().mockResolvedValue(false),
+  isWeeklyOff: jest
+    .fn()
+    .mockImplementation((d: Date) => Promise.resolve(d.getUTCDay() === 0)),
+});
 
-const SELF: Principal = {
-  id: 'user-self',
-  email: 'ravi@peoplepay360.com',
-  role: 'EMPLOYEE',
-  employeeId: 'emp-1',
-  departmentId: 'dept-ops',
-  branchId: 'branch-1',
-};
+// Policy engine disengaged: the effective config is the legacy global config,
+// so these classification tests keep exercising the global overtime settings.
+const otPolicyMock = (settings: any) => ({
+  resolveOvertimeConfig: jest.fn().mockImplementation(async () => ({
+    ...(await settings.getOvertimeConfig()),
+    eligible: true,
+    holidayBehavior: 'STANDARD',
+    dayEndBoundary: null,
+    policyId: null,
+    policyName: null,
+  })),
+});
 
-const SUPERVISOR: Principal = {
-  id: 'user-boss',
-  email: 'boss@peoplepay360.com',
-  role: 'EMPLOYEE',
-  employeeId: 'emp-boss',
-  departmentId: 'dept-ops',
-  branchId: 'branch-1',
-};
+/**
+ * Classification coverage for the Singapore overtime rules (shift 08:00–17:00):
+ *
+ *   1.8  Food allowance — none for OT 17:00–22:00; paid once OT ends after 22:00.
+ *   1.11 Double OT       — 2× on Sundays / Public Holidays; 1.5× weekday after 17:00.
+ *
+ * Plus the Step-1 daily-cap fix: a full rest-day shift (9h) is accepted on a
+ * double-OT day but rejected on a normal weekday.
+ *
+ * Prisma / Mail / SystemSettings are mocked; the real create() logic runs.
+ */
+describe('OvertimeService — request classification (SG rules)', () => {
+  let service: OvertimeService;
+  let prisma: any;
+  let settings: any;
+  let holidays: any;
+  let otPolicy: any;
 
-const OUTSIDER: Principal = {
-  id: 'user-other',
-  email: 'other@peoplepay360.com',
-  role: 'EMPLOYEE',
-  employeeId: 'emp-other',
-  departmentId: 'dept-it',
-  branchId: 'branch-1',
-};
-
-/** The shipped global configuration, with no policy attached. */
-async function baseConfig(
-  overrides: Partial<ResolvedOvertimeConfig> = {},
-): Promise<ResolvedOvertimeConfig> {
-  const settings = {
-    get: (key: string) => Promise.resolve(OVERTIME_SETTING_DEFAULTS[key]),
-  } as unknown as SystemSettingsService;
-  return {
-    ...resolvedFromGlobal(await loadOvertimeConfig(settings)),
-    ...overrides,
+  const CFG = {
+    enabled: true,
+    lateThreshold: '22:00Z',
+    foodAllowanceEnabled: true,
+    foodAllowanceThreshold: '22:00Z',
+    foodAllowanceAmount: 150,
+    regularRate: 1.5,
+    lateRate: 1.5,
+    doubleOtEnabled: true,
+    doubleRate: 2,
+    shiftEndTime: '17:00Z',
+    doubleFoodAllowanceAnyTime: false,
+    doubleOtAllowAnytime: true,
+    maxHoursPerDay: 8,
+    maxHoursPerDoubleDay: 12,
+    maxHoursPerMonth: 40,
+    maxHoursPerYear: 200,
+    requireManagerApproval: true,
+    allowEmployeeSubmit: true,
   };
-}
 
-interface Harness {
-  service: OvertimeService;
-  prisma: {
-    overtimeRequest: Record<string, jest.Mock>;
-    employee: Record<string, jest.Mock>;
-    department: Record<string, jest.Mock>;
-  };
-}
-
-function makeHarness(options: {
-  cfg: ResolvedOvertimeConfig;
-  existingRequest?: Record<string, unknown> | null;
-  storedRequest?: Record<string, unknown> | null;
-  monthlyHours?: number;
-  isHoliday?: boolean;
-  isWeeklyOff?: boolean;
-}): Harness {
-  const overtimeRequest = {
-    findFirst: jest.fn().mockResolvedValue(options.existingRequest ?? null),
-    findUnique: jest.fn().mockResolvedValue(options.storedRequest ?? null),
-    findMany: jest.fn().mockResolvedValue([]),
-    count: jest.fn().mockResolvedValue(0),
-    create: jest.fn(({ data }: { data: object }) =>
-      Promise.resolve({ id: 'ot-new', ...data, employee: EMPLOYEE }),
-    ),
-    update: jest.fn(({ data }: { data: object }) =>
-      Promise.resolve({
-        ...(options.storedRequest ?? {}),
-        ...data,
-        employee: EMPLOYEE,
+  beforeEach(async () => {
+    prisma = {
+      employee: { findUnique: jest.fn().mockResolvedValue({ id: 'emp-1' }) },
+      overtimeRequest: {
+        findFirst: jest.fn().mockResolvedValue(null), // no existing request for the date
+        aggregate: jest.fn().mockResolvedValue({ _sum: { hours: 0 } }), // monthly/yearly totals
+        create: jest.fn().mockImplementation(async (args: any) => ({ id: 'ot-1', ...args.data })),
+      },
+      holiday: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+    settings = {
+      getOvertimeConfig: jest.fn().mockResolvedValue({ ...CFG }),
+      getSetting: jest.fn().mockImplementation((key: string) => {
+        if (key === 'attendance_day_end_time') return Promise.resolve('23:59');
+        return Promise.resolve('08:00'); // office_start_time
       }),
-    ),
-    aggregate: jest
-      .fn()
-      .mockResolvedValue({ _sum: { hours: options.monthlyHours ?? 0 } }),
-    groupBy: jest.fn().mockResolvedValue([]),
-  };
+    };
+    holidays = holidaysMock();
+    otPolicy = otPolicyMock(settings);
 
-  const prisma = {
-    overtimeRequest,
-    employee: {
-      findUnique: jest.fn().mockResolvedValue(EMPLOYEE),
-      findMany: jest.fn().mockResolvedValue([]),
-    },
-    department: { findMany: jest.fn().mockResolvedValue([]) },
-    $transaction: jest.fn((ops: unknown) =>
-      Array.isArray(ops) ? Promise.all(ops) : Promise.resolve(ops),
-    ),
-  };
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        OvertimeService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: MailService, useValue: {} },
+        { provide: SystemSettingsService, useValue: settings },
+        { provide: ApprovalEngineService, useValue: engineMock() },
+        { provide: NotificationsService, useValue: notifyMock() },
+        { provide: HolidaysService, useValue: holidays },
+        { provide: OvertimePolicyService, useValue: otPolicy },
+        { provide: AuditService, useValue: { log: jest.fn() } },
+      ],
+    }).compile();
 
-  const policies = {
-    resolveOvertimeConfig: jest.fn().mockResolvedValue(options.cfg),
-    configForPolicyId: jest.fn().mockResolvedValue(options.cfg),
-  } as unknown as OvertimePolicyService;
-
-  const systemSettings = {
-    get: jest.fn((key: string) =>
-      Promise.resolve(
-        key === 'attendance_office_start'
-          ? '08:00'
-          : OVERTIME_SETTING_DEFAULTS[key],
-      ),
-    ),
-  } as unknown as SystemSettingsService;
-
-  const workingDays = {
-    isHoliday: jest.fn().mockResolvedValue(options.isHoliday ?? false),
-    isWeeklyOff: jest.fn().mockResolvedValue(options.isWeeklyOff ?? false),
-  } as unknown as WorkingDaysService;
-
-  return {
-    service: new OvertimeService(
-      prisma as unknown as PrismaService,
-      policies,
-      systemSettings,
-      workingDays,
-    ),
-    prisma: prisma,
-  };
-}
-
-const filing = {
-  date: '2026-08-19',
-  startTime: '2026-08-19T17:30:00Z',
-  endTime: '2026-08-19T21:30:00Z',
-  hours: 4,
-  reason: 'Line 3 changeover ran long',
-};
-
-describe('create', () => {
-  it('files a request and splits the window into the payable tiers', async () => {
-    const { service, prisma } = makeHarness({ cfg: await baseConfig() });
-
-    await service.create('emp-1', filing, HR);
-
-    const written = writtenData(prisma.overtimeRequest.create, 0);
-    expect(written.hours).toBe(4);
-    expect(written.regularHours).toBe(4);
-    expect(written.lateHours).toBe(0);
-    expect(written.otType).toBe(OvertimeType.REGULAR);
-    expect(written.dayType).toBe(OvertimeDayType.WEEKDAY);
-    expect(written.status).toBe(RequestStatus.PENDING);
+    service = moduleRef.get(OvertimeService);
   });
 
-  it('splits 17:00–23:00 into regular and late rather than one rate', async () => {
-    const { service, prisma } = makeHarness({
-      cfg: await baseConfig({ maxHoursPerDay: 6 }),
-    });
+  // Build a same-day OT DTO. Times are UTC wall-clock (`Z`) so the service's
+  // getUTCDay()/getUTCHours() reads yield the intended day and hours in ANY
+  // runner timezone.
+  const dto = (date: string, startH: number, endH: number, hours: number) => ({
+    date: `${date}T12:00:00Z`,
+    startTime: `${date}T${String(startH).padStart(2, '0')}:00:00Z`,
+    endTime: `${date}T${String(endH).padStart(2, '0')}:00:00Z`,
+    hours,
+    reason: 'test',
+  });
+  const created = () => prisma.overtimeRequest.create.mock.calls[0][0].data;
 
-    await service.create(
-      'emp-1',
-      {
-        ...filing,
-        startTime: '2026-08-19T17:00:00Z',
-        endTime: '2026-08-19T23:00:00Z',
-        hours: 6,
-      },
-      HR,
-    );
-
-    const written = writtenData(prisma.overtimeRequest.create, 0);
-    expect(written.regularHours).toBe(5);
-    expect(written.lateHours).toBe(1);
-    expect(written.otType).toBe(OvertimeType.LATE);
-    // Past the food threshold, so the allowance is granted.
-    expect(written.foodAllowance).toBe(3);
+  it('REGULAR: weekday 17:00–19:00 → REGULAR, no food', async () => {
+    await service.create('emp-1', dto('2026-08-04', 17, 19, 2), 'ADMIN');
+    expect(created()).toMatchObject({ otType: 'REGULAR', foodAllowance: 0 });
   });
 
-  it('refuses a typed figure that disagrees with the window', async () => {
-    const { service } = makeHarness({ cfg: await baseConfig() });
+  it('LATE: weekday 17:00–23:00 (ends after 22:00) → LATE + food', async () => {
+    await service.create('emp-1', dto('2026-08-19', 17, 23, 6), 'ADMIN');
+    expect(created()).toMatchObject({ otType: 'LATE', foodAllowance: 150 });
+  });
+
+  it('boundary: weekday 17:00–22:00 (ends exactly at 22:00) → REGULAR, no food', async () => {
+    await service.create('emp-1', dto('2026-08-19', 17, 22, 5), 'ADMIN');
+    expect(created()).toMatchObject({ otType: 'REGULAR', foodAllowance: 0 });
+  });
+
+  // ── Overnight shift crossing midnight (same-calendar-date payload) ─────────
+  it('OVERNIGHT: end time <= start time on the same date is treated as crossing midnight, not rejected', async () => {
+    // 23:00 -> 02:00 "next day", but sent on the SAME calendar date, exactly
+    // how a naive client (or the old buggy frontend) would build the payload.
     await expect(
-      service.create('emp-1', { ...filing, hours: 6 }, HR),
-    ).rejects.toThrow(/Hours do not match/);
-  });
-
-  it('reads an end at or before the start as crossing midnight', async () => {
-    // The company closes its attendance day at 02:00, which the noon rule puts
-    // on the FOLLOWING calendar day — so an overnight shift is counted whole.
-    const { service, prisma } = makeHarness({
-      cfg: await baseConfig({ dayEndBoundary: '02:00' }),
+      service.create('emp-1', dto('2026-08-19', 23, 2, 3), 'ADMIN'),
+    ).resolves.toBeDefined();
+    // Default attendance_day_end_time (23:59) clamps the rolled-forward
+    // 02:00-next-day end back to 23:59 the same night, so only ~0.98h of the
+    // 3h requested is actually payable — clamped, not rejected outright.
+    expect(created()).toMatchObject({
+      otType: 'LATE',
+      regularHours: 0,
+      lateHours: 0.98,
+      hours: 0.98,
+      foodAllowance: 150,
     });
-
-    await service.create(
-      'emp-1',
-      {
-        ...filing,
-        startTime: '2026-08-19T22:00:00Z',
-        endTime: '2026-08-19T01:00:00Z',
-        hours: 3,
-      },
-      HR,
-    );
-
-    const written = writtenData(prisma.overtimeRequest.create, 0);
-    expect(written.hours).toBe(3);
-    expect(written.lateHours).toBe(3);
   });
 
-  it('clamps an overnight shift at the day boundary the company set', async () => {
-    // 23:59 is a SAME-day boundary, so the hour past midnight is not payable and
-    // the request is worth 1.98h rather than the three that were worked.
-    const { service, prisma } = makeHarness({ cfg: await baseConfig() });
-
-    await service.create(
-      'emp-1',
-      {
-        ...filing,
-        startTime: '2026-08-19T22:00:00Z',
-        endTime: '2026-08-19T01:00:00Z',
-        hours: 3,
-      },
-      HR,
-    );
-
-    expect(writtenData(prisma.overtimeRequest.create, 0).hours).toBe(1.98);
+  it('DOUBLE: Sunday full shift 08:00–17:00 → DOUBLE (2×), no food', async () => {
+    await service.create('emp-1', dto('2026-08-16', 8, 17, 9), 'ADMIN');
+    expect(created()).toMatchObject({ otType: 'DOUBLE', foodAllowance: 0 });
   });
 
-  it('refuses overtime that starts inside the working day', async () => {
-    // Otherwise an ordinary paid hour is claimed twice — once as salary and
-    // once as overtime.
-    const { service } = makeHarness({ cfg: await baseConfig() });
+  it('DOUBLE_LATE: public holiday 17:00–23:00 → DOUBLE_LATE (2×) + food', async () => {
+    holidays.isHoliday.mockResolvedValue(true); // Aug 10 is a holiday (branch-aware)
+    await service.create('emp-1', dto('2026-08-10', 17, 23, 6), 'ADMIN');
+    expect(created()).toMatchObject({ otType: 'DOUBLE_LATE', foodAllowance: 150 });
+  });
+
+  // ── Overtime Policy: holidayBehavior ────────────────────────────────────────
+  it('STANDARD policy: holiday 17:00–19:00 → DOUBLE (holiday premium)', async () => {
+    holidays.isHoliday.mockResolvedValue(true); // Aug 10 is a holiday
+    await service.create('emp-1', dto('2026-08-10', 17, 19, 2), 'ADMIN');
+    expect(created()).toMatchObject({ otType: 'DOUBLE', dayType: 'HOLIDAY' });
+  });
+
+  it('IGNORE policy (daily-wage): a National Holiday is treated as an ordinary weekday', async () => {
+    // Aug 10 2026 IS a holiday, but the resolved policy ignores holidays.
+    holidays.isHoliday.mockResolvedValue(true);
+    otPolicy.resolveOvertimeConfig.mockResolvedValue({
+      ...CFG,
+      eligible: true,
+      holidayBehavior: 'IGNORE',
+      dayEndBoundary: null,
+      policyId: 'daily-wage',
+      policyName: 'Daily Wage OT',
+    });
+    await service.create('emp-1', dto('2026-08-10', 17, 19, 2), 'ADMIN');
+    // No holiday premium: classified WEEKDAY, paid at the regular weekday tier,
+    // and the governing policy is snapshotted on the row.
+    expect(created()).toMatchObject({
+      otType: 'REGULAR',
+      dayType: 'WEEKDAY',
+      regularHours: 2,
+      doubleHours: 0,
+      overtimePolicyId: 'daily-wage',
+    });
+    // isHoliday() is never consulted when the policy ignores holidays.
+    expect(holidays.isHoliday).not.toHaveBeenCalled();
+  });
+
+  it('blocks overtime when the resolved policy marks the employee ineligible', async () => {
+    otPolicy.resolveOvertimeConfig.mockResolvedValue({
+      ...CFG,
+      eligible: false,
+      holidayBehavior: 'STANDARD',
+      dayEndBoundary: null,
+      policyId: 'no-ot',
+      policyName: 'No OT',
+    });
+    await expect(
+      service.create('emp-1', dto('2026-08-04', 17, 19, 2), 'ADMIN'),
+    ).rejects.toThrow(/not eligible/i);
+  });
+
+  it('food disabled: late weekday OT stays LATE but foodAllowance 0', async () => {
+    settings.getOvertimeConfig.mockResolvedValue({ ...CFG, foodAllowanceEnabled: false });
+    await service.create('emp-1', dto('2026-08-19', 17, 23, 6), 'ADMIN');
+    expect(created()).toMatchObject({ otType: 'LATE', foodAllowance: 0 });
+  });
+
+  // ── Configurable food-allowance threshold (decoupled from pay-rate late threshold) ──
+  it('food threshold 21:00: weekday 17:00–21:30 (past food threshold, before late) → REGULAR pay tier but food paid', async () => {
+    settings.getOvertimeConfig.mockResolvedValue({ ...CFG, foodAllowanceThreshold: '21:00' });
+    // ends 21:30 — before the 22:00 late pay-rate threshold, after the 21:00 food threshold
+    await service.create('emp-1', {
+      date: '2026-08-19T12:00:00Z',
+      startTime: '2026-08-19T17:00:00Z',
+      endTime: '2026-08-19T21:30:00Z',
+      hours: 4.5,
+      reason: 'test',
+    }, 'ADMIN');
+    expect(created()).toMatchObject({ otType: 'REGULAR', foodAllowance: 150 });
+  });
+
+  it('food threshold 23:00: weekday 17:00–22:30 (past late, before food threshold) → LATE pay tier but no food', async () => {
+    settings.getOvertimeConfig.mockResolvedValue({ ...CFG, foodAllowanceThreshold: '23:00' });
+    // ends 22:30 — after the 22:00 late pay-rate threshold, before the 23:00 food threshold
+    await service.create('emp-1', {
+      date: '2026-08-19T12:00:00Z',
+      startTime: '2026-08-19T17:00:00Z',
+      endTime: '2026-08-19T22:30:00Z',
+      hours: 5.5,
+      reason: 'test',
+    }, 'ADMIN');
+    expect(created()).toMatchObject({ otType: 'LATE', foodAllowance: 0 });
+  });
+
+  it('food threshold boundary: ends exactly at threshold → no food (strictly after required)', async () => {
+    settings.getOvertimeConfig.mockResolvedValue({ ...CFG, foodAllowanceThreshold: '21:00' });
+    await service.create('emp-1', {
+      date: '2026-08-19T12:00:00Z',
+      startTime: '2026-08-19T17:00:00Z',
+      endTime: '2026-08-19T21:00:00Z',
+      hours: 4,
+      reason: 'test',
+    }, 'ADMIN');
+    expect(created()).toMatchObject({ foodAllowance: 0 });
+  });
+
+  it('falls back to 22:00 on unset/blank food threshold', async () => {
+    settings.getOvertimeConfig.mockResolvedValue({ ...CFG, foodAllowanceThreshold: '' });
+    await service.create('emp-1', dto('2026-08-19', 17, 23, 6), 'ADMIN');
+    expect(created()).toMatchObject({ otType: 'LATE', foodAllowance: 150 });
+  });
+
+  // ── Per-tier hour split (regular portion vs late portion) ───────────────────
+  it('SPLIT: weekday 17:00–23:00, late threshold 22:00 → 5h regular + 1h late', async () => {
+    await service.create('emp-1', dto('2026-08-19', 17, 23, 6), 'ADMIN');
+    expect(created()).toMatchObject({
+      otType: 'LATE',
+      regularHours: 5, // 17:00–22:00
+      lateHours: 1, //   22:00–23:00
+      doubleHours: 0,
+      hours: 6,
+      foodAllowance: 150,
+    });
+  });
+
+  it('SPLIT: weekday 17:00–21:00 fully before threshold → 4h regular, 0 late', async () => {
+    await service.create('emp-1', dto('2026-08-19', 17, 21, 4), 'ADMIN');
+    expect(created()).toMatchObject({
+      otType: 'REGULAR',
+      regularHours: 4,
+      lateHours: 0,
+      hours: 4,
+    });
+  });
+
+  it('SPLIT: weekday starting after threshold 22:00–23:30 → 0 regular, 1.5 late', async () => {
+    await service.create('emp-1', {
+      date: '2026-08-19T12:00:00Z',
+      startTime: '2026-08-19T22:00:00Z',
+      endTime: '2026-08-19T23:30:00Z',
+      hours: 1.5,
+      reason: 'test',
+    }, 'ADMIN');
+    expect(created()).toMatchObject({ regularHours: 0, lateHours: 1.5, hours: 1.5 });
+  });
+
+  it('SPLIT: double-OT day puts all clamped hours in the double bucket', async () => {
+    await service.create('emp-1', dto('2026-08-16', 8, 17, 9), 'ADMIN'); // Sunday
+    expect(created()).toMatchObject({
+      otType: 'DOUBLE',
+      regularHours: 0,
+      lateHours: 0,
+      doubleHours: 9,
+      hours: 9,
+    });
+  });
+
+  // ── Attendance day boundary clamp ───────────────────────────────────────────
+  it('BOUNDARY: boundary 23:00 trims a 20:00–24:00 shift to 20:00–23:00Z', async () => {
+    settings.getSetting.mockImplementation((key: string) =>
+      key === 'attendance_day_end_time'
+        ? Promise.resolve('23:00')
+        : Promise.resolve('08:00'),
+    );
+    // ends at 24:00 (00:00 next day); boundary 23:00 clamps it.
+    await service.create('emp-1', {
+      date: '2026-08-19T12:00:00Z',
+      startTime: '2026-08-19T20:00:00Z',
+      endTime: '2026-08-20T00:00:00Z',
+      hours: 4,
+      reason: 'test',
+    }, 'ADMIN');
+    // 20:00–22:00 regular (2h), 22:00–23:00 late (1h); the 23:00–24:00 hour is dropped.
+    expect(created()).toMatchObject({
+      regularHours: 2,
+      lateHours: 1,
+      hours: 3, // clamped, not the requested 4
+    });
+  });
+
+  it('BOUNDARY: after-midnight boundary 02:00 keeps overnight hours on the same attendance day', async () => {
+    settings.getSetting.mockImplementation((key: string) =>
+      key === 'attendance_day_end_time'
+        ? Promise.resolve('02:00')
+        : Promise.resolve('08:00'),
+    );
+    // 22:00 → 01:00 next day; boundary 02:00 (next calendar day) → nothing trimmed.
+    await service.create('emp-1', {
+      date: '2026-08-19T12:00:00Z',
+      startTime: '2026-08-19T22:00:00Z',
+      endTime: '2026-08-20T01:00:00Z',
+      hours: 3,
+      reason: 'test',
+    }, 'ADMIN');
+    expect(created()).toMatchObject({ regularHours: 0, lateHours: 3, hours: 3 });
+  });
+
+  // ── Step-1 daily-cap fix ────────────────────────────────────────────────────
+  it('rejects a 9h weekday OT — over the 8h weekday cap', async () => {
     await expect(
       service.create(
         'emp-1',
         {
-          ...filing,
-          startTime: '2026-08-19T14:00:00Z',
-          endTime: '2026-08-19T18:00:00Z',
-          hours: 4,
+          date: '2026-08-04T12:00:00Z', // Tuesday (local)
+          startTime: '2026-08-04T18:00:00Z',
+          endTime: '2026-08-05T03:00:00Z', // outside work hours, so the CAP is what rejects it
+          hours: 9,
+          reason: 'test',
         },
-        HR,
+        'ADMIN',
       ),
-    ).rejects.toThrow(/outside regular working hours/);
+    ).rejects.toThrow(/Daily overtime limit exceeded \(8h\)/);
   });
 
-  it('applies the rest-day cap on a weekly-off day, not the weekday one', async () => {
-    const { service, prisma } = makeHarness({
-      cfg: await baseConfig(),
-      isWeeklyOff: true,
-    });
+  it('accepts a 9h Sunday OT — under the 12h double-day cap', async () => {
+    await service.create('emp-1', dto('2026-08-16', 8, 17, 9), 'ADMIN');
+    expect(created()).toMatchObject({ otType: 'DOUBLE' });
+  });
+});
 
-    // Eight hours would break the 4h weekday cap and sits comfortably inside
-    // the 12h rest-day cap.
-    await service.create(
-      'emp-1',
-      {
-        ...filing,
-        startTime: '2026-08-21T08:00:00Z',
-        endTime: '2026-08-21T16:00:00Z',
-        hours: 8,
+describe('OvertimeService — approve() recomputes breakdown from current settings', () => {
+  let service: OvertimeService;
+  let prisma: any;
+  let settings: any;
+  let holidays: any;
+
+  const CFG = {
+    enabled: true,
+    lateThreshold: '22:00',
+    foodAllowanceEnabled: true,
+    foodAllowanceThreshold: '22:00',
+    foodAllowanceAmount: 150,
+    regularRate: 1.5,
+    lateRate: 2,
+    doubleOtEnabled: true,
+    doubleRate: 2,
+    shiftEndTime: '17:00',
+    doubleFoodAllowanceAnyTime: false,
+    doubleOtAllowAnytime: true,
+    maxHoursPerDay: 8,
+    maxHoursPerDoubleDay: 12,
+    maxHoursPerMonth: 40,
+    maxHoursPerYear: 200,
+    requireManagerApproval: true,
+    allowEmployeeSubmit: true,
+  };
+
+  beforeEach(async () => {
+    prisma = {
+      // Stored request is STALE: persisted as REGULAR with no food, but the
+      // window (18:00–23:00) is actually LATE + food under current rules.
+      overtimeRequest: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'ot-1',
+          employeeId: 'emp-1',
+          status: 'PENDING',
+          date: new Date('2026-08-19T00:00:00Z'), // Wednesday
+          startTime: new Date('2026-08-19T18:00:00Z'),
+          endTime: new Date('2026-08-19T23:00:00Z'),
+          otType: 'REGULAR',
+          regularHours: 5,
+          lateHours: 0,
+          doubleHours: 0,
+          foodAllowance: 0,
+          hours: 5,
+          employee: { branchId: null, email: 'e@x.com', fullName: 'E' },
+        }),
+        update: jest.fn().mockImplementation(async (args: any) => ({ id: 'ot-1', ...args.data })),
       },
-      HR,
-    );
-
-    const written = writtenData(prisma.overtimeRequest.create, 0);
-    expect(written.dayType).toBe(OvertimeDayType.SUNDAY);
-    expect(written.doubleHours).toBe(8);
-    expect(written.regularHours).toBe(0);
-  });
-
-  it('classifies a holiday as HOLIDAY even when it is also a rest day', async () => {
-    const { service, prisma } = makeHarness({
-      cfg: await baseConfig(),
-      isHoliday: true,
-      isWeeklyOff: true,
-    });
-
-    await service.create(
-      'emp-1',
-      {
-        ...filing,
-        startTime: '2026-11-18T08:00:00Z',
-        endTime: '2026-11-18T12:00:00Z',
-        hours: 4,
+      employee: {
+        findUnique: jest.fn().mockResolvedValue({
+          branchId: null,
+          employmentType: 'MONTHLY',
+          overtimePolicyId: null,
+        }),
       },
-      HR,
-    );
+      user: { findUnique: jest.fn().mockResolvedValue({ employee: { fullName: 'Mgr' } }) },
+    };
+    settings = {
+      getOvertimeConfig: jest.fn().mockResolvedValue({ ...CFG }),
+      getSetting: jest.fn().mockImplementation((key: string) =>
+        key === 'attendance_day_end_time' ? Promise.resolve('23:59') : Promise.resolve('08:00'),
+      ),
+    };
+    holidays = holidaysMock();
+    const mail = { sendOvertimeApproved: jest.fn().mockResolvedValue(undefined) };
 
-    expect(writtenData(prisma.overtimeRequest.create, 0).dayType).toBe(
-      OvertimeDayType.HOLIDAY,
-    );
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        OvertimeService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: MailService, useValue: mail },
+        { provide: SystemSettingsService, useValue: settings },
+        { provide: ApprovalEngineService, useValue: engineMock() },
+        { provide: NotificationsService, useValue: notifyMock() },
+        { provide: HolidaysService, useValue: holidays },
+        { provide: OvertimePolicyService, useValue: otPolicyMock(settings) },
+        { provide: AuditService, useValue: { log: jest.fn() } },
+      ],
+    }).compile();
+    service = moduleRef.get(OvertimeService);
   });
 
-  it('treats a holiday as an ordinary day when the policy says IGNORE', async () => {
-    const { service, prisma } = makeHarness({
-      cfg: await baseConfig({ holidayBehavior: 'IGNORE' }),
-      isHoliday: true,
+  it('persists the corrected LATE + food breakdown on approval', async () => {
+    await service.approve('ot-1', 'approver-1', { role: 'ADMIN' });
+    const persisted = prisma.overtimeRequest.update.mock.calls[0][0].data;
+    expect(persisted).toMatchObject({
+      status: 'APPROVED',
+      otType: 'LATE',
+      regularHours: 4, // 18:00–22:00
+      lateHours: 1, //   22:00–23:00
+      doubleHours: 0,
+      hours: 5,
+      foodAllowance: 150,
     });
-
-    await service.create('emp-1', filing, HR);
-
-    expect(writtenData(prisma.overtimeRequest.create, 0).dayType).toBe(
-      OvertimeDayType.WEEKDAY,
-    );
-  });
-
-  it('counts PENDING hours towards the monthly cap', async () => {
-    // Two pending requests that each fit under the cap can together break it.
-    const { service } = makeHarness({
-      cfg: await baseConfig(),
-      monthlyHours: 28,
-    });
-    await expect(service.create('emp-1', filing, HR)).rejects.toThrow(
-      /Monthly overtime limit exceeded/,
-    );
-  });
-
-  it('refuses a second request for the same date', async () => {
-    const { service } = makeHarness({
-      cfg: await baseConfig(),
-      existingRequest: { id: 'ot-existing' },
-    });
-    await expect(service.create('emp-1', filing, HR)).rejects.toBeInstanceOf(
-      ConflictException,
-    );
-  });
-
-  it('refuses an employee who is not eligible under their policy', async () => {
-    const { service } = makeHarness({
-      cfg: await baseConfig({ eligible: false }),
-    });
-    await expect(service.create('emp-1', filing, HR)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-  });
-
-  it('refuses self-submission when the company has turned it off', async () => {
-    const { service } = makeHarness({
-      cfg: await baseConfig({ allowEmployeeSubmit: false }),
-    });
-    await expect(service.create('emp-1', filing, SELF)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-    // An HR caller recording it on their behalf is still allowed.
-    await expect(service.create('emp-1', filing, HR)).resolves.toBeDefined();
-  });
-
-  it('says what to do when the caller has no employee record', async () => {
-    const { service } = makeHarness({ cfg: await baseConfig() });
-    await expect(service.create(null, filing, HR)).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
   });
 });
 
-const pendingRow = (over: Record<string, unknown> = {}) => ({
-  id: 'ot-1',
-  employeeId: 'emp-1',
-  date: new Date('2026-08-19T00:00:00.000Z'),
-  startTime: new Date('2026-08-19T17:00:00.000Z'),
-  endTime: new Date('2026-08-19T23:00:00.000Z'),
-  hours: 6,
-  regularHours: 5,
-  lateHours: 1,
-  doubleHours: 0,
-  doubleLateHours: 0,
-  dayType: OvertimeDayType.WEEKDAY,
-  otType: OvertimeType.LATE,
-  foodAllowance: 3,
-  siteAllowance: 5,
-  foodAllowanceOverride: null,
-  originalStartTime: null,
-  originalEndTime: null,
-  overtimePolicyId: null,
-  status: RequestStatus.PENDING,
-  updatedAt: new Date('2026-08-20T11:04:22.581Z'),
-  employee: EMPLOYEE,
-  ...over,
-});
+/**
+ * Eligibility is a per-policy gate, and it is re-evaluated at approval — a
+ * policy edit (or a reassignment) between submission and approval must not let
+ * an ineligible employee's hours reach payroll.
+ */
+describe('OvertimeService — eligibility is re-checked at approval', () => {
+  let service: OvertimeService;
+  let prisma: any;
+  let otPolicy: any;
 
-describe('approve', () => {
-  it('recomputes the buckets from the stored window', async () => {
-    const { service, prisma } = makeHarness({
-      cfg: await baseConfig(),
-      storedRequest: pendingRow(),
-    });
+  beforeEach(async () => {
+    prisma = {
+      overtimeRequest: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'ot-1',
+          employeeId: 'emp-1',
+          status: 'PENDING',
+          date: new Date('2026-08-19T00:00:00Z'),
+          startTime: new Date('2026-08-19T18:00:00Z'),
+          endTime: new Date('2026-08-19T20:00:00Z'),
+          hours: 2,
+          employee: { branchId: null, email: 'e@x.com', fullName: 'E' },
+        }),
+        update: jest.fn().mockImplementation(async (args: any) => ({ id: 'ot-1', ...args.data })),
+      },
+      employee: {
+        findUnique: jest.fn().mockResolvedValue({
+          branchId: null,
+          employmentType: 'Daily Wage',
+          overtimePolicyId: null,
+        }),
+      },
+      user: { findUnique: jest.fn().mockResolvedValue({ employee: { fullName: 'Mgr' } }) },
+    };
+    const settings = {
+      getOvertimeConfig: jest.fn().mockResolvedValue({
+        enabled: true,
+        lateThreshold: '22:00',
+        foodAllowanceEnabled: false,
+        foodAllowanceThreshold: '22:00',
+        foodAllowanceAmount: 0,
+        regularRate: 1.5,
+        lateRate: 2,
+        doubleOtEnabled: true,
+        doubleRate: 2,
+        shiftEndTime: '17:00',
+        doubleFoodAllowanceAnyTime: false,
+        doubleOtAllowAnytime: true,
+        maxHoursPerDay: 8,
+        maxHoursPerDoubleDay: 12,
+        maxHoursPerMonth: 40,
+        maxHoursPerYear: 200,
+        requireManagerApproval: true,
+        allowEmployeeSubmit: true,
+      }),
+      getSetting: jest.fn().mockResolvedValue('23:59'),
+    };
+    otPolicy = otPolicyMock(settings);
 
-    await service.approve('ot-1', HR);
-
-    const written = writtenData(prisma.overtimeRequest.update, 0);
-    expect(written.status).toBe(RequestStatus.APPROVED);
-    expect(written.regularHours).toBe(5);
-    expect(written.lateHours).toBe(1);
-    expect(written.approverId).toBe(HR.id);
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        OvertimeService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: MailService, useValue: { sendOvertimeApproved: jest.fn() } },
+        { provide: SystemSettingsService, useValue: settings },
+        { provide: ApprovalEngineService, useValue: engineMock() },
+        { provide: NotificationsService, useValue: notifyMock() },
+        { provide: HolidaysService, useValue: holidaysMock() },
+        { provide: OvertimePolicyService, useValue: otPolicy },
+        { provide: AuditService, useValue: { log: jest.fn() } },
+      ],
+    }).compile();
+    service = moduleRef.get(OvertimeService);
   });
 
-  it('never names siteAllowance in the finalize payload', async () => {
-    // It is approver-granted with nothing to recompute it from, so naming it
-    // here would zero it on every approval.
-    const { service, prisma } = makeHarness({
-      cfg: await baseConfig(),
-      storedRequest: pendingRow(),
+  it('rejects approval once the resolved policy turns ineligible', async () => {
+    otPolicy.resolveOvertimeConfig.mockResolvedValue({
+      eligible: false,
+      holidayBehavior: 'STANDARD',
+      dayEndBoundary: null,
+      policyId: 'p-ineligible',
+      policyName: 'No OT',
     });
-
-    await service.approve('ot-1', HR);
-
-    const written = writtenData(prisma.overtimeRequest.update, 0);
-    expect('siteAllowance' in written).toBe(false);
+    await expect(
+      service.approve('ot-1', 'approver-1', { role: 'ADMIN' }),
+    ).rejects.toThrow(/no longer eligible/i);
+    expect(prisma.overtimeRequest.update).not.toHaveBeenCalled();
   });
 
-  it('honours a food-allowance override of 0', async () => {
-    // Null is "nobody touched it"; 0 is a decision. Reading the column for
-    // truthiness would silently replace the approver's 0 with the policy figure.
-    const { service, prisma } = makeHarness({
-      cfg: await baseConfig(),
-      storedRequest: pendingRow({ foodAllowanceOverride: 0 }),
-    });
-
-    await service.approve('ot-1', HR);
-
-    expect(writtenData(prisma.overtimeRequest.update, 0).foodAllowance).toBe(0);
-  });
-
-  it('lets the policy compute the allowance when nobody overrode it', async () => {
-    const { service, prisma } = makeHarness({
-      cfg: await baseConfig(),
-      storedRequest: pendingRow({ foodAllowanceOverride: null }),
-    });
-
-    await service.approve('ot-1', HR);
-
-    expect(writtenData(prisma.overtimeRequest.update, 0).foodAllowance).toBe(3);
-  });
-
-  it('re-checks eligibility at approval, not only at filing', async () => {
-    const { service } = makeHarness({
-      cfg: await baseConfig({ eligible: false }),
-      storedRequest: pendingRow(),
-    });
-    await expect(service.approve('ot-1', HR)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-  });
-
-  it('refuses a request that is not pending', async () => {
-    const { service } = makeHarness({
-      cfg: await baseConfig(),
-      storedRequest: pendingRow({ status: RequestStatus.APPROVED }),
-    });
-    await expect(service.approve('ot-1', HR)).rejects.toThrow(
-      /already approved/,
-    );
-  });
-});
-
-describe('who may decide', () => {
-  it('admits the supervisor named on the employee record', async () => {
-    // The single-approver model. A supervisor usually holds no elevated role, so
-    // without this the person the system asks to decide cannot decide.
-    const { service } = makeHarness({
-      cfg: await baseConfig(),
-      storedRequest: pendingRow(),
-    });
-    await expect(service.approve('ot-1', SUPERVISOR)).resolves.toBeDefined();
-  });
-
-  it('refuses a colleague with no relationship to the request', async () => {
-    const { service } = makeHarness({
-      cfg: await baseConfig(),
-      storedRequest: pendingRow(),
-    });
-    await expect(service.approve('ot-1', OUTSIDER)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-  });
-
-  it('refuses the employee approving their own', async () => {
-    // An approval is a second pair of eyes or it is nothing.
-    const { service } = makeHarness({
-      cfg: await baseConfig(),
-      storedRequest: pendingRow(),
-    });
-    await expect(service.approve('ot-1', SELF)).rejects.toThrow(
-      /cannot decide your own/,
-    );
-  });
-});
-
-describe('cancel', () => {
-  it('lets the filer withdraw a pending request', async () => {
-    const { service, prisma } = makeHarness({
-      cfg: await baseConfig(),
-      storedRequest: pendingRow(),
-    });
-    await service.cancel('ot-1', SELF);
-    expect(writtenData(prisma.overtimeRequest.update, 0).status).toBe(
-      RequestStatus.CANCELLED,
-    );
-  });
-
-  it('refuses somebody else', async () => {
-    const { service } = makeHarness({
-      cfg: await baseConfig(),
-      storedRequest: pendingRow(),
-    });
-    await expect(service.cancel('ot-1', OUTSIDER)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-  });
-
-  it('refuses a request that has already been decided', async () => {
-    const { service } = makeHarness({
-      cfg: await baseConfig(),
-      storedRequest: pendingRow({ status: RequestStatus.APPROVED }),
-    });
-    await expect(service.cancel('ot-1', SELF)).rejects.toThrow(
-      /no longer be withdrawn/,
+  it('approves normally while the policy stays eligible', async () => {
+    await service.approve('ot-1', 'approver-1', { role: 'ADMIN' });
+    expect(prisma.overtimeRequest.update.mock.calls[0][0].data.status).toBe(
+      'APPROVED',
     );
   });
 });

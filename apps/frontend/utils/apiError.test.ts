@@ -1,39 +1,196 @@
-import { describe, expect, it } from 'vitest';
-import { apiErrorMessage, apiFieldErrors } from './apiError';
+/**
+ * Reading the server's explanation out of a rejected request.
+ *
+ * This is the regression guard for a whole CLASS of production bug, not a
+ * single incident. `lib/axios.ts` rejects with a FLAT object — `{ success,
+ * statusCode, message, errors, details }` — and NOT an AxiosError. So the
+ * natural-looking `err.response?.data?.message` that reads correctly in every
+ * axios tutorial evaluates to `undefined` here, the caller's fallback string
+ * wins, and a precise backend refusal reaches the user as a shrug.
+ *
+ * That is exactly how "Instalment not found on the live schedule" was shown in
+ * production as "The operation could not be completed". The backend was right,
+ * had a test for it, and returned a good sentence; the frontend threw it away.
+ *
+ * The first test below is written as the counter-example on purpose: it asserts
+ * that the WRONG access path is undefined on the shape we really produce. If
+ * someone ever changes the interceptor to reject with a real AxiosError, that
+ * test fails and tells them to go and simplify the callers, rather than leaving
+ * two shapes in play forever.
+ */
+import { describe, it, expect } from 'vitest';
+import { apiErrorMessage, apiErrorStatus, apiErrorBody, apiFieldErrors } from './apiError';
 
-describe('apiErrorMessage', () => {
-  it('reads the FLAT shape the axios interceptor rejects with', () => {
-    expect(apiErrorMessage({ message: 'Employee code EMP-1 is already in use' })).toBe(
-      'Employee code EMP-1 is already in use',
+/** Exactly what `lib/axios.ts` puts on the rejection path. */
+function interceptorRejection(
+  statusCode: number,
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    success: false,
+    statusCode,
+    message: body.message ?? 'An error occurred',
+    timestamp: new Date().toISOString(),
+    path: '/payrolls/abc/lock',
+    errors: body.errors ?? null,
+    details: body,
+  };
+}
+
+describe('the shape our interceptor actually rejects with', () => {
+  it('has no `.response`, which is why the tutorial access path silently fails', () => {
+    const err: any = interceptorRejection(404, {
+      message: 'Instalment not found on the live schedule',
+    });
+
+    // The bug, pinned. This is what the loan screen used to read.
+    expect(err?.response?.data?.message).toBeUndefined();
+
+    // And this is what it reads now.
+    expect(apiErrorMessage(err, 'The operation could not be completed')).toBe(
+      'Instalment not found on the live schedule',
     );
-  });
-
-  it('reads a raw AxiosError that bypassed the instance', () => {
-    expect(apiErrorMessage({ response: { data: { message: 'Forbidden' } } })).toBe('Forbidden');
-  });
-
-  it('prefers the backend message over a generic axios one', () => {
-    const err = { message: 'Request failed with status code 409', response: { data: { message: 'Already exists' } } };
-    expect(apiErrorMessage(err)).toBe('Already exists');
-  });
-
-  it('accepts a bare string', () => {
-    expect(apiErrorMessage('boom')).toBe('boom');
-  });
-
-  it('falls back when there is nothing to read', () => {
-    expect(apiErrorMessage(null)).toBe('Something went wrong');
-    expect(apiErrorMessage({}, 'Could not save')).toBe('Could not save');
   });
 });
 
-describe('apiFieldErrors', () => {
-  it('returns the validation messages array', () => {
-    expect(apiFieldErrors({ errors: ['email must be an email'] })).toEqual(['email must be an email']);
+describe('apiErrorMessage', () => {
+  it('surfaces the backend sentence instead of the fallback', () => {
+    const cases: Array<[number, string]> = [
+      [404, 'Instalment not found on the live schedule'],
+      [400, 'Instalment 2 is paid and cannot be skipped'],
+      [400, 'This request has not been approved yet'],
+      [400, 'This loan is completed and can no longer be changed'],
+      [
+        409,
+        'Payroll 8/2026 is in progress and already includes an instalment for this loan. Lock or delete that run first.',
+      ],
+      [409, 'This loan was modified by another operation. Reload and retry.'],
+      [409, 'This payment has already been recorded (duplicate idempotency key).'],
+      [
+        400,
+        'Prepayment of 5000 exceeds the payoff amount of 1500. Pay exactly 1500 to close the loan.',
+      ],
+      [
+        400,
+        'Outstanding balance is 1500, above the rounding tolerance of 1. Use prepay, waive or write-off instead of a manual close.',
+      ],
+      [400, 'Write-off of 9000 exceeds the outstanding balance of 1500'],
+      [400, 'Waiver of 900 exceeds the interest balance of 0'],
+      [400, 'Only an advance can be converted to a loan'],
+      [400, 'This loan has nothing written off to reinstate'],
+      [400, 'This loan is not on hold'],
+      [
+        403,
+        'Your role is not permitted to perform this operation (allowed: ADMIN, HR_MANAGER)',
+      ],
+    ];
+
+    for (const [status, message] of cases) {
+      const err = interceptorRejection(status, { message });
+      expect(apiErrorMessage(err, 'GENERIC FALLBACK')).toBe(message);
+    }
   });
 
-  it('returns empty for anything else', () => {
-    expect(apiFieldErrors({ errors: { email: 'bad' } })).toEqual([]);
-    expect(apiFieldErrors(undefined)).toEqual([]);
+  it('folds class-validator arrays into one readable sentence', () => {
+    // Nest sends `message` as an array when several constraints fail at once.
+    const err = interceptorRejection(400, {
+      message: ['installmentNo must be a positive number', 'reason should not be empty'],
+    });
+    expect(apiErrorMessage(err, 'GENERIC FALLBACK')).toBe(
+      'installmentNo must be a positive number',
+    );
+  });
+
+  it('appends field-level errors, because for a validation failure those ARE the reason', () => {
+    const err = interceptorRejection(400, {
+      message: 'Validation failed',
+      errors: { amount: 'Amount must be greater than 0' },
+    });
+    expect(apiErrorMessage(err, 'GENERIC FALLBACK')).toBe(
+      'Validation failed — amount: Amount must be greater than 0',
+    );
+  });
+
+  it('still works on a raw AxiosError, for anything that bypasses the interceptor', () => {
+    const err = {
+      response: { status: 400, data: { message: 'Only pending requests can be cancelled' } },
+    };
+    expect(apiErrorMessage(err, 'GENERIC FALLBACK')).toBe(
+      'Only pending requests can be cancelled',
+    );
+  });
+
+  it('falls back only when the server genuinely said nothing', () => {
+    expect(apiErrorMessage(null, 'Could not load this request')).toBe(
+      'Could not load this request',
+    );
+    expect(apiErrorMessage({}, 'Could not load this request')).toBe(
+      'Could not load this request',
+    );
+  });
+
+  it('never renders [object Object] at a user', () => {
+    const err = interceptorRejection(400, { message: { nested: 'thing' } });
+    expect(apiErrorMessage(err, 'Safe fallback')).not.toContain('[object Object]');
+  });
+});
+
+describe('apiErrorStatus / apiErrorBody', () => {
+  it('reads the status off the flat shape so callers can branch 409 vs 400', () => {
+    expect(apiErrorStatus(interceptorRejection(409, { message: 'x' }))).toBe(409);
+    expect(apiErrorStatus({ response: { status: 404 } })).toBe(404);
+    expect(apiErrorStatus(null)).toBeUndefined();
+  });
+
+  it('hands back the untouched body for endpoints that attach structured extras', () => {
+    const body = { message: 'nope', preflight: { blocking: 2 } };
+    expect(apiErrorBody(interceptorRejection(400, body))).toEqual(body);
+  });
+});
+
+/**
+ * Field-level errors live in two different places depending on who rejected:
+ * the app's own interceptor puts them at the TOP level, a raw AxiosError puts
+ * them under `response.data`. Reading only one is the same class of mistake as
+ * reading `err.response.data.message` — right in a test, undefined in the app.
+ */
+describe('apiFieldErrors', () => {
+  it('reads the flat shape this app actually rejects with', () => {
+    expect(
+      apiFieldErrors({ statusCode: 400, message: 'Invalid', errors: { iban: 'bad checksum' } }),
+    ).toEqual({ iban: 'bad checksum' });
+  });
+
+  it('reads a raw AxiosError shape too', () => {
+    expect(
+      apiFieldErrors({ response: { data: { errors: { ifsc: 'unknown branch' } } } }),
+    ).toEqual({ ifsc: 'unknown branch' });
+  });
+
+  it('reads the `details` envelope', () => {
+    expect(apiFieldErrors({ details: { errors: { swift: 'wrong length' } } })).toEqual({
+      swift: 'wrong length',
+    });
+  });
+
+  it('answers null when there is nothing usable', () => {
+    for (const input of [
+      null,
+      undefined,
+      {},
+      { errors: null },
+      { errors: [] },
+      { errors: 'not an object' },
+      { errors: { iban: '' } },
+      new Error('boom'),
+    ]) {
+      expect(apiFieldErrors(input)).toBeNull();
+    }
+  });
+
+  it('drops non-string entries rather than rendering [object Object]', () => {
+    expect(apiFieldErrors({ errors: { iban: 'bad', meta: { nested: true } } })).toEqual({
+      iban: 'bad',
+    });
   });
 });

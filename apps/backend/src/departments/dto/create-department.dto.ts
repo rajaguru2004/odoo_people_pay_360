@@ -1,45 +1,44 @@
-import {
-  IsBoolean,
-  IsOptional,
-  IsString,
-  IsUUID,
-  MaxLength,
-} from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsString, IsOptional, IsUUID, MaxLength } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateDepartmentDto {
-  @ApiProperty({ example: 'FIN' })
+  @ApiProperty({
+    example: 'IT',
+    description: 'Department code (unique)',
+    maxLength: 50,
+  })
   @IsString()
-  @MaxLength(32)
+  @MaxLength(50)
   code: string;
 
-  @ApiProperty({ example: 'Finance' })
+  @ApiProperty({
+    example: 'Information Technology Department',
+    description: 'Department name',
+  })
   @IsString()
   @MaxLength(255)
   name: string;
 
-  @ApiPropertyOptional()
+  @ApiProperty({ example: 'Technology department', required: false })
   @IsOptional()
   @IsString()
   description?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsUUID()
-  branchId?: string;
-
-  @ApiPropertyOptional({ description: 'Department this one sits under' })
+  @ApiProperty({
+    example: '11111111-1111-1111-1111-111111111111',
+    required: false,
+    description: 'Parent department ID',
+  })
   @IsOptional()
   @IsUUID()
   parentId?: string;
 
-  @ApiPropertyOptional({ description: 'Employee who heads this department' })
+  @ApiProperty({
+    example: '22222222-2222-2222-2222-222222222222',
+    required: false,
+    description: 'Manager employee ID',
+  })
   @IsOptional()
   @IsUUID()
   managerId?: string;
-
-  @ApiPropertyOptional({ default: true })
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
 }

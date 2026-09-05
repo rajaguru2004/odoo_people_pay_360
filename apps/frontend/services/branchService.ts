@@ -1,34 +1,31 @@
 import axiosInstance from '@/lib/axios';
 import { ApiResponse } from '@/types/api';
-import type {
-  Branch,
-  CreateBranchPayload,
-  UpdateBranchPayload,
-} from '@/types/branch';
+import { Branch, CreateBranchData, UpdateBranchData } from '@/types/branch';
 
 class BranchService {
-  list(includeInactive = false): Promise<ApiResponse<Branch[]>> {
+  // `includeInactive` is the only way to reach a retired branch: it is filtered
+  // out of this list and `getById` 404s on it, so without the flag a branch
+  // deactivated by mistake cannot be found again. Server-side it is honoured
+  // for ADMIN/HR_MANAGER only.
+  async getAll(includeInactive = false): Promise<ApiResponse<Branch[]>> {
     return axiosInstance.get('/branches', {
-      params: includeInactive ? { includeInactive: true } : undefined,
+      params: includeInactive ? { includeInactive: 'true' } : undefined,
     });
   }
 
-  get(id: string): Promise<ApiResponse<Branch>> {
+  async getById(id: string): Promise<ApiResponse<Branch>> {
     return axiosInstance.get(`/branches/${id}`);
   }
 
-  create(payload: CreateBranchPayload): Promise<ApiResponse<Branch>> {
-    return axiosInstance.post('/branches', payload);
+  async create(data: CreateBranchData): Promise<ApiResponse<Branch>> {
+    return axiosInstance.post('/branches', data);
   }
 
-  update(id: string, payload: UpdateBranchPayload): Promise<ApiResponse<Branch>> {
-    return axiosInstance.patch(`/branches/${id}`, payload);
+  async update(id: string, data: UpdateBranchData): Promise<ApiResponse<Branch>> {
+    return axiosInstance.patch(`/branches/${id}`, data);
   }
 
-  /** Deactivates instead when attendance history still references the branch. */
-  remove(
-    id: string,
-  ): Promise<ApiResponse<{ deleted: boolean; deactivated: boolean }>> {
+  async delete(id: string): Promise<ApiResponse<void>> {
     return axiosInstance.delete(`/branches/${id}`);
   }
 }

@@ -1,291 +1,212 @@
-import { OvertimeDayType, OvertimeType, RequestStatus } from '@prisma/client';
-import type { PrismaService } from '../prisma/prisma.service';
-import type { SystemSettingsService } from '../system-settings/system-settings.service';
-import type { Principal } from '../auth/auth.service';
-import type { WorkingDaysService } from '../leave-requests/working-days.service';
-import type { OvertimePolicyService } from '../overtime-policy/overtime-policy.service';
-import {
-  OVERTIME_SETTING_DEFAULTS,
-  loadOvertimeConfig,
-} from '../overtime-policy/overtime-config';
-import {
-  resolvedFromGlobal,
-  type ResolvedOvertimeConfig,
-} from '../overtime-policy/overtime-policy.types';
+import { Test, TestingModule } from '@nestjs/testing';
 import { OvertimeService } from './overtime.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
+import { SystemSettingsService } from '../system-settings/system-settings.service';
+import { ApprovalEngineService } from '../approvals/approval-engine.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { HolidaysService } from '../holidays/holidays.service';
+import { OvertimePolicyService } from '../overtime-policy/overtime-policy.service';
+import { AuditService } from '../audit/audit.service';
 
 /**
- * The detail screen's server-computed preview.
- *
- * It exists because the browser cannot answer the question: the figure depends
- * on the employee's overtime policy and on the branch-aware day classification,
- * neither of which the page has. A client-side recompute reads the global
- * settings, so a request the server classified LATE with a food allowance
- * rendered REGULAR with a blank allowance on the very page that decides it.
- *
- * A PENDING request previews what approval WILL persist. A DECIDED one shows the
- * FROZEN numbers, monetized by the policy snapshot the row carries — recomputing
- * those would show an approver a figure that no longer matches the payslip.
+ * Regression: the overtime DETAIL page showed a blank food allowance (and a
+ * REGULAR badge) for a request the LIST showed as LATE with an allowance.
+ * Cause: the detail screen recomputed the breakdown in the browser from the
+ * GLOBAL branding settings, which cannot see the employee's Overtime Policy
+ * overrides. GET /overtime/:id now returns the engine's own breakdown, so the
+ * two screens read the same rules.
  */
-
-const EMPLOYEE = {
-  id: 'emp-1',
-  employeeCode: 'EMP-0011',
-  firstName: 'Ravi',
-  lastName: 'Kumar',
-  avatarUrl: null,
-  position: 'Shift Supervisor',
-  branchId: 'branch-1',
-  departmentId: 'dept-ops',
-  supervisorId: 'emp-boss',
-  employmentType: null,
-  overtimePolicyId: null,
-  department: { id: 'dept-ops', name: 'Operations' },
-  branch: { id: 'branch-1', code: 'SOH', name: 'Sohar' },
-};
-
-const HR: Principal = {
-  id: 'user-hr',
-  email: 'hr@peoplepay360.com',
-  role: 'HR_MANAGER',
-  employeeId: 'emp-hr',
-  departmentId: 'dept-hr',
-  branchId: 'branch-1',
-};
-
-const SELF: Principal = {
-  id: 'user-self',
-  email: 'ravi@peoplepay360.com',
-  role: 'EMPLOYEE',
-  employeeId: 'emp-1',
-  departmentId: 'dept-ops',
-  branchId: 'branch-1',
-};
-
-async function config(
-  overrides: Partial<ResolvedOvertimeConfig> = {},
-): Promise<ResolvedOvertimeConfig> {
-  const settings = {
-    get: (key: string) => Promise.resolve(OVERTIME_SETTING_DEFAULTS[key]),
-  } as unknown as SystemSettingsService;
-  return {
-    ...resolvedFromGlobal(await loadOvertimeConfig(settings)),
-    ...overrides,
+describe('OvertimeService.findOne — server-computed detail preview', () => {
+  // Globals: late + food at 22:00, allowance 150. A request ending exactly at
+  // 22:00 is REGULAR with no food under these — the wrong answer the browser
+  // used to render.
+  const GLOBAL_CFG = {
+    enabled: true,
+    lateThreshold: '22:00',
+    foodAllowanceEnabled: true,
+    foodAllowanceThreshold: '22:00',
+    foodAllowanceAmount: 150,
+    regularRate: 1.5,
+    lateRate: 1.5,
+    doubleOtEnabled: true,
+    doubleRate: 2,
+    sunday: { regularRate: 2, lateRate: 2.5, lateThreshold: '22:00' },
+    holiday: { regularRate: 2, lateRate: 2.5, lateThreshold: '22:00' },
+    shiftEndTime: '17:00',
+    doubleFoodAllowanceAnyTime: false,
+    doubleOtAllowAnytime: true,
+    maxHoursPerDay: 8,
+    maxHoursPerDoubleDay: 12,
+    maxHoursPerMonth: 40,
+    maxHoursPerYear: 200,
+    requireManagerApproval: true,
+    allowEmployeeSubmit: true,
   };
-}
 
-const ROW = {
-  id: 'ot-1',
-  employeeId: 'emp-1',
-  date: new Date('2026-08-19T00:00:00.000Z'),
-  startTime: new Date('2026-08-19T17:00:00.000Z'),
-  endTime: new Date('2026-08-19T23:00:00.000Z'),
-  hours: 6,
-  regularHours: 5,
-  lateHours: 1,
-  doubleHours: 0,
-  doubleLateHours: 0,
-  dayType: OvertimeDayType.WEEKDAY,
-  otType: OvertimeType.LATE,
-  foodAllowance: 3,
-  siteAllowance: 5,
-  foodAllowanceOverride: null as number | null,
-  overtimePolicyId: null as string | null,
-  status: RequestStatus.PENDING,
-  updatedAt: new Date('2026-08-20T11:04:22.581Z'),
-  employee: EMPLOYEE,
-};
+  // The employee's policy: late + food from 21:00, allowance S$4 — the rules
+  // the server actually applied when it persisted LATE + 4.00.
+  const POLICY_CFG = {
+    ...GLOBAL_CFG,
+    lateThreshold: '21:00',
+    foodAllowanceThreshold: '21:00',
+    foodAllowanceAmount: 4,
+    eligible: true,
+    holidayBehavior: 'STANDARD',
+    dayEndBoundary: null,
+    policyId: 'pol-1',
+    policyName: 'Projects Ops',
+  };
 
-function makeService(options: {
-  row: Record<string, unknown>;
-  liveConfig: ResolvedOvertimeConfig;
-  snapshotConfig?: ResolvedOvertimeConfig;
-  isWeeklyOff?: boolean;
-  isHoliday?: boolean;
-  resolveThrows?: boolean;
-}) {
-  const prisma = {
-    overtimeRequest: {
-      findUnique: jest.fn().mockResolvedValue(options.row),
-    },
-    employee: { findUnique: jest.fn().mockResolvedValue(EMPLOYEE) },
-    department: { findMany: jest.fn().mockResolvedValue([]) },
-  } as unknown as PrismaService;
+  const ROW = {
+    id: 'ot-1',
+    employeeId: 'emp-1',
+    status: 'PENDING',
+    date: new Date('2026-08-18T00:00:00Z'), // Tuesday
+    startTime: new Date('2026-08-18T17:30:00Z'),
+    endTime: new Date('2026-08-18T22:00:00Z'),
+    hours: 4.5,
+    regularHours: 4.5,
+    lateHours: 0,
+    doubleHours: 0,
+    doubleLateHours: 0,
+    dayType: 'WEEKDAY',
+    foodAllowance: 4,
+    otType: 'LATE',
+    overtimePolicyId: 'pol-1',
+    employee: { id: 'emp-1', branchId: null, departmentId: 'dep-1', email: 'e@x.com', fullName: 'E' },
+  };
 
-  const policies = {
-    resolveOvertimeConfig: jest.fn(() =>
-      options.resolveThrows
-        ? Promise.reject(new Error('policy lookup failed'))
-        : Promise.resolve(options.liveConfig),
-    ),
-    configForPolicyId: jest
-      .fn()
-      .mockResolvedValue(options.snapshotConfig ?? options.liveConfig),
-  } as unknown as OvertimePolicyService;
-
-  const systemSettings = {
-    get: jest.fn((key: string) =>
-      Promise.resolve(
-        key === 'attendance_office_start'
-          ? '08:00'
-          : OVERTIME_SETTING_DEFAULTS[key],
+  const build = async (row: any, opts?: { restDay?: boolean }) => {
+    const prisma = {
+      overtimeRequest: { findUnique: jest.fn().mockResolvedValue(row) },
+      employee: {
+        findUnique: jest.fn().mockResolvedValue({
+          branchId: null,
+          employmentType: 'PERMANENT',
+          overtimePolicyId: 'pol-1',
+        }),
+      },
+    };
+    const settings = {
+      getOvertimeConfig: jest.fn().mockResolvedValue({ ...GLOBAL_CFG }),
+      getSetting: jest.fn().mockImplementation((key: string) =>
+        key === 'attendance_day_end_time' ? Promise.resolve('23:59') : Promise.resolve('08:00'),
       ),
-    ),
-  } as unknown as SystemSettingsService;
+    };
+    const holidays = {
+      isHoliday: jest.fn().mockResolvedValue(false),
+      isWeeklyOff: jest.fn().mockResolvedValue(!!opts?.restDay),
+    };
+    const otPolicy = {
+      resolveOvertimeConfig: jest.fn().mockResolvedValue({ ...POLICY_CFG }),
+      configForPolicyId: jest.fn().mockResolvedValue({ ...POLICY_CFG }),
+    };
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        OvertimeService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: MailService, useValue: {} },
+        { provide: SystemSettingsService, useValue: settings },
+        { provide: ApprovalEngineService, useValue: { isChainParticipant: jest.fn() } },
+        { provide: NotificationsService, useValue: { notifyUser: jest.fn() } },
+        { provide: HolidaysService, useValue: holidays },
+        { provide: OvertimePolicyService, useValue: otPolicy },
+        { provide: AuditService, useValue: { log: jest.fn() } },
+      ],
+    }).compile();
+    return { service: moduleRef.get(OvertimeService), otPolicy };
+  };
 
-  const workingDays = {
-    isHoliday: jest.fn().mockResolvedValue(options.isHoliday ?? false),
-    isWeeklyOff: jest.fn().mockResolvedValue(options.isWeeklyOff ?? false),
-  } as unknown as WorkingDaysService;
+  it('PENDING: prices the request with the employee POLICY, not the global settings', async () => {
+    const { service } = await build({ ...ROW });
+    const res: any = await service.findOne('ot-1', undefined, { withPreview: true });
 
-  return new OvertimeService(prisma, policies, systemSettings, workingDays);
-}
+    // Global rules would say REGULAR / 0 food — the prod symptom.
+    expect(res.preview).toMatchObject({
+      otType: 'LATE',
+      foodAllowance: 4,
+      hours: 4.5,
+      regularHours: 3.5, // 17:30–21:00
+      lateHours: 1, //     21:00–22:00
+      policyName: 'Projects Ops',
+    });
+  });
 
-describe('a pending request', () => {
-  it('previews what approval would persist, with the rates that pay it', async () => {
-    const service = makeService({ row: ROW, liveConfig: await config() });
-    const detail = (await service.findOne('ot-1', HR, {
-      withPreview: true,
-    })) as { preview: Record<string, unknown> };
+  it('PENDING: reports the food allowance the list shows for the same request', async () => {
+    const { service } = await build({ ...ROW });
+    const res: any = await service.findOne('ot-1', undefined, { withPreview: true });
+    expect(Number(res.preview.foodAllowance)).toBe(Number(res.foodAllowance));
+    expect(res.preview.otType).toBe(res.otType);
+  });
 
-    expect(detail.preview).toMatchObject({
-      hours: 6,
-      regularHours: 5,
+  it('APPROVED: returns the FROZEN breakdown, not a fresh recompute', async () => {
+    const approved = {
+      ...ROW,
+      status: 'APPROVED',
+      regularHours: 3.5,
       lateHours: 1,
-      otType: OvertimeType.LATE,
-      foodAllowance: 3,
-      siteAllowance: 5,
-      isDoubleOtDay: false,
-      regularRate: 1.25,
-      lateRate: 1.5,
+      foodAllowance: 4,
+    };
+    const { service, otPolicy } = await build(approved);
+    const res: any = await service.findOne('ot-1', undefined, { withPreview: true });
+
+    expect(otPolicy.configForPolicyId).toHaveBeenCalledWith('pol-1');
+    expect(otPolicy.resolveOvertimeConfig).not.toHaveBeenCalled();
+    expect(res.preview).toMatchObject({
+      otType: 'LATE',
+      regularHours: 3.5,
+      lateHours: 1,
+      foodAllowance: 4,
     });
   });
 
-  it('classifies a rest day and uses that tier rates', async () => {
-    const service = makeService({
-      row: ROW,
-      liveConfig: await config(),
-      isWeeklyOff: true,
-    });
-    const detail = (await service.findOne('ot-1', HR, {
-      withPreview: true,
-    })) as { preview: Record<string, unknown> };
-
-    expect(detail.preview).toMatchObject({
-      dayType: OvertimeDayType.SUNDAY,
-      isDoubleOtDay: true,
-      doubleHours: 5,
-      doubleLateHours: 1,
+  it('APPROVED legacy row: rebuilds the tier bucket from otType when the split columns are 0', async () => {
+    const { service } = await build({
+      ...ROW,
+      status: 'APPROVED',
       regularHours: 0,
-      doubleRate: 2,
-      doubleLateRate: 2,
+      lateHours: 0,
+      doubleHours: 0,
+      doubleLateHours: 0,
+      hours: 4.5,
+      otType: 'LATE',
     });
+    const res: any = await service.findOne('ot-1', undefined, { withPreview: true });
+    expect(res.preview).toMatchObject({ lateHours: 4.5, regularHours: 0 });
   });
 
-  it('shows an override rather than the policy figure', async () => {
-    // The page must show what will actually be paid.
-    const service = makeService({
-      row: { ...ROW, foodAllowanceOverride: 0 },
-      liveConfig: await config(),
-    });
-    const detail = (await service.findOne('ot-1', HR, {
-      withPreview: true,
-    })) as { preview: Record<string, unknown> };
-
-    expect(detail.preview.foodAllowance).toBe(0);
-    expect(detail.preview.foodAllowanceOverride).toBe(0);
-  });
-});
-
-describe('a decided request', () => {
-  it('shows the FROZEN numbers, not a recompute under current rules', async () => {
-    // The live config here would classify the window differently. An approver
-    // shown that figure would be reading something that does not match the
-    // payslip.
-    const service = makeService({
-      row: {
+  it('rest day: splits into the double buckets and ships each bucket its own multiplier', async () => {
+    const { service } = await build(
+      {
         ...ROW,
-        status: RequestStatus.APPROVED,
-        overtimePolicyId: 'policy-old',
-        regularHours: 4,
-        lateHours: 2,
-        hours: 6,
+        date: new Date('2026-08-16T00:00:00Z'), // Sunday
+        startTime: new Date('2026-08-16T17:30:00Z'),
+        endTime: new Date('2026-08-16T22:00:00Z'),
       },
-      liveConfig: await config({ lateThreshold: '18:00' }),
-      snapshotConfig: await config({
-        policyId: 'policy-old',
-        policyName: 'Old',
-      }),
-    });
+      { restDay: true },
+    );
+    const res: any = await service.findOne('ot-1', undefined, { withPreview: true });
 
-    const detail = (await service.findOne('ot-1', HR, {
-      withPreview: true,
-    })) as { preview: Record<string, unknown> };
-
-    expect(detail.preview).toMatchObject({
-      regularHours: 4,
-      lateHours: 2,
-      policyId: 'policy-old',
-      policyName: 'Old',
+    // Policy's double late threshold is 22:00 (the Sunday tier is untouched by
+    // the policy override), so the whole window sits in the pre-late bucket.
+    expect(res.preview).toMatchObject({
+      otType: 'DOUBLE',
+      dayType: 'SUNDAY',
+      isDoubleOtDay: true,
+      doubleHours: 4.5,
+      doubleLateHours: 0,
+      regularHours: 0,
+      lateHours: 0,
+      doubleRate: 2, // sunday.regularRate — what payrolls pays doubleHours
+      doubleLateRate: 2.5, // sunday.lateRate
+      foodAllowance: 4, // ends past the policy's 21:00 food threshold
     });
   });
 
-  it('rebuilds a single bucket from otType for a row that predates the split', async () => {
-    const service = makeService({
-      row: {
-        ...ROW,
-        status: RequestStatus.APPROVED,
-        regularHours: 0,
-        lateHours: 0,
-        doubleHours: 0,
-        doubleLateHours: 0,
-        hours: 6,
-        otType: OvertimeType.LATE,
-      },
-      liveConfig: await config(),
-    });
-
-    const detail = (await service.findOne('ot-1', HR, {
-      withPreview: true,
-    })) as { preview: Record<string, unknown> };
-
-    // Four zeroes would render as "you were paid for nothing".
-    expect(detail.preview.lateHours).toBe(6);
-    expect(detail.preview.regularHours).toBe(0);
-  });
-});
-
-describe('failure and access', () => {
-  it('degrades the preview to null rather than losing the request', async () => {
-    const service = makeService({
-      row: ROW,
-      liveConfig: await config(),
-      resolveThrows: true,
-    });
-    const detail = (await service.findOne('ot-1', HR, {
-      withPreview: true,
-    })) as { id: string; preview: unknown };
-
-    expect(detail.id).toBe('ot-1');
-    expect(detail.preview).toBeNull();
-  });
-
-  it('lets the employee read their own', async () => {
-    const service = makeService({ row: ROW, liveConfig: await config() });
-    await expect(service.findOne('ot-1', SELF)).resolves.toBeDefined();
-  });
-
-  it('refuses a colleague with no relationship to it', async () => {
-    const service = makeService({ row: ROW, liveConfig: await config() });
-    await expect(
-      service.findOne('ot-1', {
-        id: 'user-other',
-        email: 'other@peoplepay360.com',
-        role: 'EMPLOYEE',
-        employeeId: 'emp-other',
-        departmentId: 'dept-it',
-        branchId: 'branch-1',
-      }),
-    ).rejects.toThrow(/do not have permission/);
+  it('omits the preview unless the caller asks for it', async () => {
+    const { service } = await build({ ...ROW });
+    const res: any = await service.findOne('ot-1');
+    expect(res.preview).toBeUndefined();
   });
 });

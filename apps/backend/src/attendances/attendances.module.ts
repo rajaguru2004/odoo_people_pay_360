@@ -1,21 +1,17 @@
 import { Module } from '@nestjs/common';
-import { AttendancesService } from './attendances.service';
 import { AttendancesController } from './attendances.controller';
-import { AttendanceCalendarService } from './attendance-calendar.service';
+import { AttendancesService } from './attendances.service';
 import { AttendanceHubService } from './attendance-hub.service';
+import { PrismaModule } from '../prisma/prisma.module';
+import { HolidaysModule } from '../holidays/holidays.module';
+import { SystemSettingsModule } from '../system-settings/system-settings.module';
+import { TimezoneModule } from '../common/timezone/timezone.module';
+import { MailModule } from '../mail/mail.module';
 
-/**
- * The calendar service is exported because the corrections module re-derives a
- * row's status through it on approval — the rules that decide LATE have to be
- * the same rules whichever door the times came in by.
- */
 @Module({
+  imports: [PrismaModule, HolidaysModule, SystemSettingsModule, TimezoneModule, MailModule],
   controllers: [AttendancesController],
-  providers: [
-    AttendancesService,
-    AttendanceCalendarService,
-    AttendanceHubService,
-  ],
-  exports: [AttendancesService, AttendanceCalendarService],
+  providers: [AttendancesService, AttendanceHubService],
+  exports: [AttendancesService, AttendanceHubService],
 })
 export class AttendancesModule {}

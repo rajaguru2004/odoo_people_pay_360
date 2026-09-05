@@ -1,118 +1,77 @@
-'use client';
-
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import contractService from '@/services/contractService';
-import { employeeKeys } from './useEmployees';
-import type { RequestStatus, ReviewPayload } from '@/types/common';
-import type {
-  ContractListQuery,
-  CreateContractPayload,
-  CreateTerminationPayload,
-  UpdateContractPayload,
-} from '@/types/contract';
 
-export const contractKeys = {
-  all: ['contracts'] as const,
-  list: (query: ContractListQuery) =>
-    [...contractKeys.all, 'list', query] as const,
-  detail: (id: string) => [...contractKeys.all, 'detail', id] as const,
-  expiring: (days: number) =>
-    [...contractKeys.all, 'expiring', days] as const,
-  terminations: (query: { status?: RequestStatus; page?: number }) =>
-    [...contractKeys.all, 'terminations', query] as const,
-};
-
-export function useContracts(query: ContractListQuery = {}) {
-  return useQuery({
-    queryKey: contractKeys.list(query),
-    queryFn: () => contractService.list(query),
-  });
+interface ContractQueryParams {
+    page?: number;
+    limit?: number;
+    employeeId?: string;
+    status?: string;
+    type?: string;
 }
 
-export function useContract(id: string | undefined) {
-  return useQuery({
-    queryKey: contractKeys.detail(id!),
-    queryFn: () => contractService.get(id!),
-    enabled: !!id,
-  });
+export function useContracts(params?: ContractQueryParams) {
+    return useQuery({
+        queryKey: ['contracts', params],
+        queryFn: () => contractService.getAll(params),
+        staleTime: 2 * 60 * 1000, // 2 minutes
+        placeholderData: (previousData) => previousData,
+    });
 }
 
-export function useExpiringContracts(days = 30) {
-  return useQuery({
-    queryKey: contractKeys.expiring(days),
-    queryFn: () => contractService.expiring(days),
-  });
+export function useContract(id: string) {
+    return useQuery({
+        queryKey: ['contracts', id],
+        queryFn: () => contractService.getById(id),
+        staleTime: 5 * 60 * 1000,
+        enabled: !!id,
+    });
+}
+
+export function useExpiringContracts(days: number = 30) {
+    return useQuery({
+        queryKey: ['contracts', 'expiring', days],
+        queryFn: () => contractService.getExpiring(days),
+        staleTime: 60 * 60 * 1000, // 1 hour
+    });
 }
 
 export function useCreateContract() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CreateContractPayload) =>
-      contractService.create(payload),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: contractKeys.all }),
-  });
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (data: any) => contractService.create(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['contracts'] });
+            queryClient.invalidateQueries({ queryKey: ['employees'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        },
+    });
 }
 
 export function useUpdateContract() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      id,
-      payload,
-    }: {
-      id: string;
-      payload: UpdateContractPayload;
-    }) => contractService.update(id, payload),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: contractKeys.all }),
-  });
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) =>
+            contractService.update(id, data),
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['contracts', variables.id] });
+            queryClient.invalidateQueries({ queryKey: ['contracts'] });
+            queryClient.invalidateQueries({ queryKey: ['employees'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        },
+    });
 }
 
-export function useRenewContract() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      id,
-      payload,
-    }: {
-      id: string;
-      payload: CreateContractPayload;
-    }) => contractService.renew(id, payload),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: contractKeys.all }),
-  });
-}
+export function useDeleteContract() {
+    const queryClient = useQueryClient();
 
-export function useTerminations(
-  query: { status?: RequestStatus; page?: number } = {},
-) {
-  return useQuery({
-    queryKey: contractKeys.terminations(query),
-    queryFn: () => contractService.listTerminations(query),
-  });
-}
-
-export function useCreateTermination() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CreateTerminationPayload) =>
-      contractService.createTermination(payload),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: contractKeys.all }),
-  });
-}
-
-export function useReviewTermination() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: ReviewPayload }) =>
-      contractService.reviewTermination(id, payload),
-    // Approving ends employment: the contract AND the employee record both
-    // change, so the directory is stale too.
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: contractKeys.all });
-      void queryClient.invalidateQueries({ queryKey: employeeKeys.all });
-    },
-  });
+    return useMutation({
+        mutationFn: (id: string) => contractService.delete(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['contracts'] });
+            queryClient.invalidateQueries({ queryKey: ['employees'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        },
+    });
 }

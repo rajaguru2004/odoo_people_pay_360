@@ -1,16 +1,16 @@
 import { Module } from '@nestjs/common';
-import { DepartmentsService } from './departments.service';
 import { DepartmentsController } from './departments.controller';
-import { DepartmentChangeRequestsService } from './change-requests/department-change-requests.service';
-import { DepartmentChangeRequestsController } from './change-requests/department-change-requests.controller';
+import { DepartmentsService } from './departments.service';
+import { DepartmentChangeRequestsService } from './department-change-requests.service';
+import { PrismaModule } from '../prisma/prisma.module';
+import { MailModule } from '../mail/mail.module';
+import { SystemSettingsModule } from '../system-settings/system-settings.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  // Order matters. Nest registers routes in this order and Express matches the
-  // first that fits, so the change-request routes have to be declared before
-  // DepartmentsController's `:id` or `departments/change-requests` is read as a
-  // department id and rejected by ParseUUIDPipe.
-  controllers: [DepartmentChangeRequestsController, DepartmentsController],
+  imports: [PrismaModule, MailModule, SystemSettingsModule, NotificationsModule],
+  controllers: [DepartmentsController],
   providers: [DepartmentsService, DepartmentChangeRequestsService],
-  exports: [DepartmentsService],
+  exports: [DepartmentsService, DepartmentChangeRequestsService],
 })
 export class DepartmentsModule {}

@@ -1,174 +1,126 @@
 import {
-  ArrayMaxSize,
-  IsArray,
-  IsBoolean,
-  IsEmail,
-  IsInt,
-  IsLatitude,
-  IsLongitude,
-  IsNumber,
-  IsOptional,
   IsString,
-  Matches,
-  Max,
+  IsOptional,
+  IsUUID,
+  IsBoolean,
+  IsNumber,
+  IsInt,
   MaxLength,
+  Matches,
   Min,
+  Max,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-
-/** "HH:MM", 24-hour. Anything else is refused rather than coerced. */
-const WALL_CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
+import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateBranchDto {
-  @ApiProperty({ example: 'HQ' })
+  @ApiProperty({ example: 'BLR', description: 'Branch code (unique)', maxLength: 50 })
   @IsString()
-  @MaxLength(32)
+  @MaxLength(50)
   code: string;
 
-  @ApiProperty({ example: 'Head Office' })
+  @ApiProperty({ example: 'Bangalore Office', description: 'Branch name' })
   @IsString()
   @MaxLength(255)
   name: string;
 
-  @ApiPropertyOptional()
+  @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
   description?: string;
 
-  // ── Location ───────────────────────────────────────────────────────────────
-  @ApiPropertyOptional({ example: 'Building 12, Al Khuwair' })
+  // ── Address ──
+  @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
   addressLine?: string;
 
-  @ApiPropertyOptional({ example: 'Muscat' })
+  @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
   @MaxLength(120)
   city?: string;
 
-  @ApiPropertyOptional()
+  @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
   @MaxLength(120)
   state?: string;
 
-  @ApiPropertyOptional({ example: 'OM', description: 'ISO-3166 alpha-2' })
+  @ApiProperty({ required: false, description: 'ISO-3166 alpha-2 country code' })
   @IsOptional()
   @IsString()
   @MaxLength(2)
   country?: string;
 
-  @ApiPropertyOptional({ example: '112' })
+  @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
   @MaxLength(20)
   postalCode?: string;
 
-  // ── Identity printed on this branch's documents ────────────────────────────
-  @ApiPropertyOptional({ example: '+96824000000' })
+  // ── Per-branch config (null = inherit global) ──
+  @ApiProperty({ required: false, description: 'IANA timezone, e.g. Asia/Kolkata' })
   @IsOptional()
   @IsString()
-  @MaxLength(32)
-  phone?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsEmail()
-  email?: string;
-
-  @ApiPropertyOptional({ description: 'Commercial registration number' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  crNumber?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  vatNumber?: string;
-
-  // ── Working calendar ───────────────────────────────────────────────────────
-  @ApiPropertyOptional({
-    example: 'Asia/Muscat',
-    description: 'Leave unset to inherit the company timezone',
-  })
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
+  @MaxLength(100)
   timezone?: string;
 
-  @ApiPropertyOptional({ example: '08:00', description: 'Wall clock, HH:MM' })
+  @ApiProperty({ required: false, example: '09:30', description: 'HH:MM' })
   @IsOptional()
-  @Matches(WALL_CLOCK, { message: 'officeStartTime must be HH:MM' })
+  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'officeStartTime must be HH:MM' })
   officeStartTime?: string;
 
-  @ApiPropertyOptional({ example: '17:00', description: 'Wall clock, HH:MM' })
+  @ApiProperty({ required: false, example: '18:30', description: 'HH:MM' })
   @IsOptional()
-  @Matches(WALL_CLOCK, { message: 'officeEndTime must be HH:MM' })
+  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'officeEndTime must be HH:MM' })
   officeEndTime?: string;
 
-  @ApiPropertyOptional({
-    example: 15,
+  @ApiProperty({
+    required: false,
+    example: '5,6',
     description:
-      'Minutes after the start time before an arrival counts as late',
+      'Weekly off days as CSV of day numbers (0=Sun … 6=Sat). Null/omit = inherit company default.',
   })
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(240)
-  graceMinutes?: number;
-
-  @ApiPropertyOptional({
-    example: [5, 6],
-    description:
-      'ISO weekday numbers, 1 = Monday. Empty inherits the company calendar.',
+  @IsString()
+  @Matches(/^\s*([0-6])(\s*,\s*[0-6])*\s*$|^$/, {
+    message: 'weeklyOffDays must be a CSV of day numbers 0-6, e.g. "5,6"',
   })
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(7)
-  @Type(() => Number)
-  @IsInt({ each: true })
-  @Min(1, { each: true })
-  @Max(7, { each: true })
-  weeklyOffDays?: number[];
+  // Nullable: the branch form submits null for "inherit the company default",
+  // and BranchesService.normalizeWeeklyOffDays() also collapses an empty set to
+  // null before the write.
+  weeklyOffDays?: string | null;
 
-  // ── Geofence ───────────────────────────────────────────────────────────────
-  @ApiPropertyOptional()
+  // ── Per-branch geofence ──
+  @ApiProperty({ required: false })
   @IsOptional()
   @IsBoolean()
   geofencingEnabled?: boolean;
 
-  @ApiPropertyOptional({ example: 23.588 })
+  @ApiProperty({ required: false })
   @IsOptional()
-  @Type(() => Number)
-  @IsLatitude()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
   latitude?: number;
 
-  @ApiPropertyOptional({ example: 58.3829 })
+  @ApiProperty({ required: false })
   @IsOptional()
-  @Type(() => Number)
-  @IsLongitude()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
   longitude?: number;
 
-  @ApiPropertyOptional({ example: 150, description: 'Fence radius in metres' })
+  @ApiProperty({ required: false, example: 100 })
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(10)
-  @Max(50_000)
+  @IsInt()
+  @Min(1)
   geofenceRadiusM?: number;
 
-  @ApiPropertyOptional({ description: 'Employee who runs this branch' })
+  @ApiProperty({ required: false, description: 'Branch manager (employee ID)' })
   @IsOptional()
-  @IsString()
+  @IsUUID()
   managerId?: string;
-
-  @ApiPropertyOptional({ default: true })
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
 }

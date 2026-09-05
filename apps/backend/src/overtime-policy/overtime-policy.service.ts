@@ -9,13 +9,14 @@ import {
 import { OvertimePolicy, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../system-settings/system-settings.service';
-import { loadOvertimeConfig } from './overtime-config';
+import { NotificationsService } from '../notifications/notifications.service';
+import { assertInBranch } from '../common/branch/branch-scope.util';
 import { CreateOvertimePolicyDto } from './dto/create-overtime-policy.dto';
 import { UpdateOvertimePolicyDto } from './dto/update-overtime-policy.dto';
 import { AssignOvertimePolicyDto } from './dto/assign-overtime-policy.dto';
 import {
-  OT_POLICY_RULES_SCHEMA_VERSION,
   OvertimePolicyRules,
+  OT_POLICY_RULES_SCHEMA_VERSION,
   PolicyResolutionSource,
   ResolvedOvertimeConfig,
   buildDefaultRules,
@@ -25,33 +26,25 @@ import {
   resolvedFromGlobal,
 } from './overtime-policy.types';
 
-/** The minimum an employee has to carry for a policy to be resolvable. */
+/** Minimal employee shape needed to resolve the effective policy. */
 export interface PolicyResolvable {
   overtimePolicyId: string | null;
-  /** An EMPLOYMENT_TYPE library label, or null. */
+  /** An EMPLOYMENT_TYPE library label, or null when not set. */
   employmentType: string | null;
 }
 
 const HHMM = /^([01]?\d|2[0-3]):[0-5]\d$/;
 
-export const COMPANY_DEFAULT_POLICY_NAME = 'Company Default';
-
 /**
- * The overtime policy engine.
+ * The Overtime Policy engine. Owns:
+ *  - the inheritance-chain resolution (Employee Override → Employment Type →
+ *    Company Default → global settings as an ultimate safety net). The engine
+ *    always resolves — there is no kill-switch, and
+ *  - admin CRUD for policies + employee assignment.
  *
- * Two jobs: resolving which rules govern one employee, and the administration of
- * the rule sets themselves.
- *
- * ## The chain
- *
- *   Employee override → Employment type → Company default → global settings
- *
- * It always resolves. There is no kill switch on the engine itself: an employee
- * covered by nothing falls through to the company default, and only a database
- * with no policies at all reaches the globals. `resolveOvertimeConfig` returns
- * the exact {@link ResolvedOvertimeConfig} shape the calc engine consumes, so
- * the arithmetic never learns that policies exist — only where its inputs came
- * from changes.
+ * `resolveOvertimeConfig` returns the exact OvertimeConfig shape the overtime /
+ * payroll calc code already consumes (plus policy-level fields), so the engine
+ * math is unchanged — only the *source* of the config differs.
  */
 @Injectable()
 export class OvertimePolicyService implements OnModuleInit {
@@ -60,23 +53,25 @@ export class OvertimePolicyService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SystemSettingsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
-   * Guarantee a company default exists on every boot.
+   * Guarantee a Company Default policy exists on every boot.
    *
-   * Without one, every employee not covered by an override or an employment-type
-   * policy silently resolves to the raw `overtime_*` settings — so rates edited
-   * on the Overtime Policies screen would never reach them, and there would be no
-   * editable surface for the rates that did. Idempotent; a failure is logged
-   * rather than fatal so a container can still start before `db push` has run.
+   * Without it, any employee not covered by an override or an employment-type
+   * policy silently resolves to LEGACY_GLOBAL — the raw `overtime_*` system
+   * settings — so overtime rates edited on the Overtime Policies screen would
+   * never reach them and there would be no editable surface for those rates
+   * either. Idempotent; failures (e.g. the table not migrated yet) are logged,
+   * never fatal, so a boot can still complete and the migration be applied.
    */
   async onModuleInit(): Promise<void> {
     try {
       const { created, policyId } = await this.ensureCompanyDefault();
       if (created) {
         this.logger.log(
-          `Seeded the "${COMPANY_DEFAULT_POLICY_NAME}" overtime policy (${policyId}) from the global overtime settings.`,
+          `Seeded the "Company Default" overtime policy (${policyId}) from the global overtime settings.`,
         );
       }
     } catch (e) {
@@ -86,12 +81,18 @@ export class OvertimePolicyService implements OnModuleInit {
     }
   }
 
-  // ── Resolution ─────────────────────────────────────────────────────────────
+  // ── Resolution (inheritance chain) ──────────────────────────────────────────
 
-  async resolveEffectivePolicyWithSource(emp: PolicyResolvable): Promise<{
-    policy: OvertimePolicy | null;
-    source: PolicyResolutionSource;
-  }> {
+  /**
+   * Resolve the effective policy for an employee together with which tier of the
+   * chain produced it (Employee Override → Employment Type → Company Default).
+   * The engine always resolves — there is no kill-switch. policy=null only when
+   * NO policy exists at all, in which case callers fall back to the global
+   * overtime settings as an ultimate safety net.
+   */
+  async resolveEffectivePolicyWithSource(
+    emp: PolicyResolvable,
+  ): Promise<{ policy: OvertimePolicy | null; source: PolicyResolutionSource }> {
     if (emp.overtimePolicyId) {
       const override = await this.prisma.overtimePolicy.findFirst({
         where: { id: emp.overtimePolicyId, isActive: true },
@@ -120,74 +121,68 @@ export class OvertimePolicyService implements OnModuleInit {
     return (await this.resolveEffectivePolicyWithSource(emp)).policy;
   }
 
-  /** The effective configuration for an employee, ready for the calc engine. */
+  /**
+   * The effective overtime config for an employee, in the exact shape the calc
+   * engine consumes. Falls back to the legacy global config when no policy
+   * governs the employee.
+   */
   async resolveOvertimeConfig(
     emp: PolicyResolvable,
   ): Promise<ResolvedOvertimeConfig> {
-    const global = await loadOvertimeConfig(this.settings);
+    const global = await this.settings.getOvertimeConfig();
     const policy = await this.resolveEffectivePolicy(emp);
     if (!policy) return resolvedFromGlobal(global);
     return {
-      ...mergeRulesOverGlobal(
-        policy.rules as Partial<OvertimePolicyRules>,
-        global,
-      ),
+      ...mergeRulesOverGlobal(policy.rules as Partial<OvertimePolicyRules>, global),
       policyId: policy.id,
       policyName: policy.name,
     };
   }
 
   /**
-   * The configuration for a SPECIFIC policy id — the snapshot an approved
-   * request carries.
-   *
-   * Honoured regardless of the policy's current active flag, so a request
-   * approved in March still monetizes against the rules that classified its
-   * hours even after the policy is retired in June. A missing policy falls back
-   * to the globals rather than throwing: a deleted policy must not make a
-   * historical payslip unreadable.
+   * The overtime config for a specific policy id (the snapshot stored on an
+   * OvertimeRequest). Honours the snapshot regardless of the kill-switch or the
+   * policy's current active flag, so historical rows monetize consistently with
+   * how their hours were classified. null / missing policy → legacy globals.
    */
   async configForPolicyId(
     policyId: string | null | undefined,
   ): Promise<ResolvedOvertimeConfig> {
-    const global = await loadOvertimeConfig(this.settings);
+    const global = await this.settings.getOvertimeConfig();
     if (!policyId) return resolvedFromGlobal(global);
     const policy = await this.prisma.overtimePolicy.findUnique({
       where: { id: policyId },
     });
     if (!policy) return resolvedFromGlobal(global);
     return {
-      ...mergeRulesOverGlobal(
-        policy.rules as Partial<OvertimePolicyRules>,
-        global,
-      ),
+      ...mergeRulesOverGlobal(policy.rules as Partial<OvertimePolicyRules>, global),
       policyId: policy.id,
       policyName: policy.name,
     };
   }
 
-  /** Support answer: which policy governs this employee, and by which tier. */
+  /** Debug/support: the effective policy + source for one employee. */
   async resolveForEmployee(employeeId: string) {
     const emp = await this.prisma.employee.findUnique({
       where: { id: employeeId },
       select: {
         id: true,
-        firstName: true,
-        lastName: true,
+        fullName: true,
         employmentType: true,
         overtimePolicyId: true,
       },
     });
     if (!emp) throw new NotFoundException('Employee not found');
 
-    const { policy, source } = await this.resolveEffectivePolicyWithSource(emp);
+    const { policy, source } =
+      await this.resolveEffectivePolicyWithSource(emp);
     const cfg = await this.resolveOvertimeConfig(emp);
 
     return {
-      success: true as const,
+      success: true,
       data: {
         employeeId: emp.id,
-        employeeName: `${emp.firstName} ${emp.lastName}`.trim(),
+        employeeName: emp.fullName,
         employmentType: emp.employmentType,
         overtimePolicyId: emp.overtimePolicyId,
         source,
@@ -195,42 +190,32 @@ export class OvertimePolicyService implements OnModuleInit {
         effectivePolicyName: policy?.name ?? null,
         eligible: cfg.eligible,
         holidayBehavior: cfg.holidayBehavior,
-        rates: {
-          regularRate: cfg.regularRate,
-          lateRate: cfg.lateRate,
-          lateThreshold: cfg.lateThreshold,
-          sunday: cfg.sunday,
-          holiday: cfg.holiday,
-        },
       },
     };
   }
 
   /**
-   * Idempotently ensure a company default exists, mirroring the current global
-   * settings — so introducing the policy engine changes nobody's rates until a
-   * targeted policy is actually written.
+   * Idempotently ensure a "Company Default" policy exists that mirrors the
+   * current global overtime settings. Called during migration/rollout so that
+   * enabling the kill-switch changes nothing until a targeted policy is added.
    */
-  async ensureCompanyDefault(): Promise<{
-    created: boolean;
-    policyId: string;
-  }> {
+  async ensureCompanyDefault(): Promise<{ created: boolean; policyId: string }> {
     const active = await this.prisma.overtimePolicy.findFirst({
       where: { isDefault: true, isActive: true },
     });
     if (active) return { created: false, policyId: active.id };
 
-    // A prior default may exist but be inactive or demoted — promote it rather
-    // than colliding on the unique name.
+    // A prior "Company Default" may exist but be inactive/non-default — promote
+    // it rather than colliding on the unique name.
     const byName = await this.prisma.overtimePolicy.findUnique({
-      where: { name: COMPANY_DEFAULT_POLICY_NAME },
+      where: { name: 'Company Default' },
     });
     if (byName) {
       const promoted = await this.setDefault(byName.id);
       return { created: false, policyId: promoted.data.id };
     }
 
-    const global = await loadOvertimeConfig(this.settings);
+    const global = await this.settings.getOvertimeConfig();
     const rules = buildDefaultRules(global);
     const created = await this.prisma.$transaction(async (tx) => {
       await tx.overtimePolicy.updateMany({
@@ -239,10 +224,9 @@ export class OvertimePolicyService implements OnModuleInit {
       });
       return tx.overtimePolicy.create({
         data: {
-          name: COMPANY_DEFAULT_POLICY_NAME,
+          name: 'Company Default',
           description:
-            'Seeded from the global overtime settings. It mirrors them exactly, ' +
-            'so adding the policy engine changed nobody until a targeted policy was written.',
+            'Auto-seeded from the global overtime settings — mirrors the legacy overtime behaviour so enabling the policy engine changes nothing until a targeted policy is added.',
           isActive: true,
           isDefault: true,
           employmentType: null,
@@ -254,14 +238,14 @@ export class OvertimePolicyService implements OnModuleInit {
     return { created: true, policyId: created.id };
   }
 
-  // ── CRUD ───────────────────────────────────────────────────────────────────
+  // ── CRUD ─────────────────────────────────────────────────────────────────────
 
   async list() {
     const data = await this.prisma.overtimePolicy.findMany({
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
       include: { _count: { select: { employees: true } } },
     });
-    return { success: true as const, data };
+    return { success: true, data };
   }
 
   async get(id: string) {
@@ -270,12 +254,15 @@ export class OvertimePolicyService implements OnModuleInit {
       include: { _count: { select: { employees: true } } },
     });
     if (!policy) throw new NotFoundException('Overtime policy not found');
-    return { success: true as const, data: policy };
+    return { success: true, data: policy };
   }
 
-  async create(dto: CreateOvertimePolicyDto) {
-    const global = await loadOvertimeConfig(this.settings);
-    const rules = composeRules(dto.rules, global);
+  async create(dto: CreateOvertimePolicyDto, actorUserId?: string) {
+    const global = await this.settings.getOvertimeConfig();
+    const rules = composeRules(
+      dto.rules as Partial<OvertimePolicyRules> | undefined,
+      global,
+    );
     this.validateRules(rules);
 
     const isActive = dto.isActive ?? true;
@@ -303,33 +290,33 @@ export class OvertimePolicyService implements OnModuleInit {
           },
         });
       });
-      return { success: true as const, data: created };
+      return { success: true, data: created };
     } catch (e) {
       throw this.mapWriteError(e);
     }
   }
 
-  async update(id: string, dto: UpdateOvertimePolicyDto) {
+  async update(id: string, dto: UpdateOvertimePolicyDto, actorUserId?: string) {
     const existing = await this.prisma.overtimePolicy.findUnique({
       where: { id },
     });
     if (!existing) throw new NotFoundException('Overtime policy not found');
 
-    const global = await loadOvertimeConfig(this.settings);
-    // Normalise the stored blob against the global defaults FIRST, then overlay
-    // the edit. That self-heals a partial or older-schema blob, so validation
-    // never sees a missing tier and reports an error about a field the
-    // administrator did not touch.
+    const global = await this.settings.getOvertimeConfig();
+    // Always normalize the stored blob against global defaults first (this
+    // self-heals legacy/partial blobs so validateRules never sees a missing
+    // tier), then overlay the edit — an absent `dto.rules` is an empty overlay.
     const nextRules = overlayRules(
       composeRules(existing.rules as Partial<OvertimePolicyRules>, global),
-      dto.rules ?? {},
+      (dto.rules ?? {}) as Partial<OvertimePolicyRules>,
     );
     this.validateRules(nextRules);
 
     const nextActive = dto.isActive ?? existing.isActive;
-    // The active default is the universal fallback. Losing it silently drops
-    // every uncovered employee onto the raw globals, so neither deactivating it
-    // nor clearing its flag is allowed without promoting a replacement first.
+    // The active default is the universal fallback for every employee not
+    // covered by an override or an employment-type policy. Losing it silently
+    // drops them onto the raw global settings, so neither deactivating it nor
+    // clearing its default flag is allowed without promoting a replacement.
     if (existing.isDefault && existing.isActive) {
       if (!nextActive) {
         throw new BadRequestException(
@@ -338,11 +325,10 @@ export class OvertimePolicyService implements OnModuleInit {
       }
       if (dto.isDefault === false) {
         throw new BadRequestException(
-          'Cannot clear the default flag on the only default policy. Promote another policy instead.',
+          'Cannot clear the default flag on the only default policy. Promote another policy to default instead.',
         );
       }
     }
-
     const nextType =
       dto.employmentType !== undefined
         ? dto.employmentType
@@ -353,6 +339,7 @@ export class OvertimePolicyService implements OnModuleInit {
 
     try {
       const updated = await this.prisma.$transaction(async (tx) => {
+        const makingDefault = (dto.isDefault ?? existing.isDefault) && nextActive;
         if (dto.isDefault === true && nextActive) {
           await tx.overtimePolicy.updateMany({
             where: { isDefault: true, id: { not: id } },
@@ -368,21 +355,20 @@ export class OvertimePolicyService implements OnModuleInit {
                 ? dto.description
                 : existing.description,
             isActive: nextActive,
-            isDefault: dto.isDefault ?? existing.isDefault,
+            isDefault: makingDefault ? true : dto.isDefault ?? existing.isDefault,
             employmentType: nextType,
-            schemaVersion: OT_POLICY_RULES_SCHEMA_VERSION,
             rules: nextRules as unknown as Prisma.InputJsonValue,
           },
         });
       });
-      return { success: true as const, data: updated };
+      return { success: true, data: updated };
     } catch (e) {
       throw this.mapWriteError(e);
     }
   }
 
   /** Promote a policy to the single active company default. */
-  async setDefault(id: string) {
+  async setDefault(id: string, actorUserId?: string) {
     const policy = await this.prisma.overtimePolicy.findUnique({
       where: { id },
     });
@@ -398,10 +384,10 @@ export class OvertimePolicyService implements OnModuleInit {
         data: { isDefault: true, isActive: true },
       });
     });
-    return { success: true as const, data: updated };
+    return { success: true, data: updated };
   }
 
-  async setActive(id: string, isActive: boolean) {
+  async setActive(id: string, isActive: boolean, actorUserId?: string) {
     const policy = await this.prisma.overtimePolicy.findUnique({
       where: { id },
     });
@@ -419,20 +405,13 @@ export class OvertimePolicyService implements OnModuleInit {
         where: { id },
         data: { isActive },
       });
-      return { success: true as const, data: updated };
+      return { success: true, data: updated };
     } catch (e) {
       throw this.mapWriteError(e);
     }
   }
 
-  /**
-   * Delete a policy.
-   *
-   * Both foreign keys are ON DELETE SET NULL, so history survives: an approved
-   * request keeps its hours and falls back to the global rates for monetisation,
-   * and an assigned employee falls back through the chain.
-   */
-  async remove(id: string) {
+  async remove(id: string, actorUserId?: string) {
     const policy = await this.prisma.overtimePolicy.findUnique({
       where: { id },
     });
@@ -442,33 +421,41 @@ export class OvertimePolicyService implements OnModuleInit {
         'Cannot delete the active default policy. Set another policy as default first.',
       );
     }
+    // Employee.overtimePolicyId and OvertimeRequest.overtimePolicyId are ON
+    // DELETE SET NULL, so history is preserved and assignees fall back to the
+    // employment-type / default policy.
     await this.prisma.overtimePolicy.delete({ where: { id } });
-    return { success: true as const, message: 'Overtime policy deleted' };
+    return { success: true };
   }
 
-  // ── Assignment ─────────────────────────────────────────────────────────────
+  // ── Assignment ────────────────────────────────────────────────────────────
 
-  async assign(dto: AssignOvertimePolicyDto) {
+  async assign(dto: AssignOvertimePolicyDto, actorUserId?: string) {
     const emp = await this.prisma.employee.findUnique({
       where: { id: dto.employeeId },
-      select: { id: true },
+      select: {
+        id: true,
+        branchId: true,
+        user: { select: { id: true } },
+      },
     });
     if (!emp) throw new NotFoundException('Employee not found');
+    // A branch-scoped caller cannot reassign an out-of-branch employee.
+    assertInBranch(emp.branchId);
 
     if (dto.overtimePolicyId) {
       const policy = await this.prisma.overtimePolicy.findUnique({
         where: { id: dto.overtimePolicyId },
         select: { id: true },
       });
-      if (!policy) throw new BadRequestException('Overtime policy not found');
+      if (!policy)
+        throw new BadRequestException('Overtime policy not found');
     }
 
     const data: Prisma.EmployeeUpdateInput = {};
     if (dto.employmentType !== undefined) {
       data.employmentType = dto.employmentType;
     }
-    // `hasOwnProperty`, not a truthiness test: an explicit null is the whole
-    // point of the field — it CLEARS the override rather than leaving it alone.
     if (Object.prototype.hasOwnProperty.call(dto, 'overtimePolicyId')) {
       data.overtimePolicy = dto.overtimePolicyId
         ? { connect: { id: dto.overtimePolicyId } }
@@ -478,13 +465,29 @@ export class OvertimePolicyService implements OnModuleInit {
     const updated = await this.prisma.employee.update({
       where: { id: dto.employeeId },
       data,
-      select: { id: true, employmentType: true, overtimePolicyId: true },
+      select: {
+        id: true,
+        employmentType: true,
+        overtimePolicyId: true,
+      },
     });
 
-    return { success: true as const, data: updated };
+    if (emp.user?.id) {
+      this.notifications
+        .notifyUser(
+          emp.user.id,
+          'Overtime policy updated',
+          'Your overtime policy assignment was updated by HR.',
+          'INFO',
+          '/dashboard/overtime',
+        )
+        .catch(() => undefined);
+    }
+
+    return { success: true, data: updated };
   }
 
-  // ── Internals ──────────────────────────────────────────────────────────────
+  // ── Internals ────────────────────────────────────────────────────────────
 
   /** At most one ACTIVE policy may target a given employment type. */
   private async assertNoActiveTypeClash(
@@ -506,7 +509,7 @@ export class OvertimePolicyService implements OnModuleInit {
     }
   }
 
-  /** Cross-field validation over the composed blob. */
+  /** Cross-field / range validation on the composed rules blob. */
   private validateRules(rules: OvertimePolicyRules) {
     const positiveRates: Array<[string, number]> = [
       ['regularRate', rules.regularRate],
@@ -518,8 +521,6 @@ export class OvertimePolicyService implements OnModuleInit {
       ['holiday.lateRate', rules.holiday.lateRate],
     ];
     for (const [field, value] of positiveRates) {
-      // A zero multiplier is not "free overtime", it is a rule nobody meant to
-      // write — and it pays an hour worked at nothing.
       if (!(value > 0)) {
         throw new BadRequestException(`${field} must be greater than 0`);
       }
@@ -535,9 +536,7 @@ export class OvertimePolicyService implements OnModuleInit {
     ];
     for (const [field, value] of times) {
       if (value != null && !HHMM.test(value)) {
-        throw new BadRequestException(
-          `${field} must be a time in HH:MM format`,
-        );
+        throw new BadRequestException(`${field} must be a time in HH:MM format`);
       }
     }
 
@@ -548,18 +547,10 @@ export class OvertimePolicyService implements OnModuleInit {
     }
   }
 
+  /** Map Prisma unique-constraint failures to friendly HTTP errors. */
   private mapWriteError(e: unknown): Error {
-    if (
-      e instanceof Prisma.PrismaClientKnownRequestError &&
-      e.code === 'P2002'
-    ) {
-      // `meta.target` is the column list Prisma names on a unique violation. It
-      // arrives as a string or a string array depending on the connector, so it
-      // is joined rather than stringified — `String(['name'])` happens to work
-      // and `String({...})` gives "[object Object]", which matches nothing.
-      const raw: unknown = e.meta?.target;
-      const target =
-        typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join(',') : '';
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      const target = (e.meta?.target as string) ?? '';
       if (target.includes('name')) {
         return new ConflictException('A policy with this name already exists');
       }

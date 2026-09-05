@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Email Verification</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f4;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+
+          <!-- Company Header -->
+          <tr>
+            <td style="background-color: #ffffff; padding: 28px 32px 24px; text-align: center; border-bottom: 2px solid #e5e7eb;">
+              {{#if companyLogoUrl}}
+                <img src="{{companyLogoUrl}}" alt="{{#if companyName}}{{companyName}}{{else}}ESS Portal{{/if}}" style="max-height: 52px; width: auto; display: block; margin: 0 auto;" />
+              {{else}}
+                <p style="margin: 0; font-size: 20px; font-weight: 700; color: #111827;">{{#if companyName}}{{companyName}}{{else}}ESS Portal{{/if}}</p>
+              {{/if}}
+            </td>
+          </tr>
+
+          <!-- Title Banner -->
+          <tr>
+            <td style="background-color: #1d4ed8; padding: 28px 32px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.2px;">Email Verification</h1>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding: 36px 32px;">
+              <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">Dear <strong>{{email}}</strong>,</p>
+
+              <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+                Thank you for registering with the Employee Self Service Portal. To complete your registration, please verify your email address by clicking the button below.
+              </p>
+
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 28px 0;">
+                <tr>
+                  <td align="center">
+                    <a href="{{verificationUrl}}" style="display: inline-block; padding: 13px 36px; background-color: #1d4ed8; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 15px; font-weight: 600;">
+                      Verify Email Address
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="color: #6b7280; font-size: 13px; line-height: 1.6; margin: 0 0 6px;">If the button above does not work, copy and paste the following link into your browser:</p>
+              <p style="color: #1d4ed8; font-size: 13px; line-height: 1.6; margin: 0 0 24px; word-break: break-all;">{{verificationUrl}}</p>
+
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="background-color: #fef9c3; border-left: 4px solid #ca8a04; padding: 14px 16px; border-radius: 0 4px 4px 0;">
+                    <p style="color: #713f12; font-size: 13px; line-height: 1.5; margin: 0;">
+                      <strong>Please note:</strong> This verification link will expire in 24 hours. If you did not create an account, you may safely disregard this email.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8f9fa; padding: 24px 32px; text-align: center; border-top: 1px solid #e5e7eb;">
+              <p style="color: #6b7280; font-size: 13px; line-height: 1.5; margin: 0 0 6px;">
+                &copy; 2026 {{#if companyName}}{{companyName}}{{else}}ESS Portal{{/if}}. All rights reserved.
+              </p>
+              <p style="color: #9ca3af; font-size: 12px; line-height: 1.5; margin: 0;">
+                This is an automated notification. Please do not reply to this email.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

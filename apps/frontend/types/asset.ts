@@ -1,3 +1,12 @@
+/**
+ * R15, closed: `AssetItem.status` is a Postgres enum now, not free text.
+ *
+ * These five and no others — the union mirrors `enum AssetStatus` in
+ * `schema.prisma` and `ASSET_STATUSES` in `assets.service.ts`, and the column
+ * itself refuses anything else. Widening this back to `string` would not make
+ * the app accept more values; it would only move the refusal from the keystroke
+ * to a 400, which is the state the finding was raised about.
+ */
 export type AssetStatus =
   | 'AVAILABLE'
   | 'ASSIGNED'
@@ -5,23 +14,29 @@ export type AssetStatus =
   | 'LOST'
   | 'RETIRED';
 
-/** ASSIGNED is derived from custody, so it can never be the outcome of a return. */
-export type AssetReturnStatus = Exclude<AssetStatus, 'ASSIGNED'>;
+/**
+ * Status an asset may take when it comes back — a deliberate SUBSET, mirroring
+ * `RETURN_STATUSES` in `return-asset.dto.ts`.
+ *
+ * `ASSIGNED` is absent because it is derived from custody and never chosen: it
+ * is what an OPEN assignment means, so it cannot be the outcome of closing one.
+ * Keep the return picker keyed off this type rather than off `AssetStatus`.
+ */
+export type AssetReturnStatus = 'AVAILABLE' | 'IN_REPAIR' | 'LOST' | 'RETIRED';
 
-export interface AssetHolder {
+export interface AssetEmployeeRef {
   id: string;
   employeeCode: string;
-  firstName: string;
-  lastName: string;
   fullName: string;
-  department?: { id: string; name: string } | null;
+  status?: string;
+  department?: { name: string } | null;
 }
 
-export interface CurrentHolder {
+export interface AssetHolder {
   assignmentId: string;
   assignedAt: string;
   acknowledgedAt: string | null;
-  employee: AssetHolder;
+  employee: AssetEmployeeRef;
 }
 
 export interface AssetItem {
@@ -36,8 +51,12 @@ export interface AssetItem {
   purchaseCost: string | number | null;
   warrantyExpiry: string | null;
   notes: string | null;
+  createdAt: string;
+  updatedAt: string;
   branch?: { id: string; code: string; name: string } | null;
-  currentHolder: CurrentHolder | null;
+  /** Derived from the single OPEN assignment; null when nobody holds it. */
+  currentHolder: AssetHolder | null;
+  /** Only on the detail endpoint: full custody trail, newest first. */
   history?: AssetAssignment[];
 }
 
@@ -46,36 +65,59 @@ export interface AssetAssignment {
   assetId: string;
   employeeId: string;
   assignedAt: string;
+  assignedById: string;
   conditionOut: string | null;
   acknowledgedAt: string | null;
   acknowledgedNote: string | null;
   returnedAt: string | null;
   conditionIn: string | null;
+  returnReceivedById: string | null;
   notes: string | null;
-  asset?: {
-    id: string;
-    assetTag: string;
-    name: string;
-    category: string;
-    serialNumber?: string | null;
-    warrantyExpiry?: string | null;
-  };
-  employee?: AssetHolder & { status?: string };
+  asset?: Pick<
+    AssetItem,
+    'id' | 'assetTag' | 'name' | 'category' | 'serialNumber' | 'warrantyExpiry'
+  >;
+  employee?: AssetEmployeeRef;
 }
 
 export interface AssetSummary {
   byStatus: Partial<Record<AssetStatus, number>>;
   total: number;
+  /** Assets currently in someone's custody. */
   held: number;
+  /** Hand-overs the employee has not yet acknowledged. */
   unacknowledged: number;
+}
+
+export interface OpenAssetSummary {
+  assignmentId: string;
+  assetId: string;
+  assetTag: string;
+  name: string;
+  category: string;
+  assignedAt: string;
+}
+
+/**
+ * `cleared: false` blocks every offboarding path.
+ *
+ * Keyed on OPEN assignments (`returnedAt IS NULL`), never on `Employee.status`:
+ * somebody still holding a laptop is not cleared whatever their status says.
+ * Mirrors `ClearanceService.getClearanceStatus`.
+ */
+export interface ClearanceStatus {
+  /** Everything is clear: no held assets. */
+  cleared: boolean;
+  assetCleared: boolean;
+  openAssets: OpenAssetSummary[];
 }
 
 export interface CreateAssetData {
   assetTag: string;
   category: string;
   name: string;
-  serialNumber?: string;
   branchId: string;
+  serialNumber?: string;
   status?: AssetStatus;
   purchaseDate?: string;
   purchaseCost?: number;
@@ -106,19 +148,4 @@ export interface QueryAssetsParams {
   unassignedOnly?: boolean;
   page?: number;
   limit?: number;
-}
-
-export interface OpenAssetSummary {
-  assignmentId: string;
-  assetId: string;
-  assetTag: string;
-  name: string;
-  category: string;
-  assignedAt: string;
-}
-
-export interface ClearanceStatus {
-  cleared: boolean;
-  assetCleared: boolean;
-  openAssets: OpenAssetSummary[];
 }

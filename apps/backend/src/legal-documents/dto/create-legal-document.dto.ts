@@ -1,101 +1,88 @@
 import {
-  IsBoolean,
-  IsDateString,
-  IsEnum,
-  IsOptional,
   IsString,
+  IsDateString,
+  IsOptional,
   IsUUID,
-  Length,
+  IsEnum,
+  IsISO31661Alpha2,
   MaxLength,
 } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { LegalDocumentCategory, LegalDocumentStatus } from '@prisma/client';
+import { ApiProperty } from '@nestjs/swagger';
+import { LegalDocumentCategoryValue } from '../legal-document.constants';
 
 export class CreateLegalDocumentDto {
-  @ApiProperty()
+  @ApiProperty({
+    example: '11111111-1111-1111-1111-111111111111',
+    description: 'Employee ID',
+  })
   @IsUUID()
   employeeId: string;
 
-  @ApiPropertyOptional({
-    enum: LegalDocumentCategory,
-    default: LegalDocumentCategory.VISA,
+  @ApiProperty({
+    example: 'VISA',
+    enum: LegalDocumentCategoryValue,
+    required: false,
+    description: 'Document category (defaults to VISA)',
   })
   @IsOptional()
-  @IsEnum(LegalDocumentCategory)
-  category?: LegalDocumentCategory;
+  @IsEnum(LegalDocumentCategoryValue)
+  category?: string;
 
-  @ApiPropertyOptional({
-    enum: LegalDocumentStatus,
-    default: LegalDocumentStatus.ACTIVE,
-  })
-  @IsOptional()
-  @IsEnum(LegalDocumentStatus)
-  status?: LegalDocumentStatus;
-
-  @ApiProperty({ example: 'V-2026-884213' })
+  @ApiProperty({ example: 'V-1234567', description: 'Visa/document number' })
   @IsString()
   @MaxLength(100)
   documentNumber: string;
 
-  @ApiPropertyOptional({ example: 'Employment visa' })
-  @IsOptional()
+  @ApiProperty({
+    example: 'Employment Visa',
+    description: 'Document type (VISA_TYPE library item label)',
+  })
   @IsString()
   @MaxLength(100)
-  documentType?: string;
+  documentType: string;
 
-  @ApiProperty({ example: 'Oman' })
+  @ApiProperty({ example: 'United Arab Emirates', description: 'Issuing country' })
   @IsString()
   @MaxLength(100)
   country: string;
 
-  @ApiPropertyOptional({ example: 'IN', description: 'ISO-3166 alpha-2' })
+  @ApiProperty({
+    example: 'IN',
+    required: false,
+    description: "Employee's nationality (ISO-3166 alpha-2 code)",
+  })
   @IsOptional()
-  @IsString()
-  @Length(2, 2)
+  @IsISO31661Alpha2()
   nationality?: string;
 
-  @ApiProperty({ example: '2026-01-10' })
+  @ApiProperty({ example: '2026-01-01', description: 'Issue date' })
   @IsDateString()
   issueDate: string;
 
-  @ApiProperty({ example: '2028-01-09' })
+  @ApiProperty({ example: '2028-01-01', description: 'Expiry date' })
   @IsDateString()
   expiryDate: string;
 
-  @ApiPropertyOptional({ example: 'Royal Oman Police' })
+  @ApiProperty({ example: 'GDRFA Dubai', required: false })
   @IsOptional()
   @IsString()
   @MaxLength(200)
   issuingAuthority?: string;
 
-  @ApiPropertyOptional({ example: 'Muscat' })
+  @ApiProperty({ example: 'Dubai', required: false })
   @IsOptional()
   @IsString()
   @MaxLength(200)
   placeOfIssue?: string;
 
-  @ApiPropertyOptional()
+  @ApiProperty({ example: 'Acme LLC', required: false, description: 'Sponsor (Gulf region)' })
   @IsOptional()
   @IsString()
   @MaxLength(200)
   sponsor?: string;
 
-  @ApiPropertyOptional()
+  @ApiProperty({ example: 'Multiple entry', required: false })
   @IsOptional()
   @IsString()
   remarks?: string;
-
-  @ApiPropertyOptional({
-    default: true,
-    description: 'Only one current document per employee and category',
-  })
-  @IsOptional()
-  @IsBoolean()
-  isCurrent?: boolean;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  @MaxLength(512)
-  documentUrl?: string;
 }

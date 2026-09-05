@@ -1,280 +1,348 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import userEvent from '@testing-library/user-event';
-import { fireEvent, renderWithProviders, screen, waitFor } from '@/test/utils';
-import { useAuthStore } from '@/store/authStore';
-import leaveService from '@/services/leaveService';
-import { toast } from 'sonner';
-import NewLeaveRequestPage from './page';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { renderWithProviders, screen, waitFor } from '@/test/render';
+import { routerMock } from '@/test/router-mock';
+import NewLeavePage from './page';
 
 /**
- * Filing leave: who may file for whom, what the reader is told before they
- * commit, and what actually goes up the wire.
+ * Applying for leave.
  *
- * Three things here are worth a test rather than a type.
+ * One of only seven forms in this app with declarative validation, and the one
+ * an employee is most likely to meet. The rules worth defending are the ones a
+ * refactor can loosen without anything looking wrong: a reason short enough to
+ * be useless, a submission with no dates, or an HR user filing leave for
+ * themselves on a screen that is meant to be self-service only.
  *
- * The Employee picker is the difference between filing your own leave and
- * spending somebody else's balance. It is an HR affordance and the server agrees
- * with a RolesGuard — but a picker rendered to an employee is a form that fails
- * on submit with a 403 after the person has typed a reason, which is the worst
- * of both.
- *
- * The rules line and the balance card are the only facts on this screen that
- * decide whether the request is worth filing at all. "Needs 7 days notice" read
- * after a rejection is not the same information.
- *
- * And the failure path: the axios interceptor rejects with a FLAT object with no
- * `.response` on it. A catch reaching for `err.response.data.message` falls
- * through to the generic fallback, and the precise reason the server gave — the
- * notice period, the exhausted entitlement — is thrown away.
+ * The submit path is also a two-step, non-transactional sequence — create, then
+ * upload each attachment in turn — so a partial failure has to be visible.
  */
+
 vi.mock('@/services/leaveService', () => ({
   default: {
-    leaveTypes: vi.fn(),
-    balance: vi.fn(),
     create: vi.fn(),
+    getBalance: vi.fn(),
+    uploadAttachment: vi.fn(),
   },
 }));
 
-vi.mock('@/services/employeeService', () => ({
-  default: { list: vi.fn(() => Promise.resolve({ success: true, data: [] })) },
+vi.mock('@/services/libraryService', () => ({
+  default: { getAll: vi.fn() },
 }));
 
-// Mocked so the surfaced message can be read. The toast is the only place a
-// refused submit is reported, so asserting on it is asserting on the screen.
-vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+vi.mock('@/lib/toast', () => ({
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }));
 
-const leaveTypes = vi.mocked(leaveService.leaveTypes);
-const balance = vi.mocked(leaveService.balance);
-const createRequest = vi.mocked(leaveService.create);
+import leaveService from '@/services/leaveService';
+import libraryService from '@/services/libraryService';
+import { toast } from '@/lib/toast';
+
+const create = vi.mocked(leaveService.create);
+const getBalance = vi.mocked(leaveService.getBalance);
+const uploadAttachment = vi.mocked(leaveService.uploadAttachment);
+const getAll = vi.mocked(libraryService.getAll);
+const toastError = vi.mocked(toast.error);
+const toastSuccess = vi.mocked(toast.success);
 
 const LEAVE_TYPES = [
-  {
-    id: 'lt-1',
-    libraryType: 'LEAVE_TYPE' as const,
-    label: 'Annual Leave',
-    isActive: true,
-    sortOrder: 1,
-    defaultDays: 30,
-    isPaid: true,
-    requiresNoticeDays: 7,
-    affectsBalance: true,
-    genderRestriction: null,
-  },
-  {
-    id: 'lt-2',
-    libraryType: 'LEAVE_TYPE' as const,
-    label: 'Unpaid Leave',
-    isActive: true,
-    sortOrder: 2,
-    defaultDays: null,
-    isPaid: false,
-    requiresNoticeDays: 0,
-    affectsBalance: false,
-    genderRestriction: null,
-  },
+  { id: 'lt1', label: 'Annual Leave', genderRestriction: null },
+  { id: 'lt2', label: 'Sick Leave', genderRestriction: null },
+  { id: 'lt3', label: 'Maternity Leave', genderRestriction: 'FEMALE' },
 ];
 
-/** Signs a role in with an employee record behind it, as a real session has. */
-function signIn(role: 'ADMIN' | 'EMPLOYEE') {
-  useAuthStore.setState({
-    user: {
-      id: 'u1',
-      email: role === 'ADMIN' ? 'hr@peoplepay360.com' : 'aisha@peoplepay360.com',
-      role,
-      isActive: true,
-      employee: {
-        id: 'emp-1',
-        employeeCode: 'EMP-0001',
-        firstName: 'Aisha',
-        lastName: 'Al Balushi',
-      },
-    },
-    isAuthenticated: true,
-    isLoading: false,
-    hasHydrated: true,
+function mockLeaveTypes(types: unknown[] = LEAVE_TYPES) {
+  getAll.mockResolvedValue({ success: true, data: types } as never);
+}
+
+/** Renders as an employee — the only role this screen serves. */
+async function renderForm(overrides: Record<string, unknown> = {}) {
+  const result = renderWithProviders(<NewLeavePage />, {
+    role: 'EMPLOYEE',
+    user: { employeeId: 'e-1', ...overrides },
   });
+  // The leave-type list loads in an effect and seeds the select's default.
+  await waitFor(() => expect(getAll).toHaveBeenCalled());
+  return result;
 }
 
 /**
- * Everything the resolver insists on, leaving the type to the caller.
+ * Dates derived from the clock, never written down.
  *
- * Date inputs are set directly: typing into one in jsdom depends on the
- * locale-dependent segment order the browser would have used.
+ * The form sets `min={new Date().toISOString().split('T')[0]}` on both date
+ * inputs, so a hardcoded date is only valid until the clock passes it. These
+ * cases were written with `2026-09-01`, and seven of them — plus the browser
+ * case LVE-UI-04 — began failing on the day that became yesterday: `userEvent`
+ * will not type a value the control reports as out of range, so the form was
+ * left with an empty start date and the assertions downstream never saw the
+ * error they were waiting for. A test that expires is worse than no test,
+ * because it fails long after the change that would explain it.
+ *
+ * UTC to match the form: it builds its `min` from `toISOString()`, so a local
+ * date would disagree with it either side of midnight.
  */
-function fillBaseline() {
-  fireEvent.change(screen.getByLabelText('First day off'), {
-    target: { value: '2026-10-12' },
-  });
-  fireEvent.change(screen.getByLabelText('Last day off'), {
-    target: { value: '2026-10-15' },
-  });
-  fireEvent.change(screen.getByLabelText('Reason'), {
-    target: { value: 'Family visit to Salalah' },
-  });
-}
+const isoDaysFromToday = (days: number): string => {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().split('T')[0];
+};
+
+/** Tomorrow — comfortably inside `min`, whatever the clock says. */
+const START = isoDaysFromToday(1);
+/** Two days after START, so the inclusive preview reads "3 days". */
+const END = isoDaysFromToday(3);
+/** Far enough out to be unambiguous when asserting the end picker's `min`. */
+const LATER = isoDaysFromToday(10);
+
+const reasonBox = () => document.querySelector('textarea')!;
+const dateInputs = () => Array.from(document.querySelectorAll('input[type="date"]')) as HTMLInputElement[];
+const submitButton = () =>
+  Array.from(document.querySelectorAll('button')).find((b) => b.getAttribute('type') === 'submit')!;
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  signIn('EMPLOYEE');
+  create.mockReset();
+  getBalance.mockReset();
+  uploadAttachment.mockReset();
+  getAll.mockReset();
+  toastError.mockReset();
+  toastSuccess.mockReset();
+  getBalance.mockResolvedValue({ data: { totalAnnual: 20, usedAnnual: 4 } } as never);
+  mockLeaveTypes();
+});
 
-  leaveTypes.mockResolvedValue({ success: true, data: LEAVE_TYPES });
-  balance.mockResolvedValue({
-    success: true,
-    data: {
-      id: 'bal-1',
-      employeeId: 'emp-1',
-      year: 2026,
-      annualLeave: 30,
-      sickLeave: 15,
-      usedAnnual: 4,
-      usedSick: 0,
-      carriedOver: 2,
-      remainingAnnual: 28,
-      remainingSick: 15,
-      leaveTypeBalances: [
-        {
-          id: 'ltb-1',
-          employeeId: 'emp-1',
-          year: 2026,
-          leaveTypeKey: 'Annual Leave',
-          allocated: 30,
-          used: 4,
-          carriedOver: 2,
-          remaining: 28,
-        },
-      ],
-      totals: { allocated: 30, used: 4, carriedOver: 2, remaining: 28 },
-      createdAt: '2026-01-01T00:00:00.000Z',
-      updatedAt: '2026-01-01T00:00:00.000Z',
-    },
+describe('who the screen is for', () => {
+  it.each(['ADMIN', 'HR_MANAGER'])('refuses %s, who approve rather than apply', async (role) => {
+    // Admin and HR act on other people's requests; letting them file their own
+    // here would create a request they are also the approver for.
+    renderWithProviders(<NewLeavePage />, { role: role as 'ADMIN', user: { employeeId: 'e-1' } });
+
+    expect(document.querySelector('textarea')).not.toBeInTheDocument();
   });
-  createRequest.mockResolvedValue({
-    success: true,
-    data: { id: 'lr-1' } as never,
+
+  it('shows the form to an employee', async () => {
+    await renderForm();
+    expect(reasonBox()).toBeInTheDocument();
+  });
+
+  it('shows the form to a manager, who may also take leave', async () => {
+    renderWithProviders(<NewLeavePage />, { role: 'MANAGER', user: { employeeId: 'e-9' } });
+    await waitFor(() => expect(document.querySelector('textarea')).toBeInTheDocument());
   });
 });
 
-describe('File leave', () => {
-  it('asks for the four things a request cannot be filed without', async () => {
-    renderWithProviders(<NewLeaveRequestPage />);
-
-    expect(await screen.findByLabelText('Leave type')).toBeInTheDocument();
-    expect(screen.getByLabelText('First day off')).toBeInTheDocument();
-    expect(screen.getByLabelText('Last day off')).toBeInTheDocument();
-    expect(screen.getByLabelText('Reason')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'File the request' }),
-    ).toBeInTheDocument();
+describe('leave types', () => {
+  it('lists the types the library returns', async () => {
+    await renderForm();
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Annual Leave' })).toBeInTheDocument());
+    expect(screen.getByRole('option', { name: 'Sick Leave' })).toBeInTheDocument();
   });
 
-  it('does not offer an employee the picker that spends another balance', async () => {
-    renderWithProviders(<NewLeaveRequestPage />);
-
-    await screen.findByLabelText('Leave type');
-    expect(screen.queryByLabelText('Employee')).not.toBeInTheDocument();
+  it('requests only ACTIVE leave types', async () => {
+    await renderForm();
+    expect(getAll).toHaveBeenCalledWith('LEAVE_TYPE', true);
   });
 
-  it('gives HR the picker, because filing for somebody else is their job', async () => {
-    signIn('ADMIN');
-    renderWithProviders(<NewLeaveRequestPage />);
-
-    expect(await screen.findByLabelText('Employee')).toBeInTheDocument();
+  it('hides a gender-restricted type from an employee of another gender', async () => {
+    // Offering Maternity Leave to a male employee produces a request that can
+    // only be rejected.
+    await renderForm({ employee: { gender: 'MALE' } });
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Annual Leave' })).toBeInTheDocument());
+    expect(screen.queryByRole('option', { name: 'Maternity Leave' })).not.toBeInTheDocument();
   });
 
-  it('states the chosen type rules before the request is committed to', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<NewLeaveRequestPage />);
-
-    await screen.findByRole('option', { name: 'Annual Leave' });
-    await user.selectOptions(screen.getByLabelText('Leave type'), 'Annual Leave');
-
-    // Both halves matter: what it costs, and how far ahead it has to be filed.
-    expect(
-      screen.getByText(
-        /Counts against your Annual Leave balance\.\s*Needs 7 days notice\./,
-      ),
-    ).toBeInTheDocument();
-
-    // "Approved but free" is a different fact from "you have none left", and the
-    // form has to say which one this type is.
-    await user.selectOptions(screen.getByLabelText('Leave type'), 'Unpaid Leave');
-    expect(
-      screen.getByText('Recorded and approved, but costs no entitlement.'),
-    ).toBeInTheDocument();
+  it('shows a gender-restricted type to a matching employee', async () => {
+    await renderForm({ employee: { gender: 'FEMALE' } });
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Maternity Leave' })).toBeInTheDocument());
   });
 
-  it('shows the balance for the chosen type, the fact that decides the request', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<NewLeaveRequestPage />);
-
-    await screen.findByRole('option', { name: 'Annual Leave' });
-    await user.selectOptions(screen.getByLabelText('Leave type'), 'Annual Leave');
-
-    expect(
-      await screen.findByRole('heading', { name: 'Balance' }),
-    ).toBeInTheDocument();
-    expect(screen.getByText('30 days')).toBeInTheDocument();
-    expect(screen.getByText('28 days')).toBeInTheDocument();
-    // The employee never names themselves: their own id comes off the session.
-    expect(balance).toHaveBeenCalledWith('emp-1', undefined);
+  it('shows every type when the employee has no gender recorded', async () => {
+    // Deliberately permissive: an unset gender must not silently remove
+    // entitlements. The approver still sees the request.
+    await renderForm({ employee: {} });
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Maternity Leave' })).toBeInTheDocument());
   });
 
-  it('posts the label, the two dates and the reason, and no employee', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<NewLeaveRequestPage />);
+  it('survives a failed leave-type load without crashing the page', async () => {
+    getAll.mockRejectedValue(new Error('network'));
+    renderWithProviders(<NewLeavePage />, { role: 'EMPLOYEE', user: { employeeId: 'e-1' } });
+    await waitFor(() => expect(document.querySelector('textarea')).toBeInTheDocument());
+  });
+});
 
-    await screen.findByRole('option', { name: 'Annual Leave' });
-    await user.selectOptions(screen.getByLabelText('Leave type'), 'Annual Leave');
-    fillBaseline();
+describe('validation', () => {
+  it('rejects a submission with no dates and no reason', async () => {
+    const { user } = await renderForm();
 
-    await user.click(screen.getByRole('button', { name: 'File the request' }));
+    await user.click(submitButton());
 
-    await waitFor(() => expect(createRequest).toHaveBeenCalledTimes(1));
-
-    // `leaveType` is the LABEL, not the library id: the request row and the
-    // balance row both key off this exact string.
-    //
-    // `employeeId` is undefined rather than '' — an empty string is a uuid the
-    // server cannot resolve, and "file my own" is expressed by the field being
-    // absent.
-    expect(createRequest).toHaveBeenCalledWith({
-      employeeId: undefined,
-      leaveType: 'Annual Leave',
-      startDate: '2026-10-12',
-      endDate: '2026-10-15',
-      reason: 'Family visit to Salalah',
-    });
+    await waitFor(() => expect(screen.getByText(/Start date is required/i)).toBeInTheDocument());
+    expect(screen.getByText(/End date is required/i)).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
   });
 
-  it('repeats the server refusal verbatim rather than a generic apology', async () => {
-    // The shape the axios interceptor rejects with: FLAT, no `.response`.
-    createRequest.mockRejectedValue({
-      success: false,
-      statusCode: 400,
-      message: 'Annual Leave needs 7 days notice; the first day off is in 3',
-      errors: null,
-      timestamp: '2026-10-09T08:00:00.000Z',
-      path: '/leave-requests',
-    });
+  it('rejects a reason shorter than ten characters', async () => {
+    // The rule that makes a request reviewable. "sick" tells an approver
+    // nothing, and loosening this is exactly the kind of change that passes
+    // review unnoticed.
+    const { user } = await renderForm();
+    const [start, end] = dateInputs();
 
-    const user = userEvent.setup();
-    renderWithProviders(<NewLeaveRequestPage />);
-
-    await screen.findByRole('option', { name: 'Annual Leave' });
-    await user.selectOptions(screen.getByLabelText('Leave type'), 'Annual Leave');
-    fillBaseline();
-    await user.click(screen.getByRole('button', { name: 'File the request' }));
+    await user.type(start, START);
+    await user.type(end, END);
+    await user.type(reasonBox(), 'sick');
+    await user.click(submitButton());
 
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(
-        'Annual Leave needs 7 days notice; the first day off is in 3',
+      expect(screen.getByText(/at least 10 characters/i)).toBeInTheDocument(),
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('accepts a reason of exactly ten characters', async () => {
+    // Boundary: the rule is `min(10)`, so ten passes.
+    create.mockResolvedValue({ data: { id: 'lr-1' } } as never);
+    const { user } = await renderForm();
+    const [start, end] = dateInputs();
+
+    await user.type(start, START);
+    await user.type(end, END);
+    await user.type(reasonBox(), '1234567890');
+    await user.click(submitButton());
+
+    await waitFor(() => expect(create).toHaveBeenCalled());
+  });
+
+  it('does not let the end date precede the start date in the picker', async () => {
+    const { user } = await renderForm();
+    const [start, end] = dateInputs();
+
+    await user.type(start, LATER);
+
+    await waitFor(() => expect(end).toHaveAttribute('min', LATER));
+  });
+});
+
+describe('the estimated-days preview', () => {
+  /**
+   * Scoped to the preview panel on purpose. A bare text match for a digit also
+   * hits the date inputs, which would make the assertion pass
+   * for the wrong reason.
+   */
+  const previewText = () =>
+    screen.getByText('Estimated Days:').closest('p')!.textContent ?? '';
+
+  it('counts both endpoints, so a single day reads as one', async () => {
+    // Inclusive by design: taking Monday off is one day, not zero.
+    const { user } = await renderForm();
+    const [start, end] = dateInputs();
+
+    await user.type(start, START);
+    await user.type(end, START);
+
+    await waitFor(() => expect(previewText()).toContain('1 days'));
+  });
+
+  it('counts a three-day range as three', async () => {
+    const { user } = await renderForm();
+    const [start, end] = dateInputs();
+
+    await user.type(start, START);
+    await user.type(end, END);
+
+    await waitFor(() => expect(previewText()).toContain('3 days'));
+  });
+
+  it('stays hidden until both dates are set', async () => {
+    const { user } = await renderForm();
+    const [start] = dateInputs();
+
+    await user.type(start, START);
+
+    expect(screen.queryByText('Estimated Days:')).not.toBeInTheDocument();
+  });
+});
+
+describe('submitting', () => {
+  async function fillValidForm(user: ReturnType<typeof renderWithProviders>['user']) {
+    const [start, end] = dateInputs();
+    await user.type(start, START);
+    await user.type(end, END);
+    await user.type(reasonBox(), 'Family commitment abroad');
+  }
+
+  it('sends the entered values', async () => {
+    create.mockResolvedValue({ data: { id: 'lr-1' } } as never);
+    const { user } = await renderForm();
+
+    await fillValidForm(user);
+    await user.click(submitButton());
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          startDate: START,
+          endDate: END,
+          reason: 'Family commitment abroad',
+          leaveType: 'Annual Leave',
+        }),
       ),
     );
-    // The fallback would be a silent regression: the form would still "work".
-    expect(toast.error).not.toHaveBeenCalledWith(
-      'The leave request could not be filed.',
-    );
+  });
+
+  it('redirects to the employee’s own list on success', async () => {
+    create.mockResolvedValue({ data: { id: 'lr-1' } } as never);
+    const { user } = await renderForm();
+
+    await fillValidForm(user);
+    await user.click(submitButton());
+
+    await waitFor(() => expect(routerMock.push).toHaveBeenCalledWith('/dashboard/my-leaves'));
+    expect(toastSuccess).toHaveBeenCalled();
+  });
+
+  it('does not upload anything when no file was attached', async () => {
+    create.mockResolvedValue({ data: { id: 'lr-1' } } as never);
+    const { user } = await renderForm();
+
+    await fillValidForm(user);
+    await user.click(submitButton());
+
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    expect(uploadAttachment).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed create and stays on the form', async () => {
+    create.mockRejectedValue({ message: 'Insufficient leave balance' });
+    const { user } = await renderForm();
+
+    await fillValidForm(user);
+    await user.click(submitButton());
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Insufficient leave balance'));
+    expect(routerMock.push).not.toHaveBeenCalledWith('/dashboard/my-leaves');
+  });
+
+  it('re-enables the form after a failure, so the user can retry', async () => {
+    create.mockRejectedValue({ message: 'Server error' });
+    const { user } = await renderForm();
+
+    await fillValidForm(user);
+    await user.click(submitButton());
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(submitButton()).not.toBeDisabled();
+  });
+});
+
+describe('the leave balance panel', () => {
+  it('loads the balance for the signed-in employee', async () => {
+    await renderForm();
+    await waitFor(() => expect(getBalance).toHaveBeenCalledWith('e-1'));
+  });
+
+  it('renders even when the balance request fails', async () => {
+    // A missing balance must not block the request; the approver has the
+    // authoritative figure anyway.
+    getBalance.mockRejectedValue(new Error('boom'));
+    await renderForm();
+    expect(reasonBox()).toBeInTheDocument();
   });
 });

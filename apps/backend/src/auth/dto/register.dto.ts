@@ -1,29 +1,43 @@
 import {
   IsEmail,
+  IsString,
+  MinLength,
   IsEnum,
   IsOptional,
-  IsString,
   IsUUID,
-  MinLength,
 } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { ApiProperty } from '@nestjs/swagger';
 
 export class RegisterDto {
-  @ApiProperty({ example: 'payroll@peoplepay360.com' })
+  @ApiProperty({
+    example: 'user@company.com',
+    description: 'User email address',
+  })
   @IsEmail()
   email: string;
 
-  @ApiProperty({ example: 'Str0ng@Pass', minLength: 8 })
+  @ApiProperty({
+    example: 'Password@123',
+    description: 'User password (minimum 6 characters)',
+    minLength: 6,
+  })
   @IsString()
-  @MinLength(8)
+  @MinLength(6)
   password: string;
 
-  @ApiProperty({ enum: UserRole, example: UserRole.EMPLOYEE })
-  @IsEnum(UserRole)
-  role: UserRole;
+  @ApiProperty({
+    example: 'EMPLOYEE',
+    description: 'User role',
+    enum: ['ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'],
+  })
+  @IsEnum(['ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'])
+  role: string;
 
-  @ApiPropertyOptional({ description: 'Employee record to link this login to' })
+  @ApiProperty({
+    example: '11111111-1111-1111-1111-111111111111',
+    description: 'Employee ID to link with user account',
+    required: false,
+  })
   @IsOptional()
   @IsUUID()
   employeeId?: string;

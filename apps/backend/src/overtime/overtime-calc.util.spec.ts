@@ -19,13 +19,7 @@ describe('splitOvertimeHours', () => {
       LATE,
       EOD,
     );
-    expect(r).toMatchObject({
-      regularHours: 5,
-      lateHours: 1,
-      doubleHours: 0,
-      totalHours: 6,
-      isLate: true,
-    });
+    expect(r).toMatchObject({ regularHours: 5, lateHours: 1, doubleHours: 0, totalHours: 6, isLate: true });
     expect(r.clampedByBoundary).toBe(false);
   });
 
@@ -59,13 +53,7 @@ describe('splitOvertimeHours', () => {
       LATE,
       EOD,
     );
-    expect(r).toMatchObject({
-      regularHours: 0,
-      lateHours: 0,
-      doubleHours: 9,
-      doubleLateHours: 0,
-      totalHours: 9,
-    });
+    expect(r).toMatchObject({ regularHours: 0, lateHours: 0, doubleHours: 9, doubleLateHours: 0, totalHours: 9 });
   });
 
   it('double-OT day splits at the double late threshold into double-regular and double-late buckets', () => {
@@ -96,12 +84,7 @@ describe('splitOvertimeHours', () => {
       LATE,
       23 * 60, // 23:00 boundary
     );
-    expect(r).toMatchObject({
-      regularHours: 2,
-      lateHours: 1,
-      totalHours: 3,
-      clampedByBoundary: true,
-    });
+    expect(r).toMatchObject({ regularHours: 2, lateHours: 1, totalHours: 3, clampedByBoundary: true });
   });
 
   it('after-midnight boundary (02:00) keeps overnight hours on the same attendance day', () => {
@@ -112,12 +95,7 @@ describe('splitOvertimeHours', () => {
       LATE,
       2 * 60, // 02:00 boundary → belongs to the next calendar day
     );
-    expect(r).toMatchObject({
-      regularHours: 0,
-      lateHours: 3,
-      totalHours: 3,
-      clampedByBoundary: false,
-    });
+    expect(r).toMatchObject({ regularHours: 0, lateHours: 3, totalHours: 3, clampedByBoundary: false });
   });
 
   it('returns all-zero when the whole window is past the boundary', () => {
@@ -128,12 +106,7 @@ describe('splitOvertimeHours', () => {
       LATE,
       23 * 60, // boundary 23:00, before the 23:30 start
     );
-    expect(r).toMatchObject({
-      regularHours: 0,
-      lateHours: 0,
-      doubleHours: 0,
-      totalHours: 0,
-    });
+    expect(r).toMatchObject({ regularHours: 0, lateHours: 0, doubleHours: 0, totalHours: 0 });
   });
 });
 

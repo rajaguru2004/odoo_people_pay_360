@@ -1,98 +1,133 @@
 'use client';
 
-import type { ReactNode } from 'react';
-import { Search, X } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Search, X, Calendar, Building2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
-/** One dropdown on the bar. `''` is always "no narrowing", never a real value. */
-export interface AttendanceFilterSelect {
-  key: string;
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  /** The first row, shown when nothing is chosen — "Every department". */
-  placeholder: string;
-  options: Array<{ value: string; label: string }>;
+interface AttendanceSearchFilterBarProps {
+  searchTerm: string;
+  onSearchChange: (value: string) => void;
+  departmentFilter: string;
+  onDepartmentChange: (value: string) => void;
+  dateFilter: string;
+  onDateChange: (value: string) => void;
+  startDateFilter: string;
+  onStartDateChange: (value: string) => void;
+  endDateFilter: string;
+  onEndDateChange: (value: string) => void;
+  departments: Array<{ id: string; name: string }>;
+  activePeriod: 'today' | 'week' | 'month' | 'custom';
 }
 
-/**
- * The filter row an attendance list is read through.
- *
- * The selects are data rather than props with names, so one bar serves screens
- * that narrow by different things without growing an argument per screen. What
- * stays fixed is the shape: search first, dropdowns after, and a Clear that
- * only appears once there is something to clear — a permanently visible reset
- * on an untouched screen is a control with nothing to do.
- *
- * `leading` and `trailing` are for controls that belong to the bar but are not
- * filters: a month stepper on one end, an export button on the other.
- */
-export function AttendanceSearchFilterBar({
-  search,
+export default function AttendanceSearchFilterBar({
+  searchTerm,
   onSearchChange,
-  searchLabel = 'Employee',
-  searchPlaceholder = 'Name, code or department',
-  filters = [],
-  onClear,
-  leading,
-  trailing,
-}: {
-  search: string;
-  onSearchChange: (value: string) => void;
-  searchLabel?: string;
-  searchPlaceholder?: string;
-  filters?: AttendanceFilterSelect[];
-  onClear: () => void;
-  leading?: ReactNode;
-  trailing?: ReactNode;
-}) {
-  const narrowed = Boolean(search.trim()) || filters.some((f) => f.value);
+  departmentFilter,
+  onDepartmentChange,
+  dateFilter,
+  onDateChange,
+  startDateFilter,
+  onStartDateChange,
+  endDateFilter,
+  onEndDateChange,
+  departments,
+  activePeriod,
+}: AttendanceSearchFilterBarProps) {
+  const t = useTranslations('attendanceFilterPanel');
 
   return (
-    <Card className="p-4">
-      <div className="flex flex-wrap items-end gap-3">
-        {leading}
-
-        <div className="w-full sm:w-64">
-          <Input
-            label={searchLabel}
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder={searchPlaceholder}
-            icon={<Search className="h-4 w-4" aria-hidden />}
+    <div className="bg-surface-card rounded-[--radius-card] border border-surface-border p-3 shadow-md">
+      <div className="flex flex-col lg:flex-row gap-3">
+        {/* Search */}
+        <div className="flex-1 relative">
+          <Search className="absolute start-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
+          <input
+            type="text"
+            data-testid="att-search"
+            placeholder={t('searchPlaceholder')}
+            value={searchTerm}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="w-full ps-10 pe-10 py-2.5 border border-surface-border rounded-[--radius-input] focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary bg-surface-card text-text-body text-sm transition-all"
           />
+          {searchTerm && (
+            <button
+              data-testid="att-search-clear"
+              onClick={() => onSearchChange('')}
+              className="absolute end-3 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-text-heading hover:bg-surface-page rounded transition-all"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
 
-        {filters.map((filter) => (
-          <div key={filter.key} className="w-full sm:w-48">
-            <Select
-              label={filter.label}
-              placeholder={filter.placeholder}
-              value={filter.value}
-              onChange={(event) => filter.onChange(event.target.value)}
-            >
-              {filter.options.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-        ))}
+        {/* Date Picker(s) */}
+        {activePeriod === 'custom' ? (
+          <>
+            {/* Start Date Picker */}
+            <div className="flex items-center gap-2 min-w-[210px]">
+              <span className="text-xs font-bold text-text-muted uppercase tracking-wider">{t('from')}</span>
+              <div className="relative flex-1">
+                <Calendar className="absolute start-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" size={16} />
+                <input
+                  type="date"
+                  value={startDateFilter}
+                  data-testid="att-date-from"
+                  onChange={(e) => onStartDateChange(e.target.value)}
+                  className="w-full ps-10 pe-3 py-2.5 border border-surface-border rounded-[--radius-input] focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary bg-surface-card text-text-body text-sm transition-all"
+                />
+              </div>
+            </div>
 
-        <div className="ms-auto flex items-end gap-2">
-          {narrowed && (
-            <Button variant="ghost" onClick={onClear}>
-              <X className="h-4 w-4" aria-hidden />
-              Clear
-            </Button>
-          )}
-          {trailing}
+            {/* End Date Picker */}
+            <div className="flex items-center gap-2 min-w-[210px]">
+              <span className="text-xs font-bold text-text-muted uppercase tracking-wider">{t('to')}</span>
+              <div className="relative flex-1">
+                <Calendar className="absolute start-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" size={16} />
+                <input
+                  type="date"
+                  value={endDateFilter}
+                  data-testid="att-date-to"
+                  onChange={(e) => onEndDateChange(e.target.value)}
+                  className="w-full ps-10 pe-3 py-2.5 border border-surface-border rounded-[--radius-input] focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary bg-surface-card text-text-body text-sm transition-all"
+                />
+              </div>
+            </div>
+          </>
+        ) : activePeriod === 'today' ? (
+          <div className="relative min-w-[180px]">
+            <Calendar className="absolute start-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" size={16} />
+            <input
+              type="date"
+              value={dateFilter}
+              data-testid="att-date"
+              onChange={(e) => onDateChange(e.target.value)}
+              className="w-full ps-10 pe-3 py-2.5 border border-surface-border rounded-[--radius-input] focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary bg-surface-card text-text-body text-sm transition-all"
+            />
+          </div>
+        ) : null}
+
+        {/* Department Dropdown */}
+        <div className="relative min-w-[200px]">
+          <Building2 className="absolute start-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" size={16} />
+          <select
+            data-testid="att-dept"
+            value={departmentFilter}
+            onChange={(e) => onDepartmentChange(e.target.value)}
+            className="w-full ps-10 pe-8 py-2.5 border border-surface-border rounded-[--radius-input] text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary transition-all appearance-none bg-surface-card text-text-body cursor-pointer"
+          >
+            <option value="all">{t('allDepartments')}</option>
+            {departments.map((dept) => (
+              <option key={dept.id} value={dept.id}>
+                {dept.name}
+              </option>
+            ))}
+          </select>
+          <div className="absolute end-3 top-1/2 -translate-y-1/2 pointer-events-none">
+            <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
         </div>
       </div>
-    </Card>
+    </div>
   );
 }

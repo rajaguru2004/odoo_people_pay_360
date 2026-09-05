@@ -1,83 +1,113 @@
 import {
-  Body,
   Controller,
-  Delete,
   Get,
-  Param,
-  ParseUUIDPipe,
-  Patch,
   Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
   Query,
   UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
+import { LibraryType } from '@prisma/client';
 import { LibraryItemsService } from './library-items.service';
 import { CreateLibraryItemDto } from './dto/create-library-item.dto';
 import { UpdateLibraryItemDto } from './dto/update-library-item.dto';
-import { ListLibraryItemsDto } from './dto/list-library-items.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 
-@ApiTags('Library items')
-@ApiBearerAuth('JWT-auth')
+@ApiTags('Library Items')
 @Controller('library-items')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@ApiBearerAuth('JWT-auth')
 export class LibraryItemsController {
-  constructor(private readonly service: LibraryItemsService) {}
+  constructor(private readonly libraryItemsService: LibraryItemsService) {}
 
-  /**
-   * Open to every authenticated caller: an employee filing leave has to be able
-   * to see the list of leave types they may pick from.
-   */
-  @Get()
-  @ApiOperation({ summary: 'List library items' })
-  findAll(@Query() query: ListLibraryItemsDto) {
-    return this.service.findAll(query);
+  @Post()
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Create a new library item (Admin only)' })
+  @ApiResponse({ status: 201, description: 'Created successfully' })
+  async create(@Body() createLibraryItemDto: CreateLibraryItemDto) {
+    const item = await this.libraryItemsService.create(createLibraryItemDto);
+    return {
+      success: true,
+      data: item,
+    };
   }
 
-  // Literal before `:id`, or Nest parses "seed" as a uuid and answers 400.
+  @Get()
+  @ApiOperation({ summary: 'Get all library items (Authenticated only)' })
+  @ApiQuery({ name: 'type', enum: LibraryType, required: false })
+  @ApiQuery({ name: 'activeOnly', type: Boolean, required: false })
+  @ApiResponse({ status: 200, description: 'Retrieved successfully' })
+  async findAll(
+    @Query('type') type?: LibraryType,
+    @Query('activeOnly') activeOnly?: string,
+  ) {
+    const isActive = activeOnly === 'true' ? true : activeOnly === 'false' ? false : undefined;
+    const items = await this.libraryItemsService.findAll(type, isActive);
+    return {
+      success: true,
+      data: items,
+    };
+  }
+
   @Post('seed')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Re-create the default pick lists (idempotent)' })
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Run default seeding for positions (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Seeded successfully' })
   async seed() {
-    await this.service.seedDefaults();
-    return { success: true, message: 'Library defaults seeded' };
+    await this.libraryItemsService.seedDefaultPositions();
+    return {
+      success: true,
+      message: 'Seeded defaults successfully',
+    };
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get one library item' })
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.findOne(id);
-  }
-
-  @Post()
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Create a library item' })
-  create(@Body() dto: CreateLibraryItemDto) {
-    return this.service.create(dto);
+  @ApiOperation({ summary: 'Get single library item (Authenticated only)' })
+  @ApiResponse({ status: 200, description: 'Retrieved successfully' })
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+    const item = await this.libraryItemsService.findOne(id);
+    return {
+      success: true,
+      data: item,
+    };
   }
 
   @Patch(':id')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'Update a library item' })
-  update(
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Update a library item (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Updated successfully' })
+  async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateLibraryItemDto,
+    @Body() updateLibraryItemDto: UpdateLibraryItemDto,
   ) {
-    return this.service.update(id, dto);
+    const item = await this.libraryItemsService.update(id, updateLibraryItemDto);
+    return {
+      success: true,
+      data: item,
+    };
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({
-    summary: 'Deactivate a library item',
-    description:
-      'Soft: balances and requests store the LABEL, so a hard delete would ' +
-      'leave a year of history naming a type that no longer exists.',
-  })
-  deactivate(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.deactivate(id);
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Delete a library item (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Deleted successfully' })
+  async remove(@Param('id', ParseUUIDPipe) id: string) {
+    await this.libraryItemsService.remove(id);
+    return {
+      success: true,
+      message: 'Item deleted successfully',
+    };
   }
 }

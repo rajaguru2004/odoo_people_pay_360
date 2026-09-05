@@ -1,149 +1,265 @@
 import {
-  BadRequestException,
-  ConflictException,
   Injectable,
   NotFoundException,
+  ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  assertBranchVisible,
+  getEnvelopeBranchIds,
+} from '../common/branch/branch-scope.util';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
-
-const BRANCH_INCLUDE = {
-  manager: {
-    select: { id: true, employeeCode: true, firstName: true, lastName: true },
-  },
-  _count: { select: { employees: true, departments: true } },
-} satisfies Prisma.BranchInclude;
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class BranchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) {}
 
-  findAll(includeInactive = false) {
-    return this.prisma.branch.findMany({
-      where: includeInactive ? undefined : { isActive: true },
-      include: BRANCH_INCLUDE,
-      orderBy: { name: 'asc' },
+  /**
+   * Restricts a query to the branches the caller may reach at all.
+   *
+   * `Branch` is the one model the branch-scope map cannot cover — the map's
+   * rules filter on a `branchId` column, and a branch's identity IS the branch.
+   * Without this, a branch-scoped HR manager saw, edited and deleted branches
+   * outside their grant: the single record the branch engine did not protect.
+   */
+  private envelopeWhere(): { id?: { in: string[] } } {
+    const envelope = getEnvelopeBranchIds();
+    return envelope === null ? {} : { id: { in: envelope } };
+  }
+
+  /**
+   * Canonicalise `weeklyOffDays` before it reaches the database.
+   *
+   * Every day named here is read back by `holidaysService.getWeeklyOffDays()`
+   * and classified as a REST DAY, which overtime pays at the double
+   * multiplier. That makes this one CSV the highest-leverage field on the
+   * branch: a Head Office saved as `"1,2,3,4,5,6"` turned every Mon–Sat
+   * overtime request into rest-day work at 2x, and nothing downstream could
+   * tell that apart from a deliberate roster.
+   *
+   * So: duplicates and whitespace are dropped (`"0,0,6"` must not read as
+   * three off days), the list is sorted for a stable stored form, and a set
+   * covering all seven days is refused outright — a branch with no working day
+   * cannot be a real roster, only a mis-click.
+   *
+   * A 5- or 6-day set is still allowed: it is legal, if unusual, so the branch
+   * form warns about the overtime consequence instead of blocking the save.
+   */
+  private normalizeWeeklyOffDays(dto: {
+    weeklyOffDays?: string | null;
+  }): void {
+    if (dto.weeklyOffDays === undefined) return;
+
+    // Empty means "inherit the company default", which the column stores as
+    // NULL — an empty string would be read as a real zero-off-day week.
+    if (dto.weeklyOffDays === null || dto.weeklyOffDays.trim() === '') {
+      dto.weeklyOffDays = null;
+      return;
+    }
+
+    const days = [
+      ...new Set(
+        dto.weeklyOffDays
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map(Number),
+      ),
+    ]
+      .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+      .sort((a, b) => a - b);
+
+    if (days.length >= 7) {
+      throw new BadRequestException(
+        'weeklyOffDays cannot cover all seven days — a branch must keep at least one working day',
+      );
+    }
+
+    dto.weeklyOffDays = days.length ? days.join(',') : null;
+  }
+
+  /**
+   * @param includeInactive  Retired branches are hidden from every list and
+   *   every picker, and `findOne` 404s on them as well — so a branch switched
+   *   off by mistake had no route back through the UI at all: it could not be
+   *   listed, opened, or edited. This is the one door that can see them, and it
+   *   stays shut unless the caller explicitly asks and holds a role that may
+   *   also switch them back on.
+   */
+  async findAll(includeInactive = false) {
+    const branches = await this.prisma.branch.findMany({
+      where: {
+        ...(includeInactive ? {} : { isActive: true }),
+        ...this.envelopeWhere(),
+      },
+      include: {
+        manager: { select: { id: true, fullName: true, employeeCode: true } },
+        _count: { select: { employees: true } },
+      },
+      orderBy: { code: 'asc' },
     });
+    return { success: true, data: branches };
   }
 
   async findOne(id: string) {
+    assertBranchVisible(id);
+
     const branch = await this.prisma.branch.findUnique({
       where: { id },
       include: {
-        ...BRANCH_INCLUDE,
-        departments: {
-          select: { id: true, code: true, name: true },
-          orderBy: { name: 'asc' },
-        },
+        manager: { select: { id: true, fullName: true, employeeCode: true } },
+        _count: { select: { employees: true } },
       },
     });
-    if (!branch) throw new NotFoundException('Branch not found');
-    return branch;
+    if (!branch) {
+      throw new NotFoundException('Branch not found');
+    }
+    // A retired branch is gone from every list and every picker. Still serving
+    // it by id meant a stale link kept working and an edit form kept saving to
+    // somewhere nobody could see.
+    if (!branch.isActive) {
+      throw new NotFoundException('Branch not found');
+    }
+    return { success: true, data: branch };
   }
 
-  async create(dto: CreateBranchDto) {
-    const clash = await this.prisma.branch.findUnique({
+  async create(dto: CreateBranchDto, actorUserId?: string) {
+    this.normalizeWeeklyOffDays(dto);
+
+    const existing = await this.prisma.branch.findUnique({
       where: { code: dto.code },
     });
-    if (clash)
-      throw new ConflictException(`Branch code ${dto.code} is already in use`);
+    if (existing) {
+      throw new ConflictException('Branch code already exists');
+    }
 
-    // A branch has to hang off a company. There is exactly one in this
-    // deployment, created by the seed; resolving it here rather than asking the
-    // caller for it keeps a company id out of a form nobody would know how to
-    // fill in.
-    const company = await this.prisma.company.findFirst({
-      orderBy: { createdAt: 'asc' },
-    });
-    if (!company)
-      throw new BadRequestException(
-        'No company exists yet. Run the seed before creating branches.',
-      );
+    if (dto.managerId) {
+      const manager = await this.prisma.employee.findUnique({
+        where: { id: dto.managerId },
+      });
+      if (!manager) {
+        throw new BadRequestException('Manager not found');
+      }
+    }
 
-    this.assertGeofenceComplete(dto);
+    // The `findUnique` above is a READ, and a read-then-write is not a guard: two
+    // callers creating the same code at once both passed it, and the loser hit
+    // the database's unique index with nothing catching it — answering **500
+    // Internal server error** instead of the clean 409 a sequential duplicate
+    // gets. Client input then decided whether the server reported a fault of its
+    // own, which is the rule Phase 4's F31 fixed for payroll's by-id doors.
+    //
+    // Same shape as the duplicate-payroll protection, which needed a real index
+    // behind it for the same reason.
+    let branch: Awaited<ReturnType<typeof this.prisma.branch.create>>;
+    try {
+      branch = await this.prisma.branch.create({ data: dto });
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException('Branch code already exists');
+      }
+      throw e;
+    }
 
-    return this.prisma.branch.create({
-      data: { ...dto, companyId: company.id },
-      include: BRANCH_INCLUDE,
-    });
+    // A scoped caller who opens a new site has to be able to run it. Without
+    // this the branch they just created falls outside their envelope and
+    // vanishes from their own list — a create that visibly does nothing.
+    //
+    // It does not widen their reach over anything that already existed: the
+    // branch is new and empty, and they already held the permission to create
+    // one at all.
+    if (getEnvelopeBranchIds() !== null && actorUserId) {
+      await this.prisma.userBranchAccess.upsert({
+        where: {
+          userId_branchId: { userId: actorUserId, branchId: branch.id },
+        },
+        create: { userId: actorUserId, branchId: branch.id },
+        update: {},
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Branch created successfully',
+      data: branch,
+    };
   }
 
   async update(id: string, dto: UpdateBranchDto) {
-    const branch = await this.findOne(id);
+    assertBranchVisible(id);
+    this.normalizeWeeklyOffDays(dto);
+
+    const branch = await this.prisma.branch.findUnique({ where: { id } });
+    if (!branch) {
+      throw new NotFoundException('Branch not found');
+    }
 
     if (dto.code && dto.code !== branch.code) {
-      const clash = await this.prisma.branch.findUnique({
+      const dup = await this.prisma.branch.findUnique({
         where: { code: dto.code },
       });
-      if (clash)
-        throw new ConflictException(
-          `Branch code ${dto.code} is already in use`,
-        );
+      if (dup) {
+        throw new ConflictException('Branch code already exists');
+      }
     }
 
-    this.assertGeofenceComplete({ ...branch, ...dto } as CreateBranchDto);
+    if (dto.managerId) {
+      const manager = await this.prisma.employee.findUnique({
+        where: { id: dto.managerId },
+      });
+      if (!manager) {
+        throw new BadRequestException('Manager not found');
+      }
+    }
 
-    return this.prisma.branch.update({
+    const updated = await this.prisma.branch.update({
       where: { id },
       data: dto,
-      include: BRANCH_INCLUDE,
     });
+    return {
+      success: true,
+      message: 'Branch updated successfully',
+      data: updated,
+    };
   }
 
-  /**
-   * Deactivates rather than deletes while anything still points at the branch.
-   *
-   * Attendance rows carry the branch they were captured at, deliberately, so a
-   * hard delete would either orphan them or cascade away somebody's timesheet.
-   * An empty branch is genuinely removable and is removed.
-   */
-  async remove(id: string) {
-    const branch = await this.findOne(id);
+  async delete(id: string) {
+    assertBranchVisible(id);
 
+    const branch = await this.prisma.branch.findUnique({
+      where: { id },
+      include: { _count: { select: { employees: true, assets: true } } },
+    });
+    if (!branch) {
+      throw new NotFoundException('Branch not found');
+    }
     if (branch._count.employees > 0) {
-      throw new BadRequestException(
-        `${branch._count.employees} employee(s) are still assigned to this branch. Reassign them first.`,
-      );
+      throw new BadRequestException('Cannot delete branch with employees');
     }
-    if (branch._count.departments > 0) {
-      throw new BadRequestException(
-        `${branch._count.departments} department(s) still sit under this branch. Move them first.`,
-      );
+    // R65 — `asset_items.branch_id` is a required relation, so Prisma declares
+    // `onDelete: Restrict` and Postgres enforces it. But this is a SOFT delete,
+    // so the constraint was never reached: a branch holding assets retired with
+    // a 200, the assets stayed pointing at a branch that had left every list
+    // and every picker, and clearance kept counting them for somewhere nobody
+    // could see. The employees rule one line up is the live control for exactly
+    // this shape (asserted by XM-API-15d); assets get the same clean 400 rather
+    // than a leaked P2003 or a silent success.
+    if (branch._count.assets > 0) {
+      throw new BadRequestException('Cannot delete branch with assets');
     }
 
-    const attendances = await this.prisma.attendance.count({
-      where: { branchId: id },
+    // Soft delete
+    await this.prisma.branch.update({
+      where: { id },
+      data: { isActive: false },
     });
-    if (attendances > 0) {
-      await this.prisma.branch.update({
-        where: { id },
-        data: { isActive: false },
-      });
-      return { deleted: false, deactivated: true };
-    }
 
-    await this.prisma.branch.delete({ where: { id } });
-    return { deleted: true, deactivated: false };
-  }
-
-  /**
-   * A geofence needs a centre AND a radius to mean anything.
-   *
-   * Enabled with a missing coordinate is the dangerous half-state: the check-in
-   * endpoint would read `geofencingEnabled` as true, find no centre to measure
-   * from, and let every punch through — a fence that silently is not one.
-   */
-  private assertGeofenceComplete(dto: Partial<CreateBranchDto>) {
-    if (!dto.geofencingEnabled) return;
-    const missing = (
-      ['latitude', 'longitude', 'geofenceRadiusM'] as const
-    ).filter((k) => dto[k] === null || dto[k] === undefined);
-    if (missing.length) {
-      throw new BadRequestException(
-        `Geofencing needs ${missing.join(', ')} before it can be switched on`,
-      );
-    }
+    return { success: true, message: 'Branch deleted successfully' };
   }
 }

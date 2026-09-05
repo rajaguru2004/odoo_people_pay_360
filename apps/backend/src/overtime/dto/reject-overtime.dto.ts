@@ -1,14 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsString } from 'class-validator';
 
 export class RejectOvertimeDto {
   @ApiProperty({
-    example: 'No prior authorisation from the project manager',
-    description:
-      'Required. "Rejected" on its own is the start of an argument, not the end of one.',
+    example: 'No request from project manager',
+    description: 'Reason for rejection',
   })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(500)
   rejectedReason: string;
 }

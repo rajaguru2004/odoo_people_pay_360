@@ -1,220 +1,213 @@
 'use client';
 
-import { AlertTriangle, BadgeCheck, CalendarDays, GraduationCap } from 'lucide-react';
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { Badge } from '@/components/ui/Badge';
-import { Card } from '@/components/ui/Card';
-import { EmptyState } from '@/components/common/EmptyState';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  GraduationCap,
+  Loader2,
+  BadgeCheck,
+  AlertTriangle,
+  Sparkles,
+  CalendarDays,
+} from 'lucide-react';
+import { toast } from 'sonner';
 import { usePageHeader } from '@/hooks/usePageHeader';
-import { useMyTraining } from '@/hooks/useTraining';
-import { apiErrorMessage } from '@/utils/apiError';
-import { formatDateOnly } from '@/utils/formatDate';
-import type { NominationStatus } from '@/types/training';
+import trainingService from '@/services/trainingService';
+import { NominationStatus, TrainingNomination } from '@/types/training';
 
-const STATUS_TONE: Record<
-  NominationStatus,
-  'neutral' | 'success' | 'warning' | 'error' | 'info'
-> = {
-  PENDING: 'warning',
-  APPROVED: 'success',
-  REJECTED: 'error',
-  CANCELLED: 'neutral',
-  ATTENDED: 'info',
-  NO_SHOW: 'warning',
+const STATUS_STYLE: Record<NominationStatus, string> = {
+  PENDING: 'bg-status-warning-bg/40 text-status-warning',
+  APPROVED: 'bg-status-success-bg/40 text-status-success',
+  REJECTED: 'bg-status-error-bg/40 text-status-error',
+  CANCELLED: 'bg-surface-page text-text-muted',
+  ATTENDED: 'bg-status-info-bg/40 text-status-info',
+  NO_SHOW: 'bg-orange-50 text-orange-700',
 };
 
-/** Inside this many days, a certificate is worth surfacing before HR chases. */
-const EXPIRY_HORIZON_DAYS = 90;
-
-/** Days from today to a DATE-ONLY value, read without a zone conversion. */
-function daysUntil(value: string | null | undefined): number | null {
-  if (!value) return null;
-  const target = Date.parse(`${value.slice(0, 10)}T00:00:00.000Z`);
-  if (Number.isNaN(target)) return null;
-  const today = new Date();
-  const startOfToday = Date.UTC(
-    today.getUTCFullYear(),
-    today.getUTCMonth(),
-    today.getUTCDate(),
-  );
-  return Math.ceil((target - startOfToday) / 86_400_000);
+function fmtDate(d?: string | null) {
+  if (!d) return '—';
+  try {
+    return new Date(d).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return String(d);
+  }
 }
 
-function MyTrainingScreen() {
-  const { data, isLoading, isError, error } = useMyTraining();
-  const rows = data?.data ?? [];
+function daysUntil(d?: string | null): number | null {
+  if (!d) return null;
+  const ms = new Date(d).getTime() - new Date().setHours(0, 0, 0, 0);
+  return Math.ceil(ms / 86_400_000);
+}
 
-  const upcoming = rows.filter((row) =>
-    ['PENDING', 'APPROVED'].includes(row.status),
-  );
-  const completed = rows.filter((row) =>
-    ['ATTENDED', 'NO_SHOW'].includes(row.status),
-  );
-  const expiringSoon = completed.filter((row) => {
-    const days = daysUntil(row.certificateExpiry);
-    return days !== null && days >= 0 && days <= EXPIRY_HORIZON_DAYS;
+/** ESS: the employee's own training record and certificate status. */
+export default function MyTrainingPage() {
+  const [rows, setRows] = useState<TrainingNomination[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // The one heading for this route, rendered by TopHeader.
+  usePageHeader('My Training', 'Courses you are booked on, and your certificates');
+
+  const load = useCallback(async () => {
+    try {
+      const res = await trainingService.getMyTraining();
+      setRows(Array.isArray(res.data) ? res.data : []);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to load your training');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const upcoming = rows.filter((r) => ['PENDING', 'APPROVED'].includes(r.status));
+  const completed = rows.filter((r) => ['ATTENDED', 'NO_SHOW'].includes(r.status));
+  // A certificate inside its final 90 days is worth surfacing before HR chases.
+  const expiringSoon = completed.filter((r) => {
+    const d = daysUntil(r.certificateExpiry);
+    return d !== null && d >= 0 && d <= 90;
   });
 
-  usePageHeader('My training', 'Courses you are booked on, and your certificates');
-
   return (
-    <div className="space-y-5" data-testid="ess-my-training">
-      {isError && (
-        <Card className="p-6">
-          <p className="text-sm text-status-error">
-            {apiErrorMessage(error, 'Could not load your training record.')}
-          </p>
-        </Card>
-      )}
-
-      {expiringSoon.length > 0 && (
-        <Card className="border-status-warning/30 bg-status-warning-bg/40 p-4">
-          <div className="flex items-start gap-3">
-            <AlertTriangle
-              className="mt-0.5 h-5 w-5 shrink-0 text-status-warning"
-              aria-hidden
-            />
-            <div className="text-sm text-status-warning">
-              <p className="font-semibold">
-                {expiringSoon.length} certificate
-                {expiringSoon.length === 1 ? '' : 's'} expiring within{' '}
-                {EXPIRY_HORIZON_DAYS} days
-              </p>
-              <ul className="mt-1 space-y-0.5">
-                {expiringSoon.map((row) => (
-                  <li key={row.id}>
-                    {row.session?.course?.title} — expires{' '}
-                    {formatDateOnly(row.certificateExpiry)}
-                  </li>
-                ))}
-              </ul>
+    <div className="p-4 md:p-6 space-y-6" data-testid="ess-my-training">
+      {loading ? (
+        <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-8 text-text-muted shadow-sm">
+          <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+        </div>
+      ) : (
+        <>
+          {expiringSoon.length > 0 && (
+            <div className="flex items-start gap-3 rounded-2xl border border-status-warning/30 bg-status-warning-bg/40 p-4">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-status-warning" />
+              <div className="text-sm text-status-warning">
+                <p className="font-semibold">
+                  {expiringSoon.length} certificate
+                  {expiringSoon.length === 1 ? '' : 's'} expiring within 90 days
+                </p>
+                <ul className="mt-1 space-y-0.5 text-status-warning">
+                  {expiringSoon.map((r) => (
+                    <li key={r.id}>
+                      {r.session?.course?.title} — expires{' '}
+                      {fmtDate(r.certificateExpiry)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
-          </div>
-        </Card>
-      )}
+          )}
 
-      <section className="space-y-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-text-body">
-          <CalendarDays className="h-4 w-4" aria-hidden />
-          Upcoming ({upcoming.length})
-        </h2>
-
-        {isLoading && (
-          <Card className="p-6">
-            <p className="text-sm text-text-muted">Loading your training…</p>
-          </Card>
-        )}
-
-        {!isLoading && upcoming.length === 0 && (
-          <Card>
-            <EmptyState
-              icon={<GraduationCap className="h-6 w-6" aria-hidden />}
-              title="Nothing booked"
-              description="Courses you are nominated for appear here, with the decision on each one."
-            />
-          </Card>
-        )}
-
-        {upcoming.map((row) => (
-          <Card key={row.id} className="p-4" data-testid={`my-training-row-${row.id}`}>
-            <div className="flex flex-wrap items-center gap-2">
-              <GraduationCap className="h-4 w-4 text-brand-primary" aria-hidden />
-              <p className="text-sm font-semibold text-text-heading">
-                {row.session?.course?.title}
-              </p>
-              <Badge tone={STATUS_TONE[row.status]}>{row.status}</Badge>
-            </div>
-            <p className="mt-1 text-xs text-text-muted">
-              {formatDateOnly(row.session?.startDate)} →{' '}
-              {formatDateOnly(row.session?.endDate)}
-              {row.session?.location ? ` · ${row.session.location}` : ''}
-            </p>
-            {row.justification && (
-              <p className="mt-1 text-xs italic text-text-muted">
-                “{row.justification}”
-              </p>
+          <section className="space-y-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-text-body">
+              <CalendarDays className="h-4 w-4" /> Upcoming ({upcoming.length})
+            </h2>
+            {upcoming.length === 0 ? (
+              <div className="rounded-2xl border border-surface-border bg-surface-card p-8 text-center text-sm text-text-muted shadow-sm">
+                Nothing booked.
+              </div>
+            ) : (
+              upcoming.map((r) => (
+                <div
+                  key={r.id}
+                  className="rounded-2xl border border-surface-border bg-surface-card p-4 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <GraduationCap size={15} className="text-brand-primary" />
+                    <p className="text-sm font-semibold text-text-heading">
+                      {r.session?.course?.title}
+                    </p>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[r.status]}`}
+                    >
+                      {r.status}
+                    </span>
+                    {r.source === 'APPRAISAL' && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] text-violet-700">
+                        <Sparkles size={10} /> From your appraisal
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-text-muted">
+                    {fmtDate(r.session?.startDate)} → {fmtDate(r.session?.endDate)}
+                    {r.session?.location ? ` · ${r.session.location}` : ''}
+                  </p>
+                  {r.justification && (
+                    <p className="mt-1 text-xs italic text-text-muted">
+                      “{r.justification}”
+                    </p>
+                  )}
+                  {r.rejectedReason && (
+                    <p className="mt-1 text-xs italic text-status-error">
+                      Rejected: {r.rejectedReason}
+                    </p>
+                  )}
+                </div>
+              ))
             )}
-            {row.rejectedReason && (
-              <p className="mt-1 text-xs italic text-status-error">
-                Rejected: {row.rejectedReason}
-              </p>
-            )}
-          </Card>
-        ))}
-      </section>
+          </section>
 
-      {completed.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-text-body">
-            <BadgeCheck className="h-4 w-4" aria-hidden />
-            Completed ({completed.length})
-          </h2>
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead className="border-b border-surface-border-light text-xs uppercase tracking-wide text-text-muted">
-                  <tr>
-                    <th scope="col" className="px-5 py-3 text-start font-medium">Course</th>
-                    <th scope="col" className="px-5 py-3 text-start font-medium">Attended</th>
-                    <th scope="col" className="px-5 py-3 text-start font-medium">Score</th>
-                    <th scope="col" className="px-5 py-3 text-start font-medium">Result</th>
-                    <th scope="col" className="px-5 py-3 text-start font-medium">Certificate expires</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-border-light">
-                  {completed.map((row) => {
-                    const days = daysUntil(row.certificateExpiry);
-                    const soon = days !== null && days <= EXPIRY_HORIZON_DAYS;
-                    return (
-                      <tr key={row.id}>
-                        <td className="px-5 py-3 text-text-heading">
-                          {row.session?.course?.title}
-                        </td>
-                        <td className="px-5 py-3 text-text-muted">
-                          {formatDateOnly(row.attendedAt)}
-                        </td>
-                        <td className="px-5 py-3 tabular-nums text-text-muted">
-                          {row.score ?? '—'}
-                        </td>
-                        <td className="px-5 py-3">
-                          <Badge tone={STATUS_TONE[row.status]}>
-                            {row.status === 'ATTENDED'
-                              ? row.passed === false
-                                ? 'Not passed'
-                                : 'Passed'
-                              : 'No-show'}
-                          </Badge>
-                        </td>
-                        <td
-                          className={`px-5 py-3 ${
-                            soon
-                              ? 'font-medium text-status-warning'
-                              : 'text-text-muted'
-                          }`}
-                        >
-                          {row.certificateExpiry
-                            ? `${formatDateOnly(row.certificateExpiry)}${
-                                days !== null && days >= 0 ? ` (${days}d)` : ''
-                              }`
-                            : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </section>
+          {completed.length > 0 && (
+            <section className="space-y-3">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-text-body">
+                <BadgeCheck className="h-4 w-4" /> Completed ({completed.length})
+              </h2>
+              <div className="overflow-x-auto rounded-2xl border border-surface-border bg-surface-card shadow-sm">
+                <table className="w-full text-sm">
+                  <thead className="bg-surface-page text-left text-xs uppercase text-text-muted">
+                    <tr>
+                      <th className="px-4 py-3">Course</th>
+                      <th className="px-4 py-3">Attended</th>
+                      <th className="px-4 py-3">Score</th>
+                      <th className="px-4 py-3">Result</th>
+                      <th className="px-4 py-3">Certificate expires</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface-border-light">
+                    {completed.map((r) => {
+                      const d = daysUntil(r.certificateExpiry);
+                      return (
+                        <tr key={r.id}>
+                          <td className="px-4 py-3 text-text-heading">
+                            {r.session?.course?.title}
+                          </td>
+                          <td className="px-4 py-3 text-text-muted">
+                            {fmtDate(r.attendedAt)}
+                          </td>
+                          <td className="px-4 py-3 text-text-muted">
+                            {r.score ?? '—'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[r.status]}`}
+                            >
+                              {r.status === 'ATTENDED'
+                                ? r.passed === false
+                                  ? 'Not passed'
+                                  : 'Passed'
+                                : 'No-show'}
+                            </span>
+                          </td>
+                          <td
+                            className={`px-4 py-3 ${d !== null && d <= 90 ? 'font-medium text-status-warning' : 'text-text-muted'}`}
+                          >
+                            {r.certificateExpiry
+                              ? `${fmtDate(r.certificateExpiry)}${d !== null && d >= 0 ? ` (${d}d)` : ''}`
+                              : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </>
       )}
     </div>
-  );
-}
-
-export default function MyTrainingPage() {
-  return (
-    <ProtectedRoute>
-      <MyTrainingScreen />
-    </ProtectedRoute>
   );
 }

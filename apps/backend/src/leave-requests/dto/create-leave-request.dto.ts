@@ -1,59 +1,66 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  IsNotEmpty,
-  IsOptional,
   IsString,
+  IsDateString,
+  IsEnum,
+  IsOptional,
   IsUUID,
-  Matches,
-  MaxLength,
-  MinLength,
 } from 'class-validator';
-import { DAY_KEY_PATTERN } from '../../attendances/attendance-calendar.util';
+import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateLeaveRequestDto {
-  @ApiPropertyOptional({
-    format: 'uuid',
-    description:
-      'Whose leave this is. Omit to file your own. Naming somebody else is an ' +
-      'HR privilege — the days come out of THEIR balance.',
+  @ApiProperty({
+    example: '11111111-1111-1111-1111-111111111111',
+    required: false,
+    description: 'Employee ID (HR can create for others)',
   })
   @IsOptional()
   @IsUUID()
   employeeId?: string;
 
   @ApiProperty({
-    example: 'Annual Leave',
-    description:
-      'A LEAVE_TYPE library LABEL. Read the current list from GET /leave-balances/leave-types.',
+    example: 'ANNUAL',
+    enum: [
+      'ANNUAL',
+      'SICK',
+      'UNPAID',
+      'MATERNITY',
+      'PATERNITY',
+      'BEREAVEMENT',
+      'OTHER',
+    ],
   })
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
   leaveType: string;
 
-  @ApiProperty({ example: '2026-01-20' })
-  @Matches(DAY_KEY_PATTERN, { message: 'startDate must be YYYY-MM-DD' })
+  @ApiProperty({ example: '2026-01-20', description: 'Start date' })
+  @IsDateString()
   startDate: string;
 
-  @ApiProperty({ example: '2026-01-22' })
-  @Matches(DAY_KEY_PATTERN, { message: 'endDate must be YYYY-MM-DD' })
+  @ApiProperty({ example: '2026-01-22', description: 'End date' })
+  @IsDateString()
   endDate: string;
 
-  @ApiProperty({ example: 'Family visit' })
+  @ApiProperty({ example: 'Annual leave', description: 'Reason for leave' })
   @IsString()
-  @MinLength(3, { message: 'Say why, in a sentence' })
-  @MaxLength(1000)
   reason: string;
 }
 
-export class DecideLeaveRequestDto {
-  @ApiPropertyOptional({
-    example: 'Approved. Please hand over the Tuesday report.',
-    description:
-      'The approver note on an approval, the reason on a rejection. Required to reject.',
+export class ApproveRejectDto {
+  @ApiProperty({
+    example: 'Ineligible',
+    required: false,
+    description: 'Rejection reason',
   })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  rejectedReason?: string;
+
+  @ApiProperty({
+    example: 'Approved. Please coordinate handover.',
+    required: false,
+    description: 'Optional comment by the approver',
+  })
+  @IsOptional()
+  @IsString()
   comment?: string;
 }

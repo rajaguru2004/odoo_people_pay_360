@@ -1,27 +1,29 @@
-'use client';
-
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import branchService from '@/services/branchService';
-import type { CreateBranchPayload, UpdateBranchPayload } from '@/types/branch';
 
-export const branchKeys = {
-  all: ['branches'] as const,
-  list: (includeInactive: boolean) =>
-    [...branchKeys.all, 'list', includeInactive] as const,
-  detail: (id: string) => [...branchKeys.all, 'detail', id] as const,
-};
-
-export function useBranches(includeInactive = false) {
+// `enabled` gates the request: only ADMIN/HR_MANAGER with global access may list
+// all branches. Scoped/employee users would get a 403, so callers pass `false`
+// to skip the fetch entirely instead of triggering a forbidden background call.
+// `includeInactive` is part of the key: the two lists are different responses
+// and must not share a cache entry, or toggling it would show stale rows. The
+// mutations below invalidate the `['branches']` prefix, which still covers both.
+export function useBranches(
+  enabled: boolean = true,
+  includeInactive: boolean = false,
+) {
   return useQuery({
-    queryKey: branchKeys.list(includeInactive),
-    queryFn: () => branchService.list(includeInactive),
+    queryKey: ['branches', { includeInactive }],
+    queryFn: () => branchService.getAll(includeInactive),
+    staleTime: 5 * 60 * 1000, // branches change rarely
+    enabled,
   });
 }
 
-export function useBranch(id: string | undefined) {
+export function useBranch(id: string) {
   return useQuery({
-    queryKey: branchKeys.detail(id!),
-    queryFn: () => branchService.get(id!),
+    queryKey: ['branches', id],
+    queryFn: () => branchService.getById(id),
+    staleTime: 5 * 60 * 1000,
     enabled: !!id,
   });
 }
@@ -29,27 +31,31 @@ export function useBranch(id: string | undefined) {
 export function useCreateBranch() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: CreateBranchPayload) => branchService.create(payload),
-    // The whole subtree, not one list key: the new row belongs on every filter
-    // and page that could contain it, and guessing which is how a create ends
-    // up invisible until a hard refresh.
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: branchKeys.all }),
+    mutationFn: (data: any) => branchService.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['branches'] });
+    },
   });
 }
 
 export function useUpdateBranch() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: UpdateBranchPayload }) =>
-      branchService.update(id, payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: branchKeys.all }),
+    mutationFn: ({ id, data }: { id: string; data: any }) =>
+      branchService.update(id, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['branches', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['branches'] });
+    },
   });
 }
 
 export function useDeleteBranch() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => branchService.remove(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: branchKeys.all }),
+    mutationFn: (id: string) => branchService.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['branches'] });
+    },
   });
 }

@@ -1,234 +1,276 @@
 'use client';
 
-import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, History, Laptop, ShieldCheck } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  Laptop,
+  Loader2,
+  CheckCircle2,
+  ShieldCheck,
+  History,
+  AlertTriangle,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { EmptyState } from '@/components/common/EmptyState';
 import { usePageHeader } from '@/hooks/usePageHeader';
-import { useAcknowledgeAsset, useMyAssets } from '@/hooks/useAssets';
-import { apiErrorMessage } from '@/utils/apiError';
-import { formatDateOnly } from '@/utils/formatDate';
+import assetService from '@/services/assetService';
+import { AssetAssignment } from '@/types/asset';
+
+function fmtDate(d?: string | null) {
+  if (!d) return '—';
+  try {
+    return new Date(d).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return String(d);
+  }
+}
 
 /**
- * What the company has given the employee, and where they sign for it.
+ * "My Assets" — the employee's view of what the company has given them, and
+ * where they digitally acknowledge receipt.
  *
- * Open items come first and are never collapsed away: this is also the screen a
- * leaver opens to find out what is blocking their exit.
+ * Also the place a leaver finds out why their exit is blocked, so open items
+ * are listed first and never collapsed away.
  */
 function MyAssetsScreen() {
-  const { data, isLoading, isError, error } = useMyAssets(false);
-  const acknowledge = useAcknowledgeAsset();
+  const [rows, setRows] = useState<AssetAssignment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [noteFor, setNoteFor] = useState<string | null>(null);
   const [note, setNote] = useState('');
 
-  const rows = data?.data ?? [];
-  const open = rows.filter((row) => !row.returnedAt);
-  const past = rows.filter((row) => row.returnedAt);
-  const unacknowledged = open.filter((row) => !row.acknowledgedAt).length;
+  // The one heading for this route, rendered by TopHeader.
+  usePageHeader('My Assets', 'Company property assigned to you');
 
-  usePageHeader(
-    'My assets',
-    open.length === 1
-      ? '1 item of company property in your care'
-      : `${open.length} items of company property in your care`,
-  );
-
-  const confirm = async (assignmentId: string) => {
+  const load = useCallback(async () => {
     try {
-      await acknowledge.mutateAsync({
-        assignmentId,
-        note: note.trim() || undefined,
-      });
+      const res = await assetService.getMyAssets(false);
+      setRows(Array.isArray(res.data) ? res.data : []);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to load your assets');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const acknowledge = async (assignmentId: string) => {
+    setBusyId(assignmentId);
+    try {
+      await assetService.acknowledge(assignmentId, note.trim() || undefined);
       toast.success('Receipt acknowledged');
       setNoteFor(null);
       setNote('');
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not acknowledge that asset.'));
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to acknowledge');
+    } finally {
+      setBusyId(null);
     }
   };
 
+  const open = rows.filter((r) => !r.returnedAt);
+  const past = rows.filter((r) => r.returnedAt);
+  const unacknowledged = open.filter((r) => !r.acknowledgedAt).length;
+
   return (
-    <div className="space-y-5" data-testid="ess-my-assets">
-      {isError && (
-        <Card className="p-6">
-          <p className="text-sm text-status-error">
-            {apiErrorMessage(error, 'Could not load your assets.')}
-          </p>
-        </Card>
-      )}
-
-      {unacknowledged > 0 && (
-        <Card
-          data-testid="my-assets-unacknowledged"
-          className="border-status-warning/30 bg-status-warning-bg/40 p-4"
-        >
-          <div className="flex items-start gap-3">
-            <AlertTriangle
-              className="mt-0.5 h-5 w-5 shrink-0 text-status-warning"
-              aria-hidden
-            />
-            <div className="text-sm text-status-warning">
-              <p className="font-semibold">
-                {unacknowledged} item{unacknowledged === 1 ? '' : 's'} awaiting
-                your confirmation
-              </p>
-              <p>
-                Confirm you received {unacknowledged === 1 ? 'it' : 'them'} — the
-                acknowledgement is the receipt.
-              </p>
+    <div className="p-4 md:p-6 space-y-6" data-testid="ess-my-assets">
+      {loading ? (
+        <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-8 text-text-muted shadow-sm">
+          <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+        </div>
+      ) : (
+        <>
+          {unacknowledged > 0 && (
+            <div
+              data-testid="my-assets-unacknowledged"
+              data-count={unacknowledged}
+              className="flex items-start gap-3 rounded-2xl border border-status-warning/30 bg-status-warning-bg/40 p-4"
+            >
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-status-warning" />
+              <div className="text-sm text-status-warning">
+                <p className="font-semibold">
+                  {unacknowledged} item{unacknowledged === 1 ? '' : 's'} awaiting
+                  your confirmation
+                </p>
+                <p className="text-status-warning">
+                  Please confirm you received {unacknowledged === 1 ? 'it' : 'them'}.
+                </p>
+              </div>
             </div>
-          </div>
-        </Card>
-      )}
+          )}
 
-      <section className="space-y-3" data-testid="my-assets-open">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-text-body">
-          <Laptop className="h-4 w-4" aria-hidden />
-          Currently held ({open.length})
-        </h2>
+          <section data-testid="my-assets-open" className="space-y-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-text-body">
+              <Laptop className="h-4 w-4" /> Currently held ({open.length})
+            </h2>
 
-        {isLoading && (
-          <Card className="p-6">
-            <p className="text-sm text-text-muted">Loading your assets…</p>
-          </Card>
-        )}
+            {open.length === 0 ? (
+              <div
+                data-testid="my-assets-empty"
+                className="rounded-2xl border border-surface-border bg-surface-card p-8 text-center text-sm text-text-muted shadow-sm"
+              >
+                You are not holding any company assets.
+              </div>
+            ) : (
+              open.map((row) => (
+                <div
+                  key={row.id}
+                  data-testid={`my-asset-row-${row.id}`}
+                  className="rounded-2xl border border-surface-border bg-surface-card p-4 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-text-heading">
+                          {row.asset?.name}
+                        </p>
+                        <span className="rounded-full bg-surface-page px-2 py-0.5 font-mono text-[11px] text-text-muted">
+                          {row.asset?.assetTag}
+                        </span>
+                        <span className="rounded-full bg-status-info-bg/40 px-2 py-0.5 text-[11px] text-status-info">
+                          {row.asset?.category}
+                        </span>
+                        {row.acknowledgedAt ? (
+                          <span
+                            data-testid={`my-asset-ack-state-${row.id}`}
+                            data-acknowledged="true"
+                            className="inline-flex items-center gap-1 rounded-full bg-status-success-bg/40 px-2 py-0.5 text-[11px] text-status-success"
+                          >
+                            <ShieldCheck size={11} /> Acknowledged
+                          </span>
+                        ) : (
+                          <span
+                            data-testid={`my-asset-ack-state-${row.id}`}
+                            data-acknowledged="false"
+                            className="rounded-full bg-status-warning-bg/40 px-2 py-0.5 text-[11px] text-status-warning"
+                          >
+                            Not acknowledged
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs text-text-muted">
+                        Held since {fmtDate(row.assignedAt)}
+                        {row.conditionOut ? ` · condition at hand-over: ${row.conditionOut}` : ''}
+                        {row.asset?.serialNumber ? ` · S/N ${row.asset.serialNumber}` : ''}
+                      </p>
+                      {row.acknowledgedNote && (
+                        <p className="mt-1 text-xs italic text-text-muted">
+                          “{row.acknowledgedNote}”
+                        </p>
+                      )}
+                    </div>
 
-        {!isLoading && open.length === 0 && (
-          <Card>
-            <EmptyState
-              icon={<Laptop className="h-6 w-6" aria-hidden />}
-              title="Nothing in your care"
-              description="You are not holding any company property. Anything issued to you appears here for you to sign for."
-            />
-          </Card>
-        )}
+                    {!row.acknowledgedAt && (
+                      <button
+                        data-testid={`asset-acknowledge-${row.id}`}
+                        onClick={() =>
+                          setNoteFor(noteFor === row.id ? null : row.id)
+                        }
+                        disabled={busyId === row.id}
+                        className="inline-flex h-11 md:h-9 items-center gap-1.5 rounded-lg bg-status-success px-3 text-sm font-medium text-white hover:bg-status-success disabled:opacity-50"
+                      >
+                        <CheckCircle2 size={14} /> Acknowledge receipt
+                      </button>
+                    )}
+                  </div>
 
-        {open.map((row) => (
-          <Card
-            key={row.id}
-            data-testid={`my-asset-row-${row.id}`}
-            className="p-4"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-semibold text-text-heading">
-                    {row.asset?.name}
-                  </p>
-                  <span className="rounded-[var(--radius-badge)] bg-surface-border-light px-2 py-0.5 font-mono text-xs text-text-muted">
-                    {row.asset?.assetTag}
-                  </span>
-                  <Badge tone="info">{row.asset?.category}</Badge>
-                  {row.acknowledgedAt ? (
-                    <Badge tone="success">
-                      <ShieldCheck className="me-1 h-3 w-3" aria-hidden />
-                      Acknowledged
-                    </Badge>
-                  ) : (
-                    <Badge tone="warning">Not acknowledged</Badge>
+                  {noteFor === row.id && (
+                    <div className="mt-3 flex items-center gap-2 border-t border-surface-border-light pt-3">
+                      <input
+                        data-testid={`asset-acknowledge-note-${row.id}`}
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder="Optional note (e.g. condition on receipt)…"
+                        className="h-11 md:h-9 flex-1 rounded-lg border border-surface-border px-3 text-base md:text-sm focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                      />
+                      <button
+                        data-testid={`asset-acknowledge-confirm-${row.id}`}
+                        onClick={() => acknowledge(row.id)}
+                        disabled={busyId === row.id}
+                        className="inline-flex h-11 md:h-9 items-center gap-1.5 rounded-lg bg-brand-primary px-3 text-sm font-medium text-white disabled:opacity-50"
+                      >
+                        {busyId === row.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : null}
+                        Confirm
+                      </button>
+                    </div>
                   )}
                 </div>
-                <p className="mt-1 text-xs text-text-muted">
-                  Held since {formatDateOnly(row.assignedAt)}
-                  {row.conditionOut
-                    ? ` · condition at hand-over: ${row.conditionOut}`
-                    : ''}
-                  {row.asset?.serialNumber ? ` · S/N ${row.asset.serialNumber}` : ''}
-                </p>
-                {row.acknowledgedNote && (
-                  <p className="mt-1 text-xs italic text-text-muted">
-                    “{row.acknowledgedNote}”
-                  </p>
-                )}
-              </div>
-
-              {!row.acknowledgedAt && (
-                <Button
-                  size="sm"
-                  onClick={() => setNoteFor(noteFor === row.id ? null : row.id)}
-                  aria-label={`Acknowledge receipt of ${row.asset?.name}`}
-                  data-testid={`asset-acknowledge-${row.id}`}
-                >
-                  <CheckCircle2 className="h-4 w-4" aria-hidden />
-                  Acknowledge receipt
-                </Button>
-              )}
-            </div>
-
-            {noteFor === row.id && (
-              <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-surface-border-light pt-3">
-                <div className="min-w-[16rem] flex-1">
-                  <Input
-                    aria-label="Note on receipt"
-                    placeholder="Optional note — the condition it arrived in"
-                    value={note}
-                    onChange={(event) => setNote(event.target.value)}
-                  />
-                </div>
-                <Button
-                  onClick={() => void confirm(row.id)}
-                  isLoading={acknowledge.isPending}
-                  data-testid={`asset-acknowledge-confirm-${row.id}`}
-                >
-                  Confirm
-                </Button>
-              </div>
+              ))
             )}
-          </Card>
-        ))}
-      </section>
+          </section>
 
-      {past.length > 0 && (
-        <section className="space-y-3" data-testid="my-assets-past">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-text-body">
-            <History className="h-4 w-4" aria-hidden />
-            Previously held ({past.length})
-          </h2>
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
-                <thead className="border-b border-surface-border-light text-xs uppercase tracking-wide text-text-muted">
-                  <tr>
-                    <th scope="col" className="px-5 py-3 text-start font-medium">Asset</th>
-                    <th scope="col" className="px-5 py-3 text-start font-medium">Tag</th>
-                    <th scope="col" className="px-5 py-3 text-start font-medium">Held from</th>
-                    <th scope="col" className="px-5 py-3 text-start font-medium">Returned</th>
-                    <th scope="col" className="px-5 py-3 text-start font-medium">Condition</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-border-light">
-                  {past.map((row) => (
-                    <tr key={row.id} data-testid={`my-asset-row-${row.id}`}>
-                      <td className="px-5 py-3 text-text-heading">{row.asset?.name}</td>
-                      <td className="px-5 py-3 font-mono text-xs text-text-muted">
-                        {row.asset?.assetTag}
-                      </td>
-                      <td className="px-5 py-3 text-text-muted">
-                        {formatDateOnly(row.assignedAt)}
-                      </td>
-                      <td className="px-5 py-3 text-text-muted">
-                        {formatDateOnly(row.returnedAt)}
-                      </td>
-                      <td className="px-5 py-3 text-text-muted">
-                        {row.conditionIn || '—'}
-                      </td>
+          {past.length > 0 && (
+            <section data-testid="my-assets-past" className="space-y-3">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-text-body">
+                <History className="h-4 w-4" /> Previously held ({past.length})
+              </h2>
+              <div className="overflow-x-auto rounded-2xl border border-surface-border bg-surface-card shadow-sm">
+                <table className="w-full text-sm">
+                  <thead className="bg-surface-page text-left text-xs uppercase text-text-muted">
+                    <tr>
+                      <th className="px-4 py-3">Asset</th>
+                      <th className="px-4 py-3">Tag</th>
+                      <th className="px-4 py-3">Held</th>
+                      <th className="px-4 py-3">Returned</th>
+                      <th className="px-4 py-3">Condition</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </section>
+                  </thead>
+                  <tbody className="divide-y divide-surface-border-light">
+                    {past.map((row) => (
+                      <tr key={row.id} data-testid={`my-asset-row-${row.id}`}>
+                        <td className="px-4 py-3 text-text-heading">{row.asset?.name}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-text-muted">
+                          {row.asset?.assetTag}
+                        </td>
+                        <td className="px-4 py-3 text-text-muted">
+                          {fmtDate(row.assignedAt)}
+                        </td>
+                        <td className="px-4 py-3 text-text-muted">
+                          {fmtDate(row.returnedAt)}
+                        </td>
+                        <td className="px-4 py-3 text-text-muted">
+                          {row.conditionIn || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </>
       )}
     </div>
   );
 }
 
+/**
+ * R17 — the guard the three ESS screens were missing.
+ *
+ * `/dashboard/my-assets`, `/dashboard/my-letters` and `/dashboard/my-documents`
+ * were the only dashboard screens that exported their component directly, with
+ * no `<ProtectedRoute>` anywhere: the shell rendered for whoever the browser
+ * happened to be and the payload was safe only because the server scopes it to
+ * the caller. Every other screen decides client-side first.
+ *
+ * The guard here is deliberately BARE — no `requiredPermission`, no
+ * `requiredRoles`. These are self-service screens: every authenticated role may
+ * open them and each one sees only their own records, so narrowing by role
+ * would take the page away from the people it exists for. What was missing was
+ * not authorisation but a settled answer to "is anybody signed in?", which is
+ * exactly what `ProtectedRoute` computes: it renders nothing until the auth
+ * store has hydrated AND the session has resolved, so a signed-out or
+ * mid-restore visitor never sees an ESS shell fire its requests and then blank.
+ */
 export default function MyAssetsPage() {
   return (
     <ProtectedRoute>

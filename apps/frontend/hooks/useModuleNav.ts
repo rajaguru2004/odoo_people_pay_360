@@ -7,37 +7,43 @@ import {
   buildMenu,
   findGroupByModuleKey,
   findGroupForPathname,
+  FLAG_ROUTES,
   type NavGroup,
-} from '@/components/layout/navConfig';
+} from '@/components/dashboard/navConfig';
 
 /**
- * The menu for the signed-in user, memoised on the two things that decide it.
+ * One derived scalar rather than one entry per flag.
  *
- * One `buildMenu` behind both hooks below: the rail, the hub tiles and the
- * breadcrumb trail all have to agree about which routes exist for this role,
- * and the cheapest way to guarantee that is to make them read the same call.
+ * Enumerating them individually is the trap: adding a flag and forgetting its
+ * dependency means the menu never updates after `fetchBranding()` resolves,
+ * which reads as an intermittent bug rather than a missing line.
  */
 function useMenu(): NavGroup[] {
-  const role = useAuthStore((s) => s.user?.role);
-  const branding = useBrandingStore((s) => s.branding);
+  const { user } = useAuthStore();
+  const { branding } = useBrandingStore();
+  const payrollFlagsKey = FLAG_ROUTES.map((r) => String(branding?.[r.flag])).join('|');
 
-  return useMemo(() => buildMenu(role, branding), [role, branding]);
+  return useMemo(
+    () => buildMenu(user?.role, branding),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user?.role, branding?.overtime_enabled, payrollFlagsKey],
+  );
 }
 
 /**
- * The nav group a module landing page is the hub for, gated exactly as the rail
- * gates it — so a tile can never offer a route the sidebar hides and
+ * The nav group a module landing page is the hub for, gated exactly as the
+ * sidebar gates it — so a tile can never offer a route the rail hides and
  * `ProtectedRoute` then refuses.
  *
- * Undefined while the session is still restoring, or when this role has no such
- * module. The caller renders nothing rather than half a menu.
+ * Returns undefined while branding is still loading, or when the current role
+ * has no such group; the caller renders nothing rather than a half-menu.
  */
 export function useModuleNav(moduleKey: string): NavGroup | undefined {
   const menu = useMenu();
   return useMemo(() => findGroupByModuleKey(menu, moduleKey), [menu, moduleKey]);
 }
 
-/** Which group and child own a route — the raw material for a breadcrumb trail. */
+/** Which group/child owns a route — used to derive a breadcrumb trail. */
 export function useNavLocation(pathname: string) {
   const menu = useMenu();
   return useMemo(() => findGroupForPathname(menu, pathname), [menu, pathname]);

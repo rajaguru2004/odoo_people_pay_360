@@ -9,15 +9,15 @@
  * │  That's it. Every page, component, and chart updates automatically.     │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
- * Example — switch to Emerald:
- *   import { emeraldTheme } from './presets/emerald';
- *   export const activeTheme = emeraldTheme;
+ * Example — switch to Client A:
+ *   import { clientATheme } from './presets/client-a';
+ *   export const activeTheme = clientATheme;
  *
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import { defaultTheme } from './presets/default';
-// import { emeraldTheme } from './presets/emerald';  // ← uncomment to rebrand
+// import { clientATheme } from './presets/client-a';  // ← uncomment to rebrand
 
 import type { ThemeConfig } from './types';
 

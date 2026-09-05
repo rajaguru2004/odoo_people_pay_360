@@ -3,9 +3,8 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class UpdateSettingsDto {
   @ApiProperty({
-    description:
-      'Flat key/value map. Keys absent from the body are left untouched.',
-    example: { company_name: 'People Pay 360', primary_color: '#00358F' },
+    example: { allow_multiple_checkin: 'true' },
+    description: 'Key-value pairs of settings to update',
   })
   @IsObject()
   settings: Record<string, string>;

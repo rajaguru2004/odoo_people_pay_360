@@ -1,27 +1,38 @@
-import { IsBoolean, IsEnum, IsOptional, IsUUID } from 'class-validator';
-import { ApiPropertyOptional } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import {
+  IsEmail,
+  IsString,
+  IsEnum,
+  IsOptional,
+  IsUUID,
+  IsBoolean,
+} from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 
-/**
- * Deliberately does NOT accept `email` or `password`.
- *
- * Both are identity changes rather than profile edits: the password goes
- * through /auth/change-password so the current one must be proven, and an
- * email change needs re-verification before it can become the login.
- */
 export class UpdateUserDto {
-  @ApiPropertyOptional({ enum: UserRole })
+  @ApiProperty({ example: 'user@company.com', required: false })
   @IsOptional()
-  @IsEnum(UserRole)
-  role?: UserRole;
+  @IsEmail()
+  email?: string;
 
-  @ApiPropertyOptional()
+  @ApiProperty({
+    example: 'EMPLOYEE',
+    enum: ['ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'],
+    required: false,
+  })
   @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
+  @IsEnum(['ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'])
+  role?: string;
 
-  @ApiPropertyOptional()
+  @ApiProperty({
+    example: '11111111-1111-1111-1111-111111111111',
+    required: false,
+  })
   @IsOptional()
   @IsUUID()
   employeeId?: string;
+
+  @ApiProperty({ example: true, required: false })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }

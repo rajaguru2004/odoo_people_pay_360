@@ -1,8 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 
-/** The principal JwtStrategy.validate() put on the request. */
 export const CurrentUser = createParamDecorator(
-  (data: unknown, ctx: ExecutionContext) =>
-    ctx.switchToHttp().getRequest().user,
+  (data: unknown, ctx: ExecutionContext) => {
+    const request = ctx.switchToHttp().getRequest();
+    return request.user;
+  },
 );

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your Visa Is Expiring Soon</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f4;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+
+          <!-- Company Header -->
+          <tr>
+            <td style="background-color: #ffffff; padding: 28px 32px 24px; text-align: center; border-bottom: 2px solid #e5e7eb;">
+              {{#if companyLogoUrl}}
+                <img src="{{companyLogoUrl}}" alt="{{#if companyName}}{{companyName}}{{else}}ESS Portal{{/if}}" style="max-height: 52px; width: auto; display: block; margin: 0 auto;" />
+              {{else}}
+                <p style="margin: 0; font-size: 20px; font-weight: 700; color: #111827;">{{#if companyName}}{{companyName}}{{else}}ESS Portal{{/if}}</p>
+              {{/if}}
+            </td>
+          </tr>
+
+          <!-- Title Banner -->
+          <tr>
+            <td style="background-color: #d97706; padding: 28px 32px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.2px;">Your Visa Is Expiring Soon</h1>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding: 36px 32px;">
+              <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">Dear <strong>{{employeeName}}</strong>,</p>
+
+              <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+                This is a reminder that your visa is approaching its expiry date. Please contact your HR department as soon as possible to begin the renewal process.
+              </p>
+
+              <!-- Warning Box -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px;">
+                <tr>
+                  <td style="background-color: #fef9c3; border: 1px solid #fef08a; border-left: 4px solid #d97706; border-radius: 0 6px 6px 0; padding: 18px 20px;">
+                    <p style="color: #713f12; font-size: 16px; font-weight: 700; margin: 0 0 6px;">Your visa expires in {{daysRemaining}} day(s)</p>
+                    <p style="color: #92400e; font-size: 14px; margin: 0;">An expired visa may affect your work authorization.</p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Visa Details -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px;">
+                <tr>
+                  <td style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px;">
+                    <p style="color: #111827; font-size: 14px; font-weight: 600; margin: 0 0 14px; text-transform: uppercase; letter-spacing: 0.5px;">Visa Details</p>
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="color: #6b7280; font-size: 14px; padding: 5px 0; width: 45%;">Visa Number</td>
+                        <td style="color: #111827; font-size: 14px; padding: 5px 0; font-weight: 600;">{{visaNumber}}</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #6b7280; font-size: 14px; padding: 5px 0;">Visa Type</td>
+                        <td style="color: #111827; font-size: 14px; padding: 5px 0; font-weight: 600;">{{visaType}}</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #6b7280; font-size: 14px; padding: 5px 0;">Country</td>
+                        <td style="color: #111827; font-size: 14px; padding: 5px 0; font-weight: 600;">{{country}}</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #6b7280; font-size: 14px; padding: 5px 0;">Expiry Date</td>
+                        <td style="color: #111827; font-size: 14px; padding: 5px 0; font-weight: 600;">{{expiryDate}}</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #6b7280; font-size: 14px; padding: 5px 0;">Days Remaining</td>
+                        <td style="color: #d97706; font-size: 14px; padding: 5px 0; font-weight: 700;">{{daysRemaining}} day(s)</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="color: #374151; font-size: 14px; line-height: 1.6; margin: 0 0 6px;">
+                Please reach out to HR with your renewal documents to avoid any interruption to your work authorization.
+              </p>
+
+              <p style="color: #374151; font-size: 14px; line-height: 1.6; margin: 24px 0 0;">Regards,<br><strong>HR Department</strong></p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8f9fa; padding: 24px 32px; text-align: center; border-top: 1px solid #e5e7eb;">
+              <p style="color: #6b7280; font-size: 13px; line-height: 1.5; margin: 0 0 6px;">
+                &copy; 2026 {{#if companyName}}{{companyName}}{{else}}ESS Portal{{/if}}. All rights reserved.
+              </p>
+              <p style="color: #9ca3af; font-size: 12px; line-height: 1.5; margin: 0;">
+                This is an automated notification. Please do not reply to this email.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

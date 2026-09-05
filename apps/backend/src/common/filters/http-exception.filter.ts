@@ -20,37 +20,38 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
-      const body = exception.getResponse();
+      const exceptionResponse = exception.getResponse();
 
-      if (typeof body === 'object' && body !== null) {
-        const parsed = body as {
-          message?: string | string[];
+      if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+        const exceptionBody = exceptionResponse as {
+          message?: string;
           errors?: unknown;
         };
-        // ValidationPipe reports an ARRAY of messages. Flattening it to a
-        // sentence here is what lets the frontend show something readable
-        // without every screen having to handle both shapes.
-        message = Array.isArray(parsed.message)
-          ? parsed.message.join('; ')
-          : parsed.message || message;
-        errors =
-          parsed.errors ??
-          (Array.isArray(parsed.message) ? parsed.message : null);
+        message = exceptionBody.message || message;
+        errors = exceptionBody.errors || null;
       } else {
-        message = String(body);
+        message = exceptionResponse;
       }
     } else if (exception instanceof Error) {
       // Anything that is not an HttpException is an INTERNAL fault, and its
       // message is written for a developer reading a log, not for a client.
       // Prisma's in particular embeds the absolute path of the checkout and an
-      // excerpt of the failing source — which would otherwise reach any caller
-      // who can provoke one (a malformed uuid in a path parameter does it).
-      // The full error still goes to the server log below.
+      // excerpt of the source around the failing call:
+      //
+      //   Invalid `this.prisma.workSchedule.findUnique()` invocation in
+      //   /home/…/apps/backend/src/calendar/calendar.service.ts:439:53
+      //     438 async getScheduleById(id: string) {
+      //   → 439   const schedule = await this.prisma.workSchedule.findUnique(
+      //
+      // which was reaching any authenticated caller who could provoke one — a
+      // malformed uuid in a path parameter did it, and so did an account with no
+      // linked employee record. The full error still goes to the server log
+      // below; the client gets the generic sentence.
       message = 'Internal server error';
     }
 
-    // Known bot/scanner probes. Still answered 404, just not logged.
-    const NOISE = [
+    // Paths from known bot/scanner probes — still return 404 but skip noisy logging
+    const NOISE_PATTERNS = [
       'wlwmanifest.xml',
       'wp-includes',
       'wp-admin',
@@ -59,7 +60,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       'xmlrpc',
       'favicon.ico',
     ];
-    const isNoise = NOISE.some((p) => request.url?.includes(p));
+    const isNoise = NOISE_PATTERNS.some((p) => request.url?.includes(p));
 
     if (!(status === HttpStatus.NOT_FOUND && isNoise)) {
       console.error('❌ Exception:', {

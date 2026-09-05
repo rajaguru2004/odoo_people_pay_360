@@ -1,153 +1,111 @@
-'use client';
-
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import leaveService from '@/services/leaveService';
-import { attendanceKeys } from './useAttendance';
-import type { CreateLeavePayload, LeaveListQuery } from '@/types/leave';
 
-/**
- * Query keys as a tree, so an invalidation targets the whole subtree rather than
- * a guessed key. `leaveKeys.all` after a decision refreshes the list, the queue,
- * the stats and every detail page at once — because all four are now wrong.
- */
-export const leaveKeys = {
-  all: ['leave-requests'] as const,
-  list: (query: LeaveListQuery) => [...leaveKeys.all, 'list', query] as const,
-  mine: (query: LeaveListQuery) => [...leaveKeys.all, 'mine', query] as const,
-  pending: (query: LeaveListQuery) =>
-    [...leaveKeys.all, 'pending', query] as const,
-  detail: (id: string) => [...leaveKeys.all, 'detail', id] as const,
-  stats: () => [...leaveKeys.all, 'stats'] as const,
-  teamBalances: () => [...leaveKeys.all, 'team-balances'] as const,
-  types: () => ['leave-types'] as const,
-};
-
-export const balanceKeys = {
-  all: ['leave-balances'] as const,
-  list: (year: number | undefined) => [...balanceKeys.all, 'list', year] as const,
-  employee: (employeeId: string, year: number | undefined) =>
-    [...balanceKeys.all, 'employee', employeeId, year] as const,
-  overview: (year: number | undefined) =>
-    [...balanceKeys.all, 'overview', year] as const,
-  accruals: (params: Record<string, unknown>) =>
-    [...balanceKeys.all, 'accruals', params] as const,
-};
-
-export function useLeaveRequests(query: LeaveListQuery = {}) {
-  return useQuery({
-    queryKey: leaveKeys.list(query),
-    queryFn: () => leaveService.list(query),
-  });
+interface LeaveRequestQueryParams {
+    page?: number;
+    limit?: number;
+    employeeId?: string;
+    status?: string;
+    startDate?: string;
+    endDate?: string;
 }
 
-export function useMyLeaveRequests(query: LeaveListQuery = {}) {
-  return useQuery({
-    queryKey: leaveKeys.mine(query),
-    queryFn: () => leaveService.mine(query),
-  });
+export function useLeaveRequests(params?: LeaveRequestQueryParams) {
+    return useQuery({
+        queryKey: ['leave-requests', params],
+        queryFn: () => leaveService.getAll(params),
+        staleTime: 60 * 1000, // 1 minute
+        placeholderData: (previousData) => previousData,
+    });
 }
 
-export function usePendingLeaveRequests(query: LeaveListQuery = {}) {
-  return useQuery({
-    queryKey: leaveKeys.pending(query),
-    queryFn: () => leaveService.pending(query),
-  });
-}
-
-export function useLeaveRequest(id: string | undefined) {
-  return useQuery({
-    queryKey: leaveKeys.detail(id!),
-    queryFn: () => leaveService.get(id!),
-    enabled: !!id,
-  });
-}
-
-export function useLeaveStats() {
-  return useQuery({
-    queryKey: leaveKeys.stats(),
-    queryFn: () => leaveService.stats(),
-  });
-}
-
-export function useLeaveTypes() {
-  return useQuery({
-    queryKey: leaveKeys.types(),
-    queryFn: () => leaveService.leaveTypes(),
-    // The library changes about once a year. Re-fetching it on every form open
-    // costs a round trip the user waits for and answers the same thing.
-    staleTime: 10 * 60_000,
-  });
-}
-
-export function useTeamLeaveBalances() {
-  return useQuery({
-    queryKey: leaveKeys.teamBalances(),
-    queryFn: () => leaveService.teamBalances(),
-  });
+export function useLeaveRequest(id: string) {
+    return useQuery({
+        queryKey: ['leave-requests', id],
+        queryFn: () => leaveService.getById(id),
+        staleTime: 2 * 60 * 1000,
+        enabled: !!id,
+    });
 }
 
 export function useCreateLeaveRequest() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CreateLeavePayload) => leaveService.create(payload),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: leaveKeys.all });
-    },
-  });
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (data: any) => leaveService.create(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['leave-requests'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        },
+    });
 }
 
-/**
- * Approving moves three things: the request, the balance it spends, and the
- * attendance rows it writes. All three are invalidated, because a screen showing
- * yesterday's balance beside today's approval is the kind of disagreement nobody
- * can resolve from the page.
- */
+export function useUpdateLeaveRequest() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (id: string) => leaveService.cancel(id),
+        onSuccess: (_, id) => {
+            queryClient.invalidateQueries({ queryKey: ['leave-requests', id] });
+            queryClient.invalidateQueries({ queryKey: ['leave-requests'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        },
+    });
+}
+
 export function useApproveLeaveRequest() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, comment }: { id: string; comment?: string }) =>
-      leaveService.approve(id, comment),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: leaveKeys.all });
-      void queryClient.invalidateQueries({ queryKey: balanceKeys.all });
-      void queryClient.invalidateQueries({ queryKey: attendanceKeys.all });
-    },
-  });
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (id: string) => leaveService.approve(id),
+        onSuccess: (_, id) => {
+            queryClient.invalidateQueries({ queryKey: ['leave-requests', id] });
+            queryClient.invalidateQueries({ queryKey: ['leave-requests'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        },
+    });
 }
 
 export function useRejectLeaveRequest() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, comment }: { id: string; comment: string }) =>
-      leaveService.reject(id, comment),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: leaveKeys.all });
-    },
-  });
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+            leaveService.reject(id, reason),
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['leave-requests', variables.id] });
+            queryClient.invalidateQueries({ queryKey: ['leave-requests'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        },
+    });
 }
 
-export function useCancelLeaveRequest() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => leaveService.cancel(id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: leaveKeys.all });
-    },
-  });
+export function useDeleteLeaveRequest() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (id: string) => leaveService.cancel(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['leave-requests'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        },
+    });
 }
 
-/**
- * One employee's headline entitlement, for a screen that shows it beside
- * something else.
- *
- * `retry: false` because a missing balance must never block the page it sits
- * on — the approver has the authoritative figure either way.
- */
-export function useLeaveBalance(employeeId: string | undefined, year?: number) {
-  return useQuery({
-    queryKey: balanceKeys.employee(employeeId!, year),
-    queryFn: () => leaveService.balance(employeeId!, year),
-    enabled: !!employeeId,
-    retry: false,
-  });
+// Leave Balances
+export function useLeaveBalance(employeeId: string, year?: number) {
+    return useQuery({
+        queryKey: ['leave-balances', employeeId, year],
+        queryFn: () => leaveService.getBalance(employeeId, year),
+        staleTime: 5 * 60 * 1000, // 5 minutes
+        enabled: !!employeeId,
+    });
+}
+
+export function useAllLeaveBalances(year?: number) {
+    return useQuery({
+        queryKey: ['leave-balances', 'all', year],
+        queryFn: () => leaveService.getAllBalances(year),
+        staleTime: 5 * 60 * 1000,
+    });
 }

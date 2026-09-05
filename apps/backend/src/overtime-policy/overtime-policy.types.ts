@@ -1,16 +1,12 @@
-import type { OvertimeConfig, RateTier } from './overtime-config';
+import { OvertimeConfig } from '../system-settings/system-settings.service';
 
-/** Current `rules` JSON shape, persisted on `OvertimePolicy.schemaVersion`. */
+/** Current `rules` JSON schema version persisted on OvertimePolicy.schemaVersion. */
 export const OT_POLICY_RULES_SCHEMA_VERSION = 1;
 
 /**
- * What a holiday means to this policy.
- *
- * A TS enum rather than a Prisma one because it lives inside the JSON `rules`
- * blob: STANDARD pays the holiday premium tier, IGNORE treats the holiday as an
- * ordinary weekday. Daily-wage staff are the case for IGNORE — they are already
- * paid per day worked, so a holiday premium on top is a second payment for the
- * same fact.
+ * Holiday behaviour lives inside the JSON `rules` blob (not a DB column), so it
+ * is a TS-level enum rather than a Prisma enum. STANDARD = holiday premium tier;
+ * IGNORE = holiday treated as an ordinary weekday.
  */
 export enum HolidayBehaviorEnum {
   STANDARD = 'STANDARD',
@@ -19,19 +15,24 @@ export enum HolidayBehaviorEnum {
 
 export type HolidayBehaviorValue = `${HolidayBehaviorEnum}`;
 
+/** A per-day-type rate tier (Sunday / Holiday). */
+export interface RateTier {
+  regularRate: number;
+  lateRate: number;
+  lateThreshold: string;
+}
+
 /**
- * The policy `rules` blob.
- *
- * A superset of the rate / behaviour / allowance / cap fields of
- * {@link OvertimeConfig}, plus the two policy-level fields (`eligible`,
- * `holidayBehavior`) and an optional day-boundary override. The org-flow flags —
- * whether overtime exists at all, who may submit it, whether an approver may
- * edit it — are deliberately NOT per-policy: they are decisions about the
- * company, not about one class of employee.
+ * The policy `rules` blob. A superset of the rate/behaviour/allowance/cap fields
+ * of {@link OvertimeConfig}, plus the two policy-level fields (`eligible`,
+ * `holidayBehavior`) and an optional per-policy day-boundary override. Org-flow
+ * flags (`enabled`, `allowEmployeeSubmit`, `requireManagerApproval`) are NOT
+ * per-policy — they stay global settings.
  */
 export interface OvertimePolicyRules {
-  /** Per-policy eligibility gate. false → these employees cannot file overtime. */
+  /** Per-policy overtime eligibility gate. false → employees cannot register OT. */
   eligible: boolean;
+  /** STANDARD = holiday premium tier; IGNORE = holiday treated as a weekday. */
   holidayBehavior: HolidayBehaviorValue;
 
   lateThreshold: string;
@@ -43,7 +44,7 @@ export interface OvertimePolicyRules {
   sunday: RateTier;
   holiday: RateTier;
   shiftEndTime: string;
-  /** Overrides the global day boundary. null → inherit it. */
+  /** Per-policy override of attendance_day_end_time. null → inherit global. */
   dayEndBoundary: string | null;
   foodAllowanceEnabled: boolean;
   foodAllowanceAmount: number;
@@ -56,28 +57,32 @@ export interface OvertimePolicyRules {
 }
 
 /**
- * What the calc engine consumes: the exact {@link OvertimeConfig} shape, so the
- * splitting and monetizing code never learns that policies exist, plus the
- * resolved policy-level fields and the identity of the policy that produced it.
- * `policyId` is null when resolution fell through to the global settings.
+ * What the calc engine consumes. Identical to {@link OvertimeConfig} (so the
+ * existing classify/split/monetize code is unchanged) plus the resolved
+ * policy-level fields and the id/name of the policy that produced it (null when
+ * resolution fell back to legacy globals).
  */
 export interface ResolvedOvertimeConfig extends OvertimeConfig {
   eligible: boolean;
   holidayBehavior: HolidayBehaviorValue;
+  dayEndBoundary: string | null;
   policyId: string | null;
   policyName: string | null;
 }
 
 /** Which tier of the inheritance chain produced the effective policy. */
 export type PolicyResolutionSource =
-  'EMPLOYEE_OVERRIDE' | 'EMPLOYMENT_TYPE' | 'COMPANY_DEFAULT' | 'LEGACY_GLOBAL';
+  | 'EMPLOYEE_OVERRIDE'
+  | 'EMPLOYMENT_TYPE'
+  | 'COMPANY_DEFAULT'
+  | 'LEGACY_GLOBAL';
 
 const num = (v: unknown, d: number): number =>
-  typeof v === 'number' && Number.isFinite(v) ? v : d;
+  typeof v === 'number' && !Number.isNaN(v) ? v : d;
 const bool = (v: unknown, d: boolean): boolean =>
   typeof v === 'boolean' ? v : d;
 
-/** A full, valid `rules` blob built from the current global configuration. */
+/** Build a full, valid `rules` blob from the current global overtime config. */
 export function buildDefaultRules(global: OvertimeConfig): OvertimePolicyRules {
   return {
     eligible: true,
@@ -104,9 +109,9 @@ export function buildDefaultRules(global: OvertimeConfig): OvertimePolicyRules {
 }
 
 /**
- * Overlay a partial payload on the defaults derived from `global`, deep-merging
- * the Sunday and Holiday tiers. Used when CREATING a policy: an administrator
- * who names three fields gets a complete, valid rule set.
+ * Overlay a partial `rules` object on the defaults derived from `global`,
+ * deep-merging the Sunday/Holiday tiers. Used when creating a policy from a
+ * partial admin payload.
  */
 export function composeRules(
   partial: Partial<OvertimePolicyRules> | undefined,
@@ -123,9 +128,8 @@ export function composeRules(
 }
 
 /**
- * Overlay a partial payload on an EXISTING blob, deep-merging tiers. Used when
- * editing, so a field the form did not send keeps the value it had rather than
- * reverting to a global default the administrator never chose.
+ * Overlay a partial `rules` object on an existing full blob (deep-merging
+ * tiers). Used when editing a policy so unspecified fields are preserved.
  */
 export function overlayRules(
   existing: OvertimePolicyRules,
@@ -141,12 +145,9 @@ export function overlayRules(
 }
 
 /**
- * Merge a stored (possibly partial, possibly older-schema) blob over the live
- * global configuration.
- *
- * Missing rule fields INHERIT the global rather than defaulting to zero: a blob
- * written before a field existed must not silently set that field's rate to
- * nothing, which would pay an hour at 0×.
+ * Merge a stored (possibly partial / older-schema) `rules` blob over the live
+ * global config, producing the exact {@link OvertimeConfig} shape the engine
+ * consumes plus the policy-level fields. Missing rule fields inherit the global.
  */
 export function mergeRulesOverGlobal(
   rules: Partial<OvertimePolicyRules>,
@@ -196,14 +197,14 @@ export function mergeRulesOverGlobal(
     ),
     maxHoursPerMonth: num(rules.maxHoursPerMonth, global.maxHoursPerMonth),
     maxHoursPerYear: num(rules.maxHoursPerYear, global.maxHoursPerYear),
-    // A policy override of the day boundary, else the global one.
-    dayEndBoundary: rules.dayEndBoundary ?? global.dayEndBoundary,
+    // Policy-level additions
     eligible: bool(rules.eligible, true),
     holidayBehavior: rules.holidayBehavior === 'IGNORE' ? 'IGNORE' : 'STANDARD',
+    dayEndBoundary: rules.dayEndBoundary ?? null,
   };
 }
 
-/** A resolved config straight from the globals, when no policy governs anyone. */
+/** Build a ResolvedOvertimeConfig straight from the global config (no policy). */
 export function resolvedFromGlobal(
   global: OvertimeConfig,
 ): ResolvedOvertimeConfig {
@@ -211,6 +212,7 @@ export function resolvedFromGlobal(
     ...global,
     eligible: true,
     holidayBehavior: 'STANDARD',
+    dayEndBoundary: null,
     policyId: null,
     policyName: null,
   };

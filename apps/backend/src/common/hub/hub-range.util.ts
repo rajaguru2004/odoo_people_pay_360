@@ -1,28 +1,35 @@
 import { BadRequestException } from '@nestjs/common';
 
 /**
- * The date arithmetic a module hub's period selector rests on.
+ * The date arithmetic every module hub shares.
  *
- * Extracted so the Leave & Overtime hub and any hub that follows it cannot
- * disagree about what "the week before the 1st of March" means. Two panels on
- * one page reporting different windows, with nothing on screen saying which is
- * right, is the failure this file exists to prevent.
+ * Extracted verbatim from `attendances/attendance-hub.service.ts`, which was the
+ * only hub with a period selector when it was written. The Schedules and
+ * Leave & Overtime hubs now draw the same Week / Month / Year control, and three
+ * copies of "what does the week before March 1st mean" is three chances to
+ * disagree — the kind of disagreement that shows up as two panels on one page
+ * reporting different windows and no way for the reader to tell which is right.
  *
- * Everything is UTC. Date-only columns are stored at UTC midnight, and
- * local-midnight arithmetic silently shifts a whole month on the 31st for any
- * server west of Greenwich.
+ * Everything here is UTC. `playwright.config.ts` pins `timezoneId: 'UTC'` and
+ * `TZ=UTC` for the server precisely because local-midnight arithmetic hides a
+ * shift on the 31st of the month (T18 in `docs/TEST-PLAN-TIME-SCHEDULES.md`).
  */
 
+/**
+ * `today` is a period like any other, not a separate mode: the same ‹ › arrows
+ * step back through yesterday, last week, last month or last year, so the
+ * reader learns one control rather than two.
+ *
+ * A hub is free to offer only a subset of tabs — Schedules and Leave open on
+ * Week and Month respectively and neither shows `today`, because "the roster
+ * for today" and "leave filed today" are not questions anybody opens a module
+ * hub with. The type stays whole so the ‹ › arrows keep working either way.
+ */
 export type HubPeriod = 'today' | 'week' | 'month' | 'year';
 
-export const HUB_PERIODS: readonly HubPeriod[] = [
-  'today',
-  'week',
-  'month',
-  'year',
-];
+export const HUB_PERIODS: readonly HubPeriod[] = ['today', 'week', 'month', 'year'];
 
-/** A UTC-midnight date rendered as `YYYY-MM-DD`. */
+/** A UTC-midnight date key rendered as `YYYY-MM-DD`. */
 export function key(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
@@ -33,14 +40,6 @@ export function addDays(d: Date, n: number): Date {
   );
 }
 
-/**
- * Strict `YYYY-MM-DD`.
- *
- * `Date.UTC` rolls out-of-range parts over rather than failing — month 13 is
- * next January and day 45 is a fortnight later — so `2026-13-45` would quietly
- * become 2027-02-14 and the hub would answer confidently for a period nobody
- * asked about. The round-trip is the check.
- */
 export function parseDateKey(value: string): Date {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!m) {
@@ -49,30 +48,24 @@ export function parseDateKey(value: string): Date {
     );
   }
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  // `Date.UTC` rolls out-of-range parts over rather than failing: month 13 is
+  // next January and day 45 is a fortnight later, so "2026-13-45" would quietly
+  // become 2027-02-14 and the hub would answer for a period nobody asked about.
+  // The round-trip is the check.
   if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== value) {
     throw new BadRequestException(`anchor is not a real date: "${value}"`);
   }
   return d;
 }
 
-/** Monday-first, because the selector reads "Aug 17 – Aug 23". */
+/** Monday-first, because the hub's week selector reads "Aug 17 – Aug 23". */
 export function startOfWeek(d: Date): Date {
   return addDays(d, -((d.getUTCDay() + 6) % 7));
 }
 
 export const MONTHS = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 
 /** `null` when there was nothing to divide by — never 0%, which is a claim. */
@@ -84,8 +77,8 @@ export function rate(numerator: number, denominator: number): number | null {
 /**
  * Refuse a period the hub does not understand rather than guessing at one.
  *
- * Guessing means answering confidently for a window nobody asked about, which a
- * page has no way to show its reader.
+ * Guessing means answering confidently for a window nobody asked about, which
+ * is the failure mode this whole file exists to prevent.
  */
 export function assertPeriod(period: string): asserts period is HubPeriod {
   if (!HUB_PERIODS.includes(period as HubPeriod)) {
@@ -106,9 +99,9 @@ export interface HubRange {
 /**
  * The window a period + anchor names, and how to step off it.
  *
- * `label` is built on the server so the browser does no calendar arithmetic:
- * `Aug 2026` arrives formatted, and a client that assumed a Monday week would
- * disagree with the numbers beside it.
+ * `label` is built here rather than in the browser because what "this week"
+ * means depends on the branch working week — a client that assumed Monday
+ * would disagree with the numbers beside it every Sunday in Muscat.
  */
 export function resolveRange(period: HubPeriod, anchor: Date): HubRange {
   if (period === 'today') {
@@ -155,7 +148,13 @@ export function resolveRange(period: HubPeriod, anchor: Date): HubRange {
   };
 }
 
-/** What one bar of the trend counts, for a given period. */
+/**
+ * What one bar of the trend counts, for a given period.
+ *
+ * A day draws hours, a year draws months, everything between draws days. The
+ * attendance hub owns the `hour` case (a single day is its arrival curve); the
+ * hubs that offer no `today` tab never see it.
+ */
 export function trendKindFor(period: HubPeriod): 'hour' | 'day' | 'month' {
   if (period === 'today') return 'hour';
   if (period === 'year') return 'month';
@@ -165,13 +164,11 @@ export function trendKindFor(period: HubPeriod): 'hour' | 'day' | 'month' {
 /**
  * The key and label one trend bucket wears.
  *
- * A year collapses its days into `2026-08` / `Aug`; every other period keeps the
- * day. The server owns the label so no two hubs can name the same bar two ways.
+ * A year collapses its days into `2026-08` / `Aug`; every other period keeps
+ * the day, `2026-08-23` / `Aug 23`. Pulled out of the attendance hub's day-loop
+ * so three hubs cannot label the same bar three ways.
  */
-export function bucketOf(
-  period: HubPeriod,
-  day: Date,
-): { key: string; label: string } {
+export function bucketOf(period: HubPeriod, day: Date): { key: string; label: string } {
   if (period === 'year') {
     return {
       key: `${day.getUTCFullYear()}-${String(day.getUTCMonth() + 1).padStart(2, '0')}`,

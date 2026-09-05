@@ -1,159 +1,278 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
-import { Download, Search, SlidersHorizontal, X } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import {
-  activeEmployeeFilterCount,
-  EMPLOYEE_STATUS_OPTIONS,
-  EMPTY_EMPLOYEE_FILTERS,
-  type EmployeeFilters,
-} from './employeeFacts';
-import type { NamedRef } from '@/types/common';
-import type { EmployeeStatus } from '@/types/employee';
+import { useState, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
+import { X, ChevronDown, Check } from 'lucide-react';
+import { Department } from '@/types/department';
 
-/**
- * Search, the three ways of narrowing it, and the way out to a spreadsheet.
- *
- * The panel starts OPEN. Every other list in the module folds its filters away
- * behind the button, but the directory has shown these three selects on the
- * toolbar since it was built, and collapsing them on an existing screen takes a
- * control away from people who already reach for it. The button is still here
- * for anyone who wants the room back.
- */
+export interface FilterState {
+  departments: string[];
+  positions: string[];
+  statuses: string[];
+  dateRange: { from?: string; to?: string };
+}
+
+interface EmployeeFilterPanelProps {
+  filters: FilterState;
+  onFiltersChange: (filters: FilterState) => void;
+  departments: Department[];
+  positions: string[];
+  onClose: () => void;
+}
+
 export default function EmployeeFilterPanel({
   filters,
-  onChange,
+  onFiltersChange,
   departments,
-  branches,
-  onExport,
-  exporting,
-  trailing,
-}: {
-  filters: EmployeeFilters;
-  onChange: (filters: EmployeeFilters) => void;
-  departments: NamedRef[];
-  branches: NamedRef[];
-  onExport: () => void;
-  exporting: boolean;
-  /** The view switcher, so search and view sit on one toolbar. */
-  trailing?: ReactNode;
-}) {
-  const [open, setOpen] = useState(true);
-  const count = activeEmployeeFilterCount(filters);
-  const set = (patch: Partial<EmployeeFilters>) =>
-    onChange({ ...filters, ...patch });
+  positions,
+  onClose,
+}: EmployeeFilterPanelProps) {
+  const t = useTranslations('employeeFilterPanel');
+  const tc = useTranslations('common');
+  const [localFilters, setLocalFilters] = useState<FilterState>(filters);
+
+  // Sync with parent filters
+  useEffect(() => {
+    setLocalFilters(filters);
+  }, [filters]);
+
+  const statuses = [
+    { value: 'ACTIVE', label: tc('active') },
+    { value: 'ON_LEAVE', label: tc('onLeaveStatus') },
+    { value: 'TERMINATED', label: tc('terminated') },
+  ];
+
+  const toggleArrayFilter = (key: keyof FilterState, value: string) => {
+    const current = localFilters[key] as string[];
+    const updated = current.includes(value)
+      ? current.filter((v) => v !== value)
+      : [...current, value];
+    
+    setLocalFilters({ ...localFilters, [key]: updated });
+  };
+
+  const handleApply = () => {
+    console.log('Applying filters:', localFilters);
+    onFiltersChange(localFilters);
+  };
+
+  const handleReset = () => {
+    const resetFilters: FilterState = {
+      departments: [],
+      positions: [],
+      statuses: [],
+      dateRange: {},
+    };
+    setLocalFilters(resetFilters);
+    onFiltersChange(resetFilters);
+  };
+
+  const hasDateRangeFilter = () => {
+    return !!(localFilters.dateRange?.from || localFilters.dateRange?.to);
+  };
+
+  const activeFilterCount = 
+    localFilters.departments.length +
+    localFilters.positions.length +
+    localFilters.statuses.length +
+    (hasDateRangeFilter() ? 1 : 0);
 
   return (
-    <Card className="space-y-4 p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="w-full lg:max-w-md">
-          <Input
-            value={filters.search}
-            onChange={(event) => set({ search: event.target.value })}
-            aria-label="Search employees"
-            placeholder="Name, code or work email"
-            icon={<Search className="h-4 w-4" aria-hidden />}
-          />
+    <div className="fixed inset-0 z-50 flex items-start justify-end bg-black/20 backdrop-blur-sm">
+      <div className="w-full max-w-md h-full bg-white shadow-2xl animate-slide-in-right overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">{t('advancedFilters')}</h2>
+            {activeFilterCount > 0 && (
+              <p className="text-sm text-slate-500 mt-0.5">
+                {t('filtersActive', { count: activeFilterCount })}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+          >
+            <X size={20} />
+          </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant={open || count > 0 ? 'primary' : 'outline'}
-            size="sm"
-            aria-expanded={open}
-            aria-controls="employee-filters"
-            onClick={() => setOpen((value) => !value)}
+        {/* Filter Sections */}
+        <div className="p-6 space-y-6">
+          {/* Department Filter */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-3">
+              {tc('department')}
+            </label>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {departments.map((dept) => (
+                <label
+                  key={dept.id}
+                  className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer group"
+                >
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      data-testid={`emp-filter-dept-${dept.code ?? dept.id}`}
+                      checked={localFilters.departments.includes(dept.id)}
+                      onChange={() => toggleArrayFilter('departments', dept.id)}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-all ${
+                        localFilters.departments.includes(dept.id)
+                          ? 'bg-brand-primary border-brand-primary'
+                          : 'border-slate-300 group-hover:border-brand-primary'
+                      }`}
+                    >
+                      {localFilters.departments.includes(dept.id) && (
+                        <Check size={14} className="text-white" />
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-sm text-slate-700 font-medium">{dept.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Position Filter */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-3">
+              {tc('position')}
+            </label>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {positions.map((position) => (
+                <label
+                  key={position}
+                  className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer group"
+                >
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      data-testid={`emp-filter-position-${position}`}
+                      checked={localFilters.positions.includes(position)}
+                      onChange={() => toggleArrayFilter('positions', position)}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-all ${
+                        localFilters.positions.includes(position)
+                          ? 'bg-brand-primary border-brand-primary'
+                          : 'border-slate-300 group-hover:border-brand-primary'
+                      }`}
+                    >
+                      {localFilters.positions.includes(position) && (
+                        <Check size={14} className="text-white" />
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-sm text-slate-700 font-medium">{position}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Status Filter */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-3">
+              {tc('status')}
+            </label>
+            <div className="space-y-2">
+              {statuses.map((status) => (
+                <label
+                  key={status.value}
+                  className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer group"
+                >
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      data-testid={`emp-filter-status-${status.value}`}
+                      checked={localFilters.statuses.includes(status.value)}
+                      onChange={() => toggleArrayFilter('statuses', status.value)}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-all ${
+                        localFilters.statuses.includes(status.value)
+                          ? 'bg-brand-primary border-brand-primary'
+                          : 'border-slate-300 group-hover:border-brand-primary'
+                      }`}
+                    >
+                      {localFilters.statuses.includes(status.value) && (
+                        <Check size={14} className="text-white" />
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-sm text-slate-700 font-medium">{status.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Date Range Filter */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-3">
+              {t('startDateRange')}
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">{tc('from')}</label>
+                <input
+                  type="date"
+                  data-testid="emp-filter-date-from"
+                  value={localFilters.dateRange.from || ''}
+                  onChange={(e) =>
+                    setLocalFilters({
+                      ...localFilters,
+                      dateRange: { ...localFilters.dateRange, from: e.target.value },
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/20"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">{tc('to')}</label>
+                <input
+                  type="date"
+                  data-testid="emp-filter-date-to"
+                  value={localFilters.dateRange.to || ''}
+                  onChange={(e) =>
+                    setLocalFilters({
+                      ...localFilters,
+                      dateRange: { ...localFilters.dateRange, to: e.target.value },
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/20"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="sticky bottom-0 bg-white border-t border-slate-200 px-6 py-4 flex items-center gap-3">
+          <button
+            data-testid="emp-filter-reset"
+            onClick={handleReset}
+            className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors font-medium"
           >
-            <SlidersHorizontal className="h-4 w-4" aria-hidden />
-            Filters
-            {count > 0 && (
-              <span className="rounded-[var(--radius-badge)] bg-surface-card px-1.5 text-xs font-semibold tabular-nums text-brand-primary">
-                {count}
-              </span>
-            )}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onExport}
-            isLoading={exporting}
+            {t('reset')}
+          </button>
+          <button
+            data-testid="emp-filter-apply"
+            onClick={() => {
+              handleApply();
+              // Close after a small delay to ensure state is updated
+              setTimeout(() => onClose(), 100);
+            }}
+            className="flex-1 px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary-dark transition-colors font-medium shadow-lg shadow-brand-primary/20"
           >
-            <Download className="h-4 w-4" aria-hidden />
-            Export
-          </Button>
-          {trailing}
+            {t('applyFilters')}
+          </button>
         </div>
       </div>
-
-      {open && (
-        <div
-          id="employee-filters"
-          className="grid gap-3 border-t border-surface-border-light pt-4 sm:grid-cols-2 lg:grid-cols-4"
-        >
-          <Select
-            label="Department"
-            placeholder="Every department"
-            value={filters.departmentId}
-            onChange={(event) => set({ departmentId: event.target.value })}
-          >
-            {departments.map((department) => (
-              <option key={department.id} value={department.id}>
-                {department.name}
-              </option>
-            ))}
-          </Select>
-
-          <Select
-            label="Branch"
-            placeholder="Every branch"
-            value={filters.branchId}
-            onChange={(event) => set({ branchId: event.target.value })}
-          >
-            {branches.map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {branch.name}
-              </option>
-            ))}
-          </Select>
-
-          <Select
-            label="Status"
-            placeholder="Every status"
-            value={filters.status}
-            onChange={(event) =>
-              set({ status: event.target.value as '' | EmployeeStatus })
-            }
-          >
-            {EMPLOYEE_STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-
-          {count > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="justify-start self-end"
-              // The search box keeps what is in it: it is visible on the
-              // toolbar with its own text, so wiping it from a control labelled
-              // for the three selects would clear something the reader was not
-              // pointing at.
-              onClick={() =>
-                onChange({ ...EMPTY_EMPLOYEE_FILTERS, search: filters.search })
-              }
-            >
-              <X className="h-4 w-4" aria-hidden />
-              Clear {count} filter{count === 1 ? '' : 's'}
-            </Button>
-          )}
-        </div>
-      )}
-    </Card>
+    </div>
   );
 }

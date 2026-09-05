@@ -17,12 +17,12 @@ const HHMM = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const HHMM_MSG = 'must be a time in HH:MM (24h) format';
 
 export class RateTierDto {
-  @ApiPropertyOptional({ example: 2 })
+  @ApiPropertyOptional({ example: 2.0 })
   @IsNumber()
   @Min(0)
   regularRate: number;
 
-  @ApiPropertyOptional({ example: 2 })
+  @ApiPropertyOptional({ example: 2.0 })
   @IsNumber()
   @Min(0)
   lateRate: number;
@@ -34,12 +34,9 @@ export class RateTierDto {
 }
 
 /**
- * Validation for the `rules` blob.
- *
- * Every field is optional: a create or update payload may name three fields, and
- * the service composes them over the defaults derived from the current global
- * configuration. That is what keeps a half-filled form from producing a policy
- * whose unmentioned rates are zero.
+ * Validation for the policy `rules` blob. Every field is optional — a create/
+ * update payload may send a partial rule set; the service composes it over the
+ * defaults derived from the current global overtime config.
  */
 export class OvertimePolicyRulesDto {
   @ApiPropertyOptional({ description: 'Per-policy overtime eligibility gate' })
@@ -50,7 +47,7 @@ export class OvertimePolicyRulesDto {
   @ApiPropertyOptional({
     enum: HolidayBehaviorEnum,
     description:
-      'STANDARD pays the holiday premium tier; IGNORE treats a holiday as an ordinary weekday',
+      'STANDARD = holiday premium tier; IGNORE = holiday treated as an ordinary weekday',
   })
   @IsOptional()
   @IsEnum(HolidayBehaviorEnum)
@@ -62,7 +59,7 @@ export class OvertimePolicyRulesDto {
   @Matches(HHMM, { message: `lateThreshold ${HHMM_MSG}` })
   lateThreshold?: string;
 
-  @ApiPropertyOptional({ example: 1.25 })
+  @ApiPropertyOptional({ example: 1.5 })
   @IsOptional()
   @IsNumber()
   @Min(0)
@@ -79,7 +76,7 @@ export class OvertimePolicyRulesDto {
   @IsBoolean()
   doubleOtEnabled?: boolean;
 
-  @ApiPropertyOptional({ example: 2 })
+  @ApiPropertyOptional({ example: 2.0 })
   @IsOptional()
   @IsNumber()
   @Min(0)
@@ -114,7 +111,6 @@ export class OvertimePolicyRulesDto {
     description: 'Per-policy day-boundary override; null inherits the global',
   })
   @IsOptional()
-  // null is a deliberate "inherit the global", not a missing value.
   @ValidateIf((_o, v) => v !== null)
   @IsString()
   @Matches(HHMM, { message: `dayEndBoundary ${HHMM_MSG}` })
@@ -125,7 +121,7 @@ export class OvertimePolicyRulesDto {
   @IsBoolean()
   foodAllowanceEnabled?: boolean;
 
-  @ApiPropertyOptional({ example: 3 })
+  @ApiPropertyOptional({ example: 150 })
   @IsOptional()
   @IsNumber()
   @Min(0)

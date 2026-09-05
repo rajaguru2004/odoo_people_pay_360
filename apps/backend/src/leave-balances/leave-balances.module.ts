@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
-import { PrismaModule } from '../prisma/prisma.module';
-import { SystemSettingsModule } from '../system-settings/system-settings.module';
-import { LeaveBalancesController } from './leave-balances.controller';
 import { LeaveBalancesService } from './leave-balances.service';
+import { LeaveBalancesController } from './leave-balances.controller';
+import { PrismaModule } from '../prisma/prisma.module';
+import { TimezoneModule } from '../common/timezone/timezone.module';
 
 @Module({
-  imports: [PrismaModule, SystemSettingsModule],
+  imports: [PrismaModule, TimezoneModule],
   controllers: [LeaveBalancesController],
   providers: [LeaveBalancesService],
   exports: [LeaveBalancesService],

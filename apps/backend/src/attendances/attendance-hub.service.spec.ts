@@ -1,409 +1,636 @@
 import { BadRequestException } from '@nestjs/common';
-import { DateTime } from 'luxon';
-import type { PrismaService } from '../prisma/prisma.service';
-import { AttendanceCalendarService } from './attendance-calendar.service';
-import {
-  AttendanceHubService,
-  reconcileExpected,
-  resolveHubRange,
-} from './attendance-hub.service';
-import { parseDayKey } from './attendance-calendar.util';
+import { AttendanceHubService } from './attendance-hub.service';
 
-/** 15 March 2026 is a Sunday — a working day on a Fri/Sat weekend. */
-const NOW = new Date('2026-03-15T09:00:00.000Z');
+/**
+ * The module hub's aggregate.
+ *
+ * Every case here is a way the old hub lied. It divided by headcount, so a
+ * Saturday read as total collapse; it called an unfinished morning "absent";
+ * it printed 0% for a department that had never filed a single record; and its
+ * chart was ten hard-coded bars labelled "Jan 1..Jan 10" that moved for nobody.
+ *
+ * Company timezone is UTC throughout so a date key is just its own string.
+ */
 
-const at = (key: string) => parseDayKey(key) as DateTime;
+const day = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d));
+const keyOf = (d: Date) => d.toISOString().slice(0, 10);
 
-interface FakeRow {
-  employeeId: string;
-  branchId?: string | null;
-  date: Date;
-  checkIn?: Date | null;
-  checkOut?: Date | null;
-  workHours?: number | null;
-  expectedHours?: number | null;
-  status: string;
+interface Row {
+  date: string;
+  status?: 'PRESENT' | 'ABSENT' | 'LEAVE';
   isLate?: boolean;
+  workHours?: number;
+  employeeId?: string;
+  fullName?: string;
+  checkIn?: Date;
+  checkOut?: Date | null;
 }
-
-function inRange(date: Date, filter: unknown): boolean {
-  if (filter instanceof Date) return date.getTime() === filter.getTime();
-  const range = filter as { gte?: Date; lte?: Date };
-  if (range.gte && date < range.gte) return false;
-  if (range.lte && date > range.lte) return false;
-  return true;
-}
-
-function makePrisma(
-  options: {
-    branches?: unknown[];
-    employees?: unknown[];
-    attendances?: FakeRow[];
-    departments?: unknown[];
-    pendingCorrections?: number;
-  } = {},
-) {
-  const attendances = options.attendances ?? [];
-  return {
-    company: {
-      findFirst: jest.fn().mockResolvedValue({ timezone: 'Asia/Muscat' }),
-    },
-    branch: { findMany: jest.fn().mockResolvedValue(options.branches ?? []) },
-    employee: {
-      findMany: jest.fn().mockResolvedValue(options.employees ?? []),
-      findUnique: jest.fn().mockResolvedValue(null),
-    },
-    department: {
-      findMany: jest.fn().mockResolvedValue(options.departments ?? []),
-    },
-    holiday: { findMany: jest.fn().mockResolvedValue([]) },
-    workSchedule: {
-      findMany: jest.fn().mockResolvedValue([]),
-      groupBy: jest.fn().mockResolvedValue([]),
-      findUnique: jest.fn().mockResolvedValue(null),
-    },
-    attendance: {
-      findMany: jest.fn(({ where }: { where: { date: unknown } }) =>
-        Promise.resolve(
-          attendances
-            .filter((row) => inRange(row.date, where.date))
-            .map((row) => ({
-              branchId: null,
-              checkIn: null,
-              checkOut: null,
-              workHours: null,
-              expectedHours: null,
-              isLate: false,
-              ...row,
-            })),
-        ),
-      ),
-      groupBy: jest.fn().mockResolvedValue([]),
-    },
-    attendanceCorrection: {
-      count: jest.fn().mockResolvedValue(options.pendingCorrections ?? 0),
-    },
-  };
-}
-
-function makeHub(options: Parameters<typeof makePrisma>[0] = {}) {
-  const prisma = makePrisma(options) as unknown as PrismaService;
-  const calendar = new AttendanceCalendarService(prisma);
-  return new AttendanceHubService(prisma, calendar);
-}
-
-const MUSCAT_BRANCH = {
-  id: 'b1',
-  timezone: 'Asia/Muscat',
-  officeStartTime: '08:00',
-  officeEndTime: '17:00',
-  graceMinutes: 15,
-  weeklyOffDays: [5, 6],
-};
-
-describe('resolveHubRange', () => {
-  it('makes a single day out of "today"', () => {
-    expect(resolveHubRange('today', at('2026-03-15'))).toEqual({
-      start: '2026-03-15',
-      end: '2026-03-15',
-      label: 'Sun, 15 Mar 2026',
-      prevAnchor: '2026-03-14',
-      nextAnchor: '2026-03-16',
-    });
-  });
-
-  it('makes a Monday-first week', () => {
-    const range = resolveHubRange('week', at('2026-03-15'));
-    expect(range.start).toBe('2026-03-09');
-    expect(range.end).toBe('2026-03-15');
-    expect(range.label).toBe('9 – 15 Mar 2026');
-    expect(range.prevAnchor).toBe('2026-03-08');
-    expect(range.nextAnchor).toBe('2026-03-22');
-  });
-
-  it('labels a week that spans two months', () => {
-    expect(resolveHubRange('week', at('2026-03-01')).label).toBe(
-      '23 Feb – 1 Mar 2026',
-    );
-  });
-
-  it('makes a calendar month', () => {
-    expect(resolveHubRange('month', at('2026-03-15'))).toEqual({
-      start: '2026-03-01',
-      end: '2026-03-31',
-      label: 'March 2026',
-      prevAnchor: '2026-02-15',
-      nextAnchor: '2026-04-15',
-    });
-  });
-
-  it('clamps a month step that would land on a day the month does not have', () => {
-    expect(resolveHubRange('month', at('2026-03-31')).prevAnchor).toBe(
-      '2026-02-28',
-    );
-  });
-
-  it('makes a calendar year', () => {
-    expect(resolveHubRange('year', at('2026-03-15'))).toEqual({
-      start: '2026-01-01',
-      end: '2026-12-31',
-      label: '2026',
-      prevAnchor: '2025-03-15',
-      nextAnchor: '2027-03-15',
-    });
-  });
-});
-
-describe('reconcileExpected', () => {
-  it('takes the plan minus approved leave', () => {
-    expect(reconcileExpected(10, 2, 8, 0)).toBe(8);
-  });
-
-  it('never reports fewer expected than actually turned up', () => {
-    // Six people worked a public holiday nobody was expected on.
-    expect(reconcileExpected(0, 0, 6, 0)).toBe(6);
-  });
-
-  it('never goes negative when leave exceeds the plan', () => {
-    expect(reconcileExpected(2, 5, 0, 0)).toBe(0);
-  });
-});
 
 describe('AttendanceHubService', () => {
+  /** Wall-clock "now"; every case sets it before building the service. */
+  let now: Date;
+  let rows: Row[];
+  let employees: Array<{ id: string; fullName: string; branchId: string | null; departmentId: string }>;
+  /** Working days per branch id (''=no branch), as YYYY-MM-DD. */
+  let workingDays: Record<string, string[]>;
+  let leaves: any[];
+  let schedules: any[];
+  let deptRaw: any[];
+  let overHoursCount: Array<{ n: number }>;
+  let overHoursNames: Array<{ name: string }>;
+  let boundaryPassed: boolean;
+
+  const build = () => {
+    const inRange = (from: Date, to: Date) =>
+      rows.filter((r) => r.date >= keyOf(from) && r.date <= keyOf(to));
+
+    const prisma: any = {
+      employee: {
+        groupBy: jest.fn(async ({ by }: any) => {
+          const buckets = new Map<string, any>();
+          for (const e of employees) {
+            const k = by.includes('departmentId')
+              ? `${e.departmentId}|${e.branchId ?? ''}`
+              : `${e.branchId ?? ''}`;
+            const entry = buckets.get(k) ?? {
+              branchId: e.branchId,
+              departmentId: e.departmentId,
+              _count: { _all: 0 },
+            };
+            entry._count._all += 1;
+            buckets.set(k, entry);
+          }
+          return [...buckets.values()].map((b) =>
+            by.includes('departmentId')
+              ? { departmentId: b.departmentId, branchId: b.branchId, _count: b._count }
+              : { branchId: b.branchId, _count: b._count },
+          );
+        }),
+        findMany: jest.fn(async ({ where }: any) => {
+          const excluded: string[] = where?.id?.notIn ?? [];
+          return employees
+            .filter((e) => !excluded.includes(e.id))
+            .map((e) => ({ id: e.id, fullName: e.fullName, branchId: e.branchId }));
+        }),
+      },
+      department: {
+        findMany: jest.fn(async () => [
+          { id: 'dept-ops', name: 'Ops' },
+          { id: 'dept-quiet', name: 'Quiet' },
+        ]),
+      },
+      attendance: {
+        groupBy: jest.fn(async ({ by, where }: any) => {
+          let subset = inRange(where.date.gte, where.date.lte);
+          if (where.isLate) subset = subset.filter((r) => r.isLate);
+          if (where.workHours) subset = subset.filter((r) => r.workHours != null);
+          const buckets = new Map<string, any>();
+          for (const r of subset) {
+            const k = by.includes('status') ? `${r.date}|${r.status}` : r.date;
+            const entry = buckets.get(k) ?? {
+              date: day(
+                Number(r.date.slice(0, 4)),
+                Number(r.date.slice(5, 7)),
+                Number(r.date.slice(8, 10)),
+              ),
+              status: r.status,
+              _count: { _all: 0 },
+              _sum: { workHours: 0 },
+            };
+            entry._count._all += 1;
+            entry._sum.workHours += r.workHours ?? 0;
+            buckets.set(k, entry);
+          }
+          return [...buckets.values()];
+        }),
+        count: jest.fn(async ({ where }: any) => {
+          let subset = inRange(where.date.gte, where.date.lte);
+          if (where.status) subset = subset.filter((r) => r.status === where.status);
+          if (where.checkOut === null) subset = subset.filter((r) => !r.checkOut);
+          if (where.checkIn?.not === null) subset = subset.filter((r) => !!r.checkIn);
+          return subset.length;
+        }),
+        findMany: jest.fn(async ({ where, take }: any) => {
+          let subset = inRange(where.date.gte, where.date.lte);
+          if (where.checkIn?.not === null) subset = subset.filter((r) => !!r.checkIn);
+          if (where.checkOut === null) subset = subset.filter((r) => !r.checkOut);
+          if (where.isLate) subset = subset.filter((r) => r.isLate);
+          if (where.status) subset = subset.filter((r) => r.status === where.status);
+          if (take) subset = subset.slice(0, take);
+          return subset.map((r) => ({
+            employeeId: r.employeeId ?? 'emp-1',
+            status: r.status,
+            isLate: !!r.isLate,
+            checkIn: r.checkIn ?? null,
+            checkOut: r.checkOut ?? null,
+            workHours: r.workHours ?? null,
+            employee: { fullName: r.fullName ?? 'Someone' },
+          }));
+        }),
+      },
+      leaveRequest: { findMany: jest.fn(async () => leaves) },
+      workSchedule: {
+        groupBy: jest.fn(async () => schedules),
+        findMany: jest.fn(async () => []),
+      },
+      attendanceCorrection: { count: jest.fn(async () => 3) },
+      // Three different statements come through this door now: the department
+      // roll-up, and the over-hours count/names pair that has to compare each
+      // row against its own rostered requirement.
+      $queryRaw: jest.fn(async (strings: any) => {
+        const sql = Array.isArray(strings) ? strings.join(' ') : String(strings);
+        if (sql.includes('COUNT(DISTINCT a.employee_id)')) return overHoursCount;
+        if (sql.includes('DISTINCT e.full_name')) return overHoursNames;
+        return deptRaw;
+      }),
+    };
+
+    const tz: any = {
+      getCompanyTZ: jest.fn(async () => 'UTC'),
+      toDateKey: jest.fn((d: Date) => day(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate())),
+      localHour: jest.fn((d: Date) => d.getUTCHours()),
+    };
+
+    const holidays: any = {
+      getWorkingDatesBetween: jest.fn(async (from: Date, to: Date, branchId?: string) => {
+        const allowed = workingDays[branchId ?? ''] ?? [];
+        const out: Date[] = [];
+        let c = new Date(from);
+        while (c.getTime() <= to.getTime()) {
+          if (allowed.includes(keyOf(c))) out.push(new Date(c));
+          c = new Date(c.getTime() + 86_400_000);
+        }
+        return out;
+      }),
+    };
+
+    const settings: any = { getSetting: jest.fn(async (_k: string, fb: string) => fb) };
+    const attendances: any = {
+      hasDayEndBoundaryPassed: jest.fn(async () => boundaryPassed),
+    };
+
+    jest.spyOn(global.Date, 'now').mockReturnValue(now.getTime());
+    const realDate = Date;
+    jest
+      .spyOn(global as any, 'Date')
+      .mockImplementation((...args: any[]) =>
+        args.length === 0 ? new realDate(now) : new (realDate as any)(...args),
+      );
+    (global.Date as any).UTC = realDate.UTC;
+    (global.Date as any).now = () => now.getTime();
+
+    return new AttendanceHubService(prisma, tz, holidays, settings, attendances);
+  };
+
   beforeEach(() => {
-    jest.useFakeTimers().setSystemTime(NOW);
+    now = new Date(Date.UTC(2026, 7, 5, 12, 0, 0)); // Wed 2026-08-05, midday
+    boundaryPassed = true;
+    employees = [
+      { id: 'e1', fullName: 'Asha', branchId: 'b1', departmentId: 'dept-ops' },
+      { id: 'e2', fullName: 'Karim', branchId: 'b1', departmentId: 'dept-ops' },
+      { id: 'e3', fullName: 'Meera', branchId: 'b1', departmentId: 'dept-ops' },
+      { id: 'e4', fullName: 'Ravi', branchId: 'b1', departmentId: 'dept-quiet' },
+    ];
+    // Mon 3rd – Wed 5th are working days; the 1st and 2nd are the weekend.
+    workingDays = { b1: ['2026-08-03', '2026-08-04', '2026-08-05'] };
+    rows = [];
+    leaves = [];
+    schedules = [{ shiftType: 'FULL_DAY', _count: { _all: 4 } }];
+    deptRaw = [];
+    overHoursCount = [{ n: 0 }];
+    overHoursNames = [];
   });
 
-  afterEach(() => {
-    jest.useRealTimers();
-  });
+  afterEach(() => jest.restoreAllMocks());
 
-  it('refuses a malformed anchor rather than falling back to today', async () => {
-    const hub = makeHub();
-    await expect(hub.getSummary('month', '15-03-2026')).rejects.toBeInstanceOf(
+  it('refuses a period it does not understand instead of guessing', async () => {
+    const svc = build();
+    await expect(svc.getHubSummary('quarter' as any)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    await expect(svc.getHubSummary('month', 'last-tuesday')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    // `Date.UTC` rolls out-of-range parts over, so this would silently become
+    // 2027-02-14 and answer for a period nobody asked about.
+    await expect(svc.getHubSummary('month', '2026-13-45')).rejects.toBeInstanceOf(
       BadRequestException,
     );
   });
 
-  it('reports every rate as null, not zero, when nothing was expected', async () => {
-    const result = await makeHub().getSummary('month');
-
-    expect(result.periodStats.expected).toBe(0);
-    expect(result.periodStats.attendanceRate).toBeNull();
-    expect(result.periodStats.absentRate).toBeNull();
-    expect(result.periodStats.lateRate).toBeNull();
-    expect(result.periodStats.avgWorkHours).toBeNull();
-    expect(result.today.presentRate).toBeNull();
-    expect(result.today.absentRate).toBeNull();
-    expect(result.today.onTimeRate).toBeNull();
-    expect(result.yesterday.presentRate).toBeNull();
-  });
-
-  it('does not let the stepper walk into the future', async () => {
-    const current = await makeHub().getSummary('month');
-    expect(current.range.isCurrent).toBe(true);
-    expect(current.range.hasNext).toBe(false);
-
-    const past = await makeHub().getSummary('month', '2026-01-10');
-    expect(past.range.isCurrent).toBe(false);
-    expect(past.range.hasNext).toBe(true);
-
-    // More than one step back: last year's next anchor is itself in the future,
-    // but 2026 exists and has begun, so the stepper must not be locked.
-    const lastYear = await makeHub().getSummary('year', '2025-06-01');
-    expect(lastYear.range.hasNext).toBe(true);
-
-    // Already ahead of today — there is nothing further forward to show.
-    const future = await makeHub().getSummary('month', '2026-08-04');
-    expect(future.range.hasNext).toBe(false);
-  });
-
-  it('reports how much of an in-progress window has happened', async () => {
-    const result = await makeHub().getSummary('month');
-    expect(result.range.start).toBe('2026-03-01');
-    expect(result.range.end).toBe('2026-03-31');
-    expect(result.range.through).toBe('2026-03-15');
-  });
-
-  it('reports a window entirely in the future as having happened not at all', async () => {
-    const result = await makeHub().getSummary('month', '2026-08-04');
-    expect(result.range.through).toBeNull();
-    expect(result.periodStats.daysCounted).toBe(0);
-    expect(result.periodStats.attendanceRate).toBeNull();
-  });
-
-  it('compares against the same window one step back', async () => {
-    const result = await makeHub().getSummary('month');
-    expect(result.previousRange).toEqual({
-      start: '2026-02-01',
-      end: '2026-02-28',
-      label: 'February 2026',
-    });
-    expect(result.previousStats).toBeDefined();
-
-    const week = await makeHub().getSummary('week');
-    expect(week.previousRange.start).toBe('2026-03-02');
-    expect(week.previousRange.end).toBe('2026-03-08');
-  });
-
-  it('buckets the trend by hour for a single day', async () => {
-    const result = await makeHub().getSummary('today');
-    expect(result.trendKind).toBe('hour');
-    expect(result.trend).toHaveLength(24);
-    expect(result.trend[0]).toMatchObject({ key: '00', label: '12 AM' });
-    expect(result.trend[13]).toMatchObject({ key: '13', label: '1 PM' });
-    // An hour expects nobody in particular, so it has no rate to report.
-    expect(result.trend[9].attendanceRate).toBeNull();
-    expect(result.periodStats.bucketCount).toBe(24);
-  });
-
-  it('buckets the trend by day for a week and a month', async () => {
-    const week = await makeHub().getSummary('week');
-    expect(week.trendKind).toBe('day');
-    expect(week.trend).toHaveLength(7);
-    expect(week.trend[0].key).toBe('2026-03-09');
-    expect(week.trend[0].label).toBe('9 Mar');
-
-    const month = await makeHub().getSummary('month');
-    expect(month.trendKind).toBe('day');
-    // Only the days that have actually happened.
-    expect(month.trend).toHaveLength(15);
-  });
-
-  it('buckets the trend by month for a year', async () => {
-    const result = await makeHub().getSummary('year');
-    expect(result.trendKind).toBe('month');
-    expect(result.trend.map((b) => b.label)).toEqual(['Jan', 'Feb', 'Mar']);
-    expect(result.trend[0].key).toBe('2026-01');
-  });
-
-  it('divides by the working calendar, not by headcount', async () => {
-    const hub = makeHub({
-      branches: [MUSCAT_BRANCH],
-      employees: [
-        {
-          id: 'e1',
-          firstName: 'Aisha',
-          lastName: 'Al Balushi',
-          status: 'ACTIVE',
-          branchId: 'b1',
-          departmentId: 'd1',
-        },
-        {
-          id: 'e2',
-          firstName: 'Omar',
-          lastName: 'Al Hinai',
-          status: 'ACTIVE',
-          branchId: 'b1',
-          departmentId: 'd1',
-        },
-      ],
-      departments: [{ id: 'd1', name: 'Finance' }],
-      attendances: [
-        {
-          employeeId: 'e1',
-          branchId: 'b1',
-          date: new Date('2026-03-15T00:00:00.000Z'),
-          checkIn: new Date('2026-03-15T04:05:00.000Z'),
-          checkOut: new Date('2026-03-15T13:00:00.000Z'),
-          workHours: 8.92,
-          expectedHours: 9,
-          status: 'PRESENT',
-        },
-      ],
-    });
-
-    const result = await hub.getSummary('today');
-
-    // Two employees, one working day, nobody on leave.
-    expect(result.today.expected).toBe(2);
-    expect(result.today.present).toBe(1);
-    expect(result.today.presentRate).toBe(50);
-    // The day is still open at 13:00 Muscat, so the second person is not yet
-    // an absence — only somebody who has not been heard from.
-    expect(result.today.settled).toBe(false);
-    expect(result.today.absent).toBe(0);
-    expect(result.today.notCheckedIn).toBe(1);
-    expect(result.attention.notCheckedIn).toEqual({
-      count: 1,
-      names: ['Omar Al Hinai'],
-    });
-  });
-
-  it('excludes a weekly rest day from what was expected', async () => {
-    const hub = makeHub({
-      branches: [MUSCAT_BRANCH],
-      employees: [
-        {
-          id: 'e1',
-          firstName: 'Aisha',
-          lastName: 'Al Balushi',
-          status: 'ACTIVE',
-          branchId: 'b1',
-          departmentId: 'd1',
-        },
-      ],
-    });
-
-    // 2026-03-14 is a Saturday, which this branch takes off.
-    const result = await hub.getSummary('today', '2026-03-14');
-    expect(result.periodStats.expected).toBe(0);
-    expect(result.periodStats.attendanceRate).toBeNull();
-  });
-
-  it('caps the names on the attention strip without capping the count', async () => {
-    const employees = Array.from({ length: 12 }, (_, i) => ({
-      id: `e${i}`,
-      firstName: 'Late',
-      lastName: `Arriver ${i}`,
-      status: 'ACTIVE',
-      branchId: 'b1',
-      departmentId: 'd1',
-    }));
-    const hub = makeHub({
-      branches: [MUSCAT_BRANCH],
-      employees,
-      departments: [{ id: 'd1', name: 'Operations' }],
-      attendances: employees.map((e) => ({
-        employeeId: e.id,
-        branchId: 'b1',
-        date: new Date('2026-03-15T00:00:00.000Z'),
-        checkIn: new Date('2026-03-15T05:30:00.000Z'),
-        status: 'LATE',
+  it('answers a single day with its arrival curve, hour by hour', async () => {
+    rows = [
+      { date: '2026-08-05', status: 'PRESENT', checkIn: new Date(Date.UTC(2026, 7, 5, 8, 15)) },
+      {
+        date: '2026-08-05',
+        status: 'PRESENT',
         isLate: true,
-      })),
+        checkIn: new Date(Date.UTC(2026, 7, 5, 9, 30)),
+      },
+    ];
+    const svc = build();
+
+    const summary = (await svc.getHubSummary('today')).data;
+
+    // A day has no daily shape to draw, so its chart is the only trend a day
+    // actually has: when people walked in.
+    expect(summary.trendKind).toBe('hour');
+    expect(summary.trend).toHaveLength(16); // 6 AM .. 9 PM
+    expect(summary.trend.find((b) => b.key === '08')).toMatchObject({
+      label: '8 AM',
+      present: 1,
+      onTime: 1,
+      late: 0,
     });
-
-    const result = await hub.getSummary('today');
-    expect(result.attention.late.count).toBe(12);
-    expect(result.attention.late.names).toHaveLength(8);
-    // Checked in and never checked out — twelve unclosed shifts.
-    expect(result.attention.notCheckedOut.count).toBe(12);
-    expect(result.attention.notCheckedOut.names).toHaveLength(8);
+    expect(summary.trend.find((b) => b.key === '09')).toMatchObject({
+      present: 1,
+      late: 1,
+    });
+    // The window is that one day, and its totals ARE the day's totals.
+    expect(summary.range).toMatchObject({
+      start: '2026-08-05',
+      end: '2026-08-05',
+      label: 'Aug 5',
+      prevAnchor: '2026-08-04',
+      nextAnchor: '2026-08-06',
+      hasNext: false,
+      isCurrent: true,
+    });
+    expect(summary.periodStats.daysCounted).toBe(1);
+    expect(summary.periodStats.present).toBe(summary.today.present);
   });
 
-  it('falls back to the branch calendar when no roster covers the window', async () => {
-    const result = await makeHub({
-      branches: [MUSCAT_BRANCH],
-      employees: [
-        {
-          id: 'e1',
-          firstName: 'Aisha',
-          lastName: 'Al Balushi',
-          status: 'ACTIVE',
-          branchId: 'b1',
-          departmentId: 'd1',
-        },
-      ],
-    }).getSummary('today');
+  it('compares every window with the same window one step back', async () => {
+    rows = [
+      // Yesterday: two in. Today: one.
+      { date: '2026-08-04', status: 'PRESENT', employeeId: 'e1' },
+      { date: '2026-08-04', status: 'PRESENT', employeeId: 'e2' },
+      { date: '2026-08-05', status: 'PRESENT', employeeId: 'e1' },
+    ];
+    const svc = build();
 
-    expect(result.shifts.source).toBe('calendar');
-    expect(result.shifts.shiftCount).toBe(0);
-    expect(result.shifts.scheduled).toBe(result.periodStats.expected);
+    const summary = (await svc.getHubSummary('today')).data;
+
+    expect(summary.previousRange).toMatchObject({
+      start: '2026-08-04',
+      end: '2026-08-04',
+      label: 'Aug 4',
+    });
+    expect(summary.periodStats.present).toBe(1);
+    expect(summary.previousStats.present).toBe(2);
+    // 25% today against 50% yesterday — the delta the KPI cards draw.
+    expect(summary.periodStats.attendanceRate).toBe(25);
+    expect(summary.previousStats.attendanceRate).toBe(50);
   });
 
-  it('carries the pending correction queue rather than windowing it', async () => {
-    const result = await makeHub({ pendingCorrections: 7 }).getSummary('year');
-    expect(result.attention.pendingCorrections).toBe(7);
+  it('moves every panel with the window, not just the cards', async () => {
+    rows = [
+      // The window being asked for: Monday the 3rd.
+      { date: '2026-08-03', status: 'PRESENT', employeeId: 'e1', fullName: 'Asha', checkIn: new Date(Date.UTC(2026, 7, 3, 8, 0)) },
+      // Today, which is NOT in that window.
+      { date: '2026-08-05', status: 'PRESENT', employeeId: 'e2', fullName: 'Karim', checkIn: new Date(Date.UTC(2026, 7, 5, 15, 0)) },
+    ];
+    const svc = build();
+
+    const summary = (await svc.getHubSummary('today', '2026-08-03')).data;
+
+    expect(summary.range.start).toBe('2026-08-03');
+    expect(summary.range.isCurrent).toBe(false);
+
+    // The arrival curve is the 3rd's 8 AM punch, not today's 3 PM one. A panel
+    // left on today while the cards moved is the same lie in a quieter place.
+    expect(summary.arrivalPattern.find((a) => a.hour === 8)?.onTime).toBe(1);
+    expect(summary.arrivalPattern.find((a) => a.hour === 15)?.onTime).toBe(0);
+    // Roster adherence likewise reads the window's totals.
+    expect(summary.shifts.checkedIn).toBe(1);
+    expect(summary.periodStats.present).toBe(1);
+
+    // `today` still rides along, because the open-day rule needs it — but
+    // nothing on screen reads it as a headline any more.
+    expect(summary.today.date).toBe('2026-08-05');
+    // "Nobody heard from" cannot be historical: on a closed day those people
+    // are simply absent, and the absence figure already says so.
+    expect(summary.attention.notCheckedIn.count).toBe(0);
+  });
+
+  it('expects nobody on a day the branch calendar is closed', async () => {
+    // Sunday the 2nd. Three employees exist; none of them was going to work.
+    now = new Date(Date.UTC(2026, 7, 2, 12, 0, 0));
+    const svc = build();
+
+    const snap = await svc.daySnapshot(day(2026, 8, 2));
+
+    expect(snap.expected).toBe(0);
+    expect(snap.absent).toBe(0);
+    // Not 0%: a rate with nothing to divide by is unknown, and 0% would be a
+    // claim that the whole company failed to turn up on its day off.
+    expect(snap.presentRate).toBeNull();
+    expect(snap.absentRate).toBeNull();
+  });
+
+  it('does not call an unfinished morning an absence', async () => {
+    boundaryPassed = false;
+    rows = [{ date: '2026-08-05', status: 'PRESENT', employeeId: 'e1', workHours: 4 }];
+    const svc = build();
+
+    const snap = await svc.daySnapshot(day(2026, 8, 5));
+
+    expect(snap.expected).toBe(4);
+    expect(snap.present).toBe(1);
+    expect(snap.absent).toBe(0);
+    // The three who have not punched are "not checked in", which is a fact,
+    // rather than "absent", which is a judgement the day has not earned.
+    expect(snap.notCheckedIn).toBe(3);
+    expect(snap.settled).toBe(false);
+  });
+
+  it('derives the absences the cron has not written yet, once the day has closed', async () => {
+    rows = [{ date: '2026-08-05', status: 'PRESENT', employeeId: 'e1' }];
+    const svc = build();
+
+    const snap = await svc.daySnapshot(day(2026, 8, 5));
+
+    // Four expected, one present, no ABSENT rows in the table at all — the
+    // calendar still knows three people are missing.
+    expect(snap.absent).toBe(3);
+    expect(snap.settled).toBe(true);
+  });
+
+  it('takes approved leave out of the expectation instead of counting it absent', async () => {
+    rows = [{ date: '2026-08-05', status: 'PRESENT', employeeId: 'e1' }];
+    leaves = [
+      {
+        startDate: day(2026, 8, 4),
+        endDate: day(2026, 8, 6),
+        employee: { branchId: 'b1', departmentId: 'dept-ops' },
+      },
+      {
+        startDate: day(2026, 8, 5),
+        endDate: day(2026, 8, 5),
+        employee: { branchId: 'b1', departmentId: 'dept-ops' },
+      },
+    ];
+    const svc = build();
+
+    const snap = await svc.daySnapshot(day(2026, 8, 5));
+
+    expect(snap.onLeave).toBe(2);
+    // 4 expected − 1 present − 2 on leave = 1, not 3.
+    expect(snap.absent).toBe(1);
+  });
+
+  it('counts leave only on days the branch was actually open', async () => {
+    // A leave spanning the weekend must not manufacture leave-days out of days
+    // nobody was going to work anyway.
+    leaves = [
+      {
+        startDate: day(2026, 8, 1),
+        endDate: day(2026, 8, 5),
+        employee: { branchId: 'b1', departmentId: 'dept-ops' },
+      },
+    ];
+    const svc = build();
+
+    const summary = (await svc.getHubSummary('month')).data;
+
+    // Aug 3, 4 and 5 are open; Aug 1 and 2 are not.
+    expect(summary.periodStats.onLeave).toBe(3);
+  });
+
+  it('keeps the closed days on the axis but expects nobody on them', async () => {
+    rows = [
+      { date: '2026-08-03', status: 'PRESENT', employeeId: 'e1', isLate: true },
+      { date: '2026-08-04', status: 'PRESENT', employeeId: 'e1' },
+      { date: '2026-08-05', status: 'PRESENT', employeeId: 'e1' },
+    ];
+    const svc = build();
+
+    const summary = (await svc.getHubSummary('month')).data;
+
+    // The axis is the calendar, so the week's rhythm stays readable — but the
+    // weekend carries no expectation, so it cannot read as a bad day.
+    expect(summary.trend.map((b) => b.key)).toEqual([
+      '2026-08-01',
+      '2026-08-02',
+      '2026-08-03',
+      '2026-08-04',
+      '2026-08-05',
+    ]);
+    expect(summary.trend[0]).toMatchObject({
+      key: '2026-08-01',
+      expected: 0,
+      present: 0,
+      absent: 0,
+      attendanceRate: null,
+    });
+    expect(summary.trend[2]).toMatchObject({
+      expected: 4,
+      present: 1,
+      late: 1,
+      onTime: 0,
+      absent: 3,
+      attendanceRate: 25,
+    });
+    expect(summary.range).toMatchObject({
+      label: 'Aug 2026',
+      start: '2026-08-01',
+      end: '2026-08-31',
+      through: '2026-08-05',
+      hasNext: false,
+      isCurrent: true,
+    });
+  });
+
+  it('never reports more than everybody, even when people work a closed day', async () => {
+    // The defect this pins: Founders Day is a holiday, six people clocked in
+    // anyway, and the hub read "106% attendance" — a number that cannot exist.
+    // Here Aug 1 is a weekend the calendar expects nobody on, and two people
+    // worked it.
+    rows = [
+      { date: '2026-08-01', status: 'PRESENT', employeeId: 'e1' },
+      { date: '2026-08-01', status: 'PRESENT', employeeId: 'e2' },
+    ];
+    const svc = build();
+
+    const summary = (await svc.getHubSummary('month')).data;
+    const sat = summary.trend.find((b) => b.key === '2026-08-01')!;
+
+    // Whoever actually turned up was evidently expected to.
+    expect(sat.expected).toBe(2);
+    expect(sat.attendanceRate).toBe(100);
+    // Reconciling only ever RAISES the denominator, so it cannot hide the three
+    // people missing on a day the calendar did expect four.
+    expect(summary.periodStats.attendanceRate).toBeLessThanOrEqual(100);
+    expect(summary.trend.find((b) => b.key === '2026-08-05')!.absent).toBe(4);
+  });
+
+  it('never aggregates a day that has not happened', async () => {
+    const svc = build();
+    const summary = (await svc.getHubSummary('month')).data;
+
+    // The month runs to the 31st, but only five days of it exist.
+    expect(summary.trend.every((b) => b.key <= '2026-08-05')).toBe(true);
+  });
+
+  it('rolls a year up into months and offers the anchors to page with', async () => {
+    rows = [{ date: '2026-08-03', status: 'PRESENT', employeeId: 'e1' }];
+    const svc = build();
+
+    const summary = (await svc.getHubSummary('year')).data;
+
+    // One bar per month up to today, never past it — a year view of a year in
+    // progress is eight months, not twelve with four empty ones on the end.
+    expect(summary.trend.map((b) => b.label)).toEqual([
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
+    ]);
+    expect(summary.trend[7]).toMatchObject({ key: '2026-08', present: 1 });
+    expect(summary.trendKind).toBe('month');
+    // Days are days in every period; bars are what changes.
+    expect(summary.periodStats.bucketCount).toBe(8);
+    expect(summary.periodStats.daysCounted).toBeGreaterThan(8);
+    expect(summary.range).toMatchObject({
+      label: '2026',
+      prevAnchor: '2025-01-01',
+      nextAnchor: '2027-01-01',
+      hasNext: false,
+    });
+  });
+
+  it('lets the caller page backwards, and reports that period as not current', async () => {
+    const svc = build();
+    const summary = (await svc.getHubSummary('week', '2026-07-20')).data;
+
+    // Monday-first, whatever day of the week the anchor happens to be.
+    expect(summary.range).toMatchObject({
+      start: '2026-07-20',
+      end: '2026-07-26',
+      label: 'Jul 20 – 26',
+      isCurrent: false,
+      hasNext: true,
+    });
+  });
+
+  it('marks a department that filed nothing as having no data, not as 0%', async () => {
+    deptRaw = [
+      { departmentId: 'dept-ops', present: 6, late: 2, absent: 1, recorded: 9 },
+    ];
+    const svc = build();
+
+    const summary = (await svc.getHubSummary('month')).data;
+    const ops = summary.departments.find((d) => d.id === 'dept-ops')!;
+    const quiet = summary.departments.find((d) => d.id === 'dept-quiet')!;
+
+    expect(ops.hasData).toBe(true);
+    expect(quiet.hasData).toBe(false);
+    // The silent department sorts LAST despite its 0%, so it cannot bury a
+    // department that is genuinely short-handed.
+    expect(summary.departments[summary.departments.length - 1].id).toBe('dept-quiet');
+  });
+
+  it('buckets arrivals by the hour they happened, split on time against late', async () => {
+    rows = [
+      { date: '2026-08-05', status: 'PRESENT', checkIn: new Date(Date.UTC(2026, 7, 5, 8, 15)) },
+      { date: '2026-08-05', status: 'PRESENT', checkIn: new Date(Date.UTC(2026, 7, 5, 8, 45)) },
+      {
+        date: '2026-08-05',
+        status: 'PRESENT',
+        isLate: true,
+        checkIn: new Date(Date.UTC(2026, 7, 5, 9, 30)),
+      },
+      // 4 AM is outside the 6 AM–9 PM window: it clamps to the edge rather
+      // than vanishing, because a night-shift punch is still a punch.
+      { date: '2026-08-05', status: 'PRESENT', checkIn: new Date(Date.UTC(2026, 7, 5, 4, 0)) },
+    ];
+    const svc = build();
+
+    const summary = (await svc.getHubSummary('month')).data;
+    const at = (h: number) => summary.arrivalPattern.find((a) => a.hour === h)!;
+
+    expect(at(8)).toMatchObject({ onTime: 2, late: 0, label: '8 AM' });
+    expect(at(9)).toMatchObject({ onTime: 0, late: 1 });
+    expect(at(6).onTime).toBe(1);
+  });
+
+  it('measures the roster against the calendar when no roster exists', async () => {
+    schedules = [];
+    rows = [{ date: '2026-08-05', status: 'PRESENT', employeeId: 'e1' }];
+    const svc = build();
+
+    const summary = (await svc.getHubSummary('month')).data;
+
+    expect(summary.shifts.source).toBe('calendar');
+    // Window-scoped, so a month counts shift-DAYS in the same unit as the
+    // `expected` it falls back to: 4 employees across 3 open days.
+    expect(summary.shifts.scheduled).toBe(12);
+    expect(summary.shifts.checkedIn).toBe(1);
+    expect(summary.shifts.yetToCheckIn).toBe(11);
+  });
+
+  it('counts rostered shift-days across the window, not just today', async () => {
+    // The groupBy is asked for a RANGE now; the stub returns what the roster
+    // holds for it, and the panel must report that rather than a headcount.
+    schedules = [
+      { shiftType: 'MORNING', _count: { _all: 6 } },
+      { shiftType: 'FULL_DAY', _count: { _all: 6 } },
+    ];
+    const svc = build();
+
+    const summary = (await svc.getHubSummary('month')).data;
+
+    expect(summary.shifts.source).toBe('roster');
+    expect(summary.shifts.shiftCount).toBe(2);
+    expect(summary.shifts.scheduled).toBe(12);
+  });
+
+  it('names the people behind every action item', async () => {
+    boundaryPassed = false;
+    overHoursCount = [{ n: 1 }];
+    overHoursNames = [{ name: 'Asha' }];
+    rows = [
+      {
+        date: '2026-08-05',
+        status: 'PRESENT',
+        employeeId: 'e1',
+        fullName: 'Asha',
+        isLate: true,
+        checkIn: new Date(Date.UTC(2026, 7, 5, 9, 40)),
+        checkOut: null,
+        workHours: 11,
+      },
+    ];
+    const svc = build();
+
+    const summary = (await svc.getHubSummary('today')).data;
+
+    expect(summary.attention.notCheckedOut).toMatchObject({ count: 1, names: ['Asha'] });
+    expect(summary.attention.late.names).toEqual(['Asha']);
+    // 11h against the 8h default is over the scheduled day.
+    expect(summary.attention.overScheduledHours).toMatchObject({ count: 1, names: ['Asha'] });
+    // The day is still open, so the three who have not punched are "not heard
+    // from" rather than absent.
+    expect(summary.attention.notCheckedIn.count).toBe(3);
+    // The queue is never windowed — it is what is waiting NOW.
+    expect(summary.attention.pendingCorrections).toBe(3);
+  });
+
+  it('caps the names it returns without capping the counts', async () => {
+    // A year-long window must cost the same as a day. The count comes from an
+    // aggregate and the names from a bounded `take`, so twelve names under a
+    // count of ninety is the intended shape, not a bug.
+    rows = Array.from({ length: 20 }, (_, i) => ({
+      date: '2026-08-05',
+      status: 'PRESENT' as const,
+      employeeId: `e${i}`,
+      fullName: `Person ${i}`,
+      isLate: true,
+      checkIn: new Date(Date.UTC(2026, 7, 5, 10, 0)),
+      checkOut: null,
+    }));
+    const svc = build();
+
+    const summary = (await svc.getHubSummary('today')).data;
+
+    expect(summary.attention.notCheckedOut.count).toBe(20);
+    expect(summary.attention.notCheckedOut.names).toHaveLength(12);
   });
 });

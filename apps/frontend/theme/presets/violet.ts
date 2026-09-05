@@ -6,7 +6,7 @@ import type { ThemeConfig } from '../types';
  * ─────────────────────────────────────────────────────────────────────────────
  * Primary:  #7C3AED  (violet-600)
  * Accent:   #f59e0b  (amber)
- * Light variant (light sidebar/surfaces).
+ * Light variant (light sidebar/surfaces), unlike the dark client-a example.
  * Colors-only; shape/typography/brand mirror the default preset.
  * ─────────────────────────────────────────────────────────────────────────────
  */
@@ -79,7 +79,7 @@ export const violetTheme: ThemeConfig = {
   },
 
   brand: {
-    appName:    'People Pay 360',
+    appName:    'ESS Portal',
     faviconUrl: null,
   },
 };

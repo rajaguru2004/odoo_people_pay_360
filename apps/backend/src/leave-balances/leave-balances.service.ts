@@ -1,409 +1,754 @@
 import {
-  BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import { LibraryType, Prisma, UserRole } from '@prisma/client';
-import { DateTime } from 'luxon';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
-import { SystemSettingsService } from '../system-settings/system-settings.service';
+import { assertInBranch } from '../common/branch/branch-scope.util';
+import { assertCanAccessEmployeeRecord } from '../common/services/record-access.util';
+import { TimezoneService } from '../common/timezone/timezone.service';
 import {
-  assertCanAccessRequestOf,
-  managerDepartmentIds,
-} from '../common/utils/manager-scope.util';
-import type { Principal } from '../auth/auth.service';
+  CompanyCronGate,
+  COMPANY_CRON_TICK,
+} from '../common/timezone/company-cron.gate';
 
-/** What an employee-year is worth once the three columns are added up. */
-export interface TypeBalanceView {
-  id: string;
-  employeeId: string;
-  year: number;
-  leaveTypeKey: string;
-  allocated: number;
-  used: number;
-  carriedOver: number;
-  /** Derived, never stored — a fourth number could disagree with the other three. */
-  remaining: number;
-}
-
-const ANNUAL = 'Annual Leave';
-const SICK = 'Sick Leave';
-
-/** One day a month, which is the accrual every contract in the region assumes. */
-const MONTHLY_ACCRUAL_DAYS = 1;
-
-/**
- * Entitlements: what somebody is owed, what they have spent, and what is left.
- *
- * Two tables, on purpose. `LeaveBalance` carries the headline annual and sick
- * figures every payslip and settlement asks for by name; `LeaveTypeBalance`
- * carries one row per KIND of leave and is what the balances screen and the
- * approval check actually read. Writes keep the two in step, and the direction
- * is always per-type first: the per-type row is the authority, the headline row
- * is the summary.
- */
 @Injectable()
 export class LeaveBalancesService {
-  private readonly logger = new Logger(LeaveBalancesService.name);
-
-  /** The last company-month the accrual actually ran for, per process. */
-  private lastAccrualKey: string | null = null;
+  private readonly DEFAULT_ANNUAL_LEAVE = 12;
+  private readonly DEFAULT_SICK_LEAVE = 30;
+  /** 00:00 on the 1st of the month, in the company timezone. */
+  private readonly accrualGate: CompanyCronGate;
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly settings: SystemSettingsService,
-  ) {}
+    private prisma: PrismaService,
+    private tzSvc: TimezoneService,
+  ) {
+    this.accrualGate = new CompanyCronGate(this.tzSvc, '00:00', {
+      dayOfMonth: 1,
+    });
+  }
 
-  // ── The monthly accrual ────────────────────────────────────────────────────
+  /** Current { year, month } in the company timezone (accrual credits the
+   *  right calendar month regardless of server TZ / month-boundary hours). */
+  private async companyYearMonth(): Promise<{ year: number; month: number }> {
+    const companyTZ = await this.tzSvc.getCompanyTZ();
+    const key = this.tzSvc.toDateKey(new Date(), companyTZ);
+    return { year: key.getUTCFullYear(), month: key.getUTCMonth() + 1 };
+  }
 
   /**
-   * Credit one day of annual leave, on the 1st of the month in the COMPANY's
-   * timezone.
-   *
-   * The tick is hourly and the gate decides, rather than a cron expression
-   * firing at midnight server time: a company in Muscat on a UTC server would
-   * otherwise be credited four hours into the previous month, and the accrual
-   * would land in the wrong year every January.
-   *
-   * Idempotence is in the database, not in this flag: `LeaveAccrualHistory`
-   * (employee, year, month, 'AUTO') is checked before anything is added, so a
-   * restart on the 1st cannot credit the month twice however many times this
-   * fires. The in-memory key only saves the query.
+   * Cron job: fires at 00:00 on the 1st of every month IN THE COMPANY TIMEZONE
+   * (the tick runs every 5 min; the gate decides). Accrues 1 leave day for all
+   * ACTIVE employees.
    */
-  @Cron(CronExpression.EVERY_HOUR, { name: 'monthly-leave-accrual' })
-  async monthlyAccrualTick(): Promise<void> {
-    const { year, month, day } = await this.companyNow();
-    if (day !== 1) return;
+  @Cron(COMPANY_CRON_TICK, { name: 'monthly-leave-accrual' })
+  async monthlyLeaveAccrualTick() {
+    if (!(await this.accrualGate.due())) return;
+    return this.handleMonthlyLeaveAccrual();
+  }
 
-    const key = `${year}-${month}`;
-    if (this.lastAccrualKey === key) return;
-    this.lastAccrualKey = key;
-
+  async handleMonthlyLeaveAccrual() {
+    console.log('🔔 Cron job triggered: Monthly leave accrual');
     try {
-      const result = await this.accrueLeaveForAllEmployees();
-      this.logger.log(
-        `Monthly leave accrual for ${month}/${year}: ${result.data.credited} credited, ${result.data.skipped} already done.`,
-      );
-    } catch (e) {
-      // Cleared so the next tick retries rather than the company silently
-      // missing a month because one run failed.
-      this.lastAccrualKey = null;
-      this.logger.error(
-        `Monthly leave accrual failed: ${(e as Error)?.message ?? e}`,
-      );
+      await this.accrueLeaveForAllEmployees();
+      console.log('✅ Monthly leave accrual completed successfully');
+    } catch (error) {
+      console.error('❌ Monthly leave accrual failed:', error);
     }
   }
 
-  /** Today, as the company's own clock sees it. */
-  private async companyNow(): Promise<{
-    year: number;
-    month: number;
-    day: number;
-  }> {
-    const company = await this.prisma.company.findFirst({
-      orderBy: { createdAt: 'asc' },
-      select: { timezone: true },
-    });
-    const zone =
-      company?.timezone?.trim() ||
-      (await this.settings.get('default_timezone')) ||
-      'UTC';
-    const now = DateTime.now().setZone(zone);
-    const valid = now.isValid ? now : DateTime.utc();
-    return { year: valid.year, month: valid.month, day: valid.day };
-  }
-
-  /** The current year in the company's clock — what an unqualified "year" means. */
-  private async companyYear(): Promise<number> {
-    return (await this.companyNow()).year;
-  }
-
-  // ── Materialising a year ───────────────────────────────────────────────────
-
   /**
-   * Create the balance rows for one employee-year.
+   * Whether `user` can act on a live approval step of a request belonging to
+   * `employeeId`.
    *
-   * Gender-restricted types are filtered out at creation rather than allocated
-   * and hidden: a male employee with a maternity row has 98 days of something in
-   * the company totals that nobody can ever take.
+   * Deliberately implemented against Prisma rather than by injecting
+   * `ApprovalEngineService`: `ApprovalsModule` already reaches this module
+   * through `LeaveRequestsModule`, and importing it back would close the cycle.
    */
+  private async hasLiveApprovalStepFor(
+    user: any,
+    employeeId: string,
+  ): Promise<boolean> {
+    if (!user) return false;
+    const active = await this.prisma.requestApproval.findMany({
+      where: { requestType: 'LEAVE', status: 'ACTIVE' },
+      select: { requestId: true, resolvedApproverId: true, approverType: true },
+    });
+    if (active.length === 0) return false;
+
+    const mine = active.filter(
+      (row) =>
+        (row.resolvedApproverId && row.resolvedApproverId === user.id) ||
+        (!row.resolvedApproverId && row.approverType === user.role),
+    );
+    if (mine.length === 0) return false;
+
+    const owned = await this.prisma.leaveRequest.count({
+      where: { id: { in: mine.map((r) => r.requestId) }, employeeId },
+    });
+    return owned > 0;
+  }
+
   async initBalance(employeeId: string, year: number) {
     if (!Number.isInteger(year)) {
       throw new BadRequestException('A valid year is required');
     }
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { id: true, gender: true },
     });
-    if (!employee) throw new NotFoundException('Employee not found');
-
-    const types = await this.balanceAffectingTypes();
-    const eligible = types.filter((t) =>
-      eligibleForGender(t.genderRestriction, employee.gender),
-    );
-
-    const annual = types.find((t) => t.label === ANNUAL);
-    const sick = types.find((t) => t.label === SICK);
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.leaveBalance.upsert({
-        where: { employeeId_year: { employeeId, year } },
-        update: {},
-        create: {
-          employeeId,
-          year,
-          annualLeave: annual?.defaultDays ?? 30,
-          sickLeave: sick?.defaultDays ?? 30,
-        },
-      });
-      if (eligible.length) {
-        await tx.leaveTypeBalance.createMany({
-          data: eligible.map((t) => ({
-            employeeId,
-            year,
-            leaveTypeKey: t.label,
-            allocated: t.defaultDays ?? 0,
-          })),
-          skipDuplicates: true,
-        });
-      }
-    });
-
-    return this.readBalance(employeeId, year);
-  }
-
-  /**
-   * One employee's balance for a year, creating it if it does not exist.
-   *
-   * This door LOOKS like a read and is not: it materialises a `LeaveBalance` plus
-   * one `LeaveTypeBalance` per active type. Unguarded, any authenticated caller
-   * could both read a colleague's entitlement and create rows for the whole
-   * company by walking employee ids — which is why the access check is here and
-   * not only on the routes that obviously write.
-   */
-  async getBalance(
-    employeeId: string,
-    year: number | undefined,
-    user: Principal,
-  ) {
-    const targetYear = year ?? (await this.companyYear());
-
-    const subject = await this.prisma.employee.findUnique({
-      where: { id: employeeId },
-      select: { id: true, departmentId: true, supervisorId: true },
-    });
-    if (!subject) throw new NotFoundException('Employee not found');
-
-    if (user.role !== UserRole.ADMIN && user.role !== UserRole.HR_MANAGER) {
-      const scope = await managerDepartmentIds(this.prisma, user);
-      assertCanAccessRequestOf(user, subject, scope, 'view the balance for');
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
     }
 
+    // Check if balance exists
     const existing = await this.prisma.leaveBalance.findUnique({
-      where: { employeeId_year: { employeeId, year: targetYear } },
-      select: { id: true },
+      where: { employeeId_year: { employeeId, year } },
     });
-    if (!existing) return this.initBalance(employeeId, targetYear);
 
-    // A type added to the library mid-year has no row yet. Backfilling it here
-    // is what stops "Study Leave" existing in the picker and nowhere in the
-    // balance the picker is checked against.
-    await this.backfillMissingTypes(employeeId, targetYear);
-    return this.readBalance(employeeId, targetYear);
+    if (existing) {
+      throw new BadRequestException(`Leave balance for ${year} already exists`);
+    }
+
+    const balance = await this.prisma.leaveBalance.create({
+      data: {
+        employeeId,
+        year,
+        annualLeave: this.DEFAULT_ANNUAL_LEAVE,
+        sickLeave: this.DEFAULT_SICK_LEAVE,
+        usedAnnual: 0,
+        usedSick: 0,
+        carriedOver: 0,
+      },
+    });
+
+    // Create leave type balances for active types that affect balance
+    const activeLeaveTypes = await this.prisma.libraryItem.findMany({
+      where: {
+        libraryType: 'LEAVE_TYPE',
+        isActive: true,
+        affectsBalance: true,
+      },
+    });
+
+    const employeeGender = (employee.gender || '').toUpperCase();
+    const eligibleLeaveTypes = activeLeaveTypes.filter((lt) => {
+      if (!lt.genderRestriction) return true;
+      return lt.genderRestriction.toUpperCase() === employeeGender;
+    });
+
+    const leaveTypeBalancesData = eligibleLeaveTypes.map((lt) => ({
+      employeeId,
+      year,
+      leaveTypeKey: lt.label,
+      allocated: lt.defaultDays || 0,
+      used: 0,
+      carriedOver: 0,
+    }));
+
+    if (leaveTypeBalancesData.length > 0) {
+      await this.prisma.leaveTypeBalance.createMany({
+        data: leaveTypeBalancesData,
+        skipDuplicates: true,
+      });
+    }
+
+    // Get the created type balances
+    const leaveTypeBalances = await this.prisma.leaveTypeBalance.findMany({
+      where: { employeeId, year },
+    });
+
+    return {
+      success: true,
+      message: 'Leave balance initialized',
+      data: {
+        id: balance.id,
+        employeeId: balance.employeeId,
+        year: balance.year,
+        annualLeave: balance.annualLeave,
+        sickLeave: balance.sickLeave,
+        usedAnnual: balance.usedAnnual,
+        usedSick: balance.usedSick,
+        carriedOver: balance.carriedOver,
+        createdAt: balance.createdAt,
+        updatedAt: balance.updatedAt,
+        remainingAnnual: balance.annualLeave + balance.carriedOver - balance.usedAnnual,
+        remainingSick: balance.sickLeave - balance.usedSick,
+        leaveTypeBalances: leaveTypeBalances.map((ltb) => ({
+          ...ltb,
+          remaining: ltb.allocated + ltb.carriedOver - ltb.used,
+        })),
+      },
+    };
   }
 
-  /** Every employee's balance for a year — the HR balances screen. */
-  async getAllBalances(year: number | undefined) {
-    const targetYear = year ?? (await this.companyYear());
+  async getBalance(employeeId: string, year?: number, user?: any) {
+    const targetYear = year || new Date().getFullYear();
 
-    const employees = await this.prisma.employee.findMany({
-      where: { status: { not: 'TERMINATED' } },
-      select: {
-        id: true,
-        employeeCode: true,
-        firstName: true,
-        lastName: true,
-        avatarUrl: true,
-        gender: true,
-        department: { select: { id: true, name: true } },
-        leaveBalances: { where: { year: targetYear } },
-        leaveTypeBalances: { where: { year: targetYear } },
+    // This door LOOKS like a read but materialises a LeaveBalance plus one
+    // LeaveTypeBalance per active type. Unguarded, any authenticated user could
+    // both read a colleague's entitlement and create balance rows for the whole
+    // company by walking ids.
+    if (user) {
+      const subject = await this.prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { id: true, departmentId: true, branchId: true },
+      });
+      if (!subject) {
+        throw new NotFoundException('Employee not found');
+      }
+      // The shared guard already asserts the branch envelope for anyone but the
+      // subject themselves — asserting it again HERE would 404 a user reading
+      // their OWN balance while the picker points at a different branch.
+      try {
+        assertCanAccessEmployeeRecord(user, subject);
+      } catch (err) {
+        // …but an approver with a LIVE step on one of this employee's requests
+        // may read the balance, because that is the context the leave detail
+        // screen shows them to decide with ("requested days exceed available
+        // balance"). Without it a SUPERVISOR — who owns none of the requester's
+        // records — is asked to approve leave with the balance panel blanked.
+        if (!(await this.hasLiveApprovalStepFor(user, employeeId))) throw err;
+      }
+    }
+
+    let balance = await this.prisma.leaveBalance.findUnique({
+      where: { employeeId_year: { employeeId, year: targetYear } },
+      include: {
+        employee: {
+          include: {
+            leaveTypeBalances: {
+              where: { year: targetYear },
+            },
+          },
+        },
       },
-      orderBy: { employeeCode: 'asc' },
     });
 
-    const data = employees.map((emp) => {
-      const headline = emp.leaveBalances[0] ?? null;
-      const types = emp.leaveTypeBalances.map(toTypeView);
-      return {
-        employee: {
-          id: emp.id,
-          employeeCode: emp.employeeCode,
-          firstName: emp.firstName,
-          lastName: emp.lastName,
-          avatarUrl: emp.avatarUrl,
-          department: emp.department,
+    // Auto-init if not exists
+    if (!balance) {
+      await this.initBalance(employeeId, targetYear);
+      balance = await this.prisma.leaveBalance.findUnique({
+        where: { employeeId_year: { employeeId, year: targetYear } },
+        include: {
+          employee: {
+            include: {
+              leaveTypeBalances: {
+                where: { year: targetYear },
+              },
+            },
+          },
         },
+      });
+    }
+
+    if (!balance) {
+      throw new NotFoundException('Leave balance not found');
+    }
+
+    // Auto-init missing leave type balances if active leave types are not present
+    const activeLeaveTypes = await this.prisma.libraryItem.findMany({
+      where: {
+        libraryType: 'LEAVE_TYPE',
+        isActive: true,
+        affectsBalance: true,
+      },
+    });
+
+    const balanceEmployeeGender = ((balance.employee as any)?.gender || '').toUpperCase();
+    const genderRestrictionMap = new Map(activeLeaveTypes.map((lt) => [lt.label, lt.genderRestriction]));
+
+    const existingKeys = (balance.employee?.leaveTypeBalances || []).map(b => b.leaveTypeKey);
+    const missingTypes = activeLeaveTypes.filter(lt => {
+      if (existingKeys.includes(lt.label)) return false;
+      if (!lt.genderRestriction) return true;
+      return lt.genderRestriction.toUpperCase() === balanceEmployeeGender;
+    });
+
+    if (missingTypes.length > 0) {
+      const leaveTypeBalancesData = missingTypes.map((lt) => ({
+        employeeId,
         year: targetYear,
-        // Null rather than zeroes when the year was never initialised. "Not set
-        // up yet" and "entitled to nothing" are different facts, and a screen
-        // printing 0 for both has told the reader something false about one.
-        headline: headline
-          ? {
-              annualLeave: headline.annualLeave,
-              usedAnnual: headline.usedAnnual,
-              sickLeave: headline.sickLeave,
-              usedSick: headline.usedSick,
-              carriedOver: headline.carriedOver,
-              remainingAnnual:
-                headline.annualLeave +
-                headline.carriedOver -
-                headline.usedAnnual,
-              remainingSick: headline.sickLeave - headline.usedSick,
-            }
-          : null,
-        leaveTypeBalances: types,
-        totals: {
-          allocated: types.reduce((a, t) => a + t.allocated, 0),
-          used: types.reduce((a, t) => a + t.used, 0),
-          carriedOver: types.reduce((a, t) => a + t.carriedOver, 0),
-          remaining: types.reduce((a, t) => a + t.remaining, 0),
+        leaveTypeKey: lt.label,
+        allocated: lt.defaultDays || 0,
+        used: 0,
+        carriedOver: 0,
+      }));
+
+      await this.prisma.leaveTypeBalance.createMany({
+        data: leaveTypeBalancesData,
+        skipDuplicates: true,
+      });
+
+      // Refetch balance to get the new ones
+      balance = await this.prisma.leaveBalance.findUnique({
+        where: { employeeId_year: { employeeId, year: targetYear } },
+        include: {
+          employee: {
+            include: {
+              leaveTypeBalances: {
+                where: { year: targetYear },
+              },
+            },
+          },
         },
+      });
+
+      if (!balance) {
+        throw new NotFoundException('Leave balance not found');
+      }
+    }
+
+    const allLeaveTypeBalances = balance.employee?.leaveTypeBalances || [];
+    // Filter out gender-restricted types that don't match employee gender
+    const leaveTypeBalances = allLeaveTypeBalances.filter((ltb) => {
+      const restriction = genderRestrictionMap.get(ltb.leaveTypeKey);
+      if (!restriction) return true;
+      return restriction.toUpperCase() === balanceEmployeeGender;
+    });
+
+    return {
+      success: true,
+      data: {
+        id: balance.id,
+        employeeId: balance.employeeId,
+        year: balance.year,
+        annualLeave: balance.annualLeave,
+        sickLeave: balance.sickLeave,
+        usedAnnual: balance.usedAnnual,
+        usedSick: balance.usedSick,
+        carriedOver: balance.carriedOver,
+        createdAt: balance.createdAt,
+        updatedAt: balance.updatedAt,
+        remainingAnnual: balance.annualLeave + balance.carriedOver - balance.usedAnnual,
+        remainingSick: balance.sickLeave - balance.usedSick,
+        leaveTypeBalances: leaveTypeBalances.map((ltb) => ({
+          id: ltb.id,
+          employeeId: ltb.employeeId,
+          year: ltb.year,
+          leaveTypeKey: ltb.leaveTypeKey,
+          allocated: ltb.allocated,
+          used: ltb.used,
+          carriedOver: ltb.carriedOver,
+          createdAt: ltb.createdAt,
+          updatedAt: ltb.updatedAt,
+          remaining: ltb.allocated + ltb.carriedOver - ltb.used,
+        })),
+      },
+    };
+  }
+
+  async getAllBalances(year?: number) {
+    const targetYear = year || new Date().getFullYear();
+
+    const balances = await this.prisma.leaveBalance.findMany({
+      where: {
+        year: targetYear,
+        employee: { NOT: { user: { role: 'ADMIN' } } },
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            fullName: true,
+            gender: true,
+            department: { select: { name: true } },
+            leaveTypeBalances: {
+              where: { year: targetYear },
+            },
+          },
+        },
+      },
+      orderBy: { employee: { employeeCode: 'asc' } },
+    });
+
+    const data = balances.map((b) => {
+      const leaveTypeBalances = b.employee?.leaveTypeBalances || [];
+      return {
+        id: b.id,
+        employeeId: b.employeeId,
+        year: b.year,
+        annualLeave: b.annualLeave,
+        sickLeave: b.sickLeave,
+        usedAnnual: b.usedAnnual,
+        usedSick: b.usedSick,
+        carriedOver: b.carriedOver,
+        createdAt: b.createdAt,
+        updatedAt: b.updatedAt,
+        remainingAnnual: b.annualLeave + b.carriedOver - b.usedAnnual,
+        remainingSick: b.sickLeave - b.usedSick,
+        employee: {
+          id: b.employee?.id,
+          employeeCode: b.employee?.employeeCode,
+          fullName: b.employee?.fullName,
+          gender: (b.employee as any)?.gender ?? null,
+          department: b.employee?.department,
+        },
+        leaveTypeBalances: leaveTypeBalances.map((ltb) => ({
+          id: ltb.id,
+          employeeId: ltb.employeeId,
+          year: ltb.year,
+          leaveTypeKey: ltb.leaveTypeKey,
+          allocated: ltb.allocated,
+          used: ltb.used,
+          carriedOver: ltb.carriedOver,
+          createdAt: ltb.createdAt,
+          updatedAt: ltb.updatedAt,
+          remaining: ltb.allocated + ltb.carriedOver - ltb.used,
+        })),
       };
     });
 
     return {
-      success: true as const,
+      success: true,
       data,
-      meta: { year: targetYear, total: data.length },
+      meta: { year: targetYear, total: balances.length },
     };
   }
 
-  // ── Spending and refunding ─────────────────────────────────────────────────
-
-  /**
-   * Spend days against a type.
-   *
-   * Throws when the balance is short — and the caller relies on that: leave
-   * approval deducts BEFORE it writes APPROVED, precisely so a short balance
-   * fails the whole approval instead of leaving an approved absence nobody paid
-   * for. See the note in `LeaveRequestsService.approve`.
-   *
-   * A type that does not affect balances is a no-op rather than an error: unpaid
-   * leave is still approved, still writes attendance, and costs no entitlement.
-   */
   async deductDays(
     employeeId: string,
     days: number,
-    leaveTypeKey: string,
-    year: number,
-    tx: Prisma.TransactionClient = this.prisma,
+    leaveType: string,
+    year?: number,
   ) {
-    const type = await tx.libraryItem.findFirst({
-      where: { libraryType: LibraryType.LEAVE_TYPE, label: leaveTypeKey },
-    });
-    if (type && !type.affectsBalance) return;
+    const targetYear = year || new Date().getFullYear();
 
-    const typeBalance = await tx.leaveTypeBalance.upsert({
+    // Look up the leave type library item
+    const libraryItem = await this.prisma.libraryItem.findFirst({
       where: {
-        employeeId_year_leaveTypeKey: { employeeId, year, leaveTypeKey },
-      },
-      update: {},
-      create: {
-        employeeId,
-        year,
-        leaveTypeKey,
-        allocated: type?.defaultDays ?? 0,
+        libraryType: 'LEAVE_TYPE',
+        isActive: true,
+        OR: [
+          { label: leaveType },
+          { label: { equals: leaveType, mode: 'insensitive' } },
+          ...(leaveType === 'ANNUAL' ? [{ label: 'Annual Leave' }] : []),
+          ...(leaveType === 'SICK' ? [{ label: 'Sick Leave' }] : []),
+          ...(leaveType === 'UNPAID' ? [{ label: 'Unpaid Leave' }] : []),
+          ...(leaveType === 'MATERNITY' ? [{ label: 'Maternity Leave' }] : []),
+          ...(leaveType === 'PATERNITY' ? [{ label: 'Paternity Leave' }] : []),
+          ...(leaveType === 'BEREAVEMENT' ? [{ label: 'Bereavement Leave' }] : []),
+        ],
       },
     });
 
-    const remaining =
-      typeBalance.allocated + typeBalance.carriedOver - typeBalance.used;
-    if (remaining < days) {
-      throw new BadRequestException(
-        `Insufficient ${leaveTypeKey} balance. Available: ${remaining} day(s), requested: ${days}.`,
-      );
+    const leaveTypeKey = libraryItem ? libraryItem.label : leaveType;
+
+    // Get or init legacy balance
+    let balance = await this.prisma.leaveBalance.findUnique({
+      where: { employeeId_year: { employeeId, year: targetYear } },
+    });
+    if (!balance) {
+      const result = await this.initBalance(employeeId, targetYear);
+      balance = {
+        id: result.data.id,
+        employeeId: result.data.employeeId,
+        year: result.data.year,
+        annualLeave: result.data.annualLeave,
+        sickLeave: result.data.sickLeave,
+        usedAnnual: result.data.usedAnnual,
+        usedSick: result.data.usedSick,
+        carriedOver: result.data.carriedOver,
+        createdAt: result.data.createdAt,
+        updatedAt: result.data.updatedAt,
+      };
     }
 
-    await tx.leaveTypeBalance.update({
-      where: { id: typeBalance.id },
-      data: { used: typeBalance.used + days },
+    if (libraryItem) {
+      if (!libraryItem.affectsBalance) {
+        // Doesn't affect balance, so do nothing
+        return balance;
+      }
+
+      // Check and deduct from LeaveTypeBalance
+      let typeBalance = await this.prisma.leaveTypeBalance.findUnique({
+        where: {
+          employeeId_year_leaveTypeKey: {
+            employeeId,
+            year: targetYear,
+            leaveTypeKey,
+          },
+        },
+      });
+
+      if (!typeBalance) {
+        typeBalance = await this.prisma.leaveTypeBalance.create({
+          data: {
+            employeeId,
+            year: targetYear,
+            leaveTypeKey,
+            allocated: libraryItem.defaultDays || 0,
+            used: 0,
+            carriedOver: 0,
+          },
+        });
+      }
+
+      const remaining = typeBalance.allocated + typeBalance.carriedOver - typeBalance.used;
+      if (remaining < days) {
+        throw new BadRequestException(
+          `Insufficient ${leaveTypeKey} balance. Available: ${remaining} days`,
+        );
+      }
+
+      // Update LeaveTypeBalance
+      await this.prisma.leaveTypeBalance.update({
+        where: { id: typeBalance.id },
+        data: { used: typeBalance.used + days },
+      });
+
+      // Synchronize to legacy columns if it matches Annual or Sick Leave
+      if (leaveTypeKey === 'Annual Leave') {
+        balance = await this.prisma.leaveBalance.update({
+          where: { id: balance.id },
+          data: { usedAnnual: balance.usedAnnual + days },
+        });
+      } else if (leaveTypeKey === 'Sick Leave') {
+        balance = await this.prisma.leaveBalance.update({
+          where: { id: balance.id },
+          data: { usedSick: balance.usedSick + days },
+        });
+      }
+
+      return balance;
+    }
+
+    // Fallback legacy behavior if libraryItem is not found
+    const remainingAnnual = balance.annualLeave + balance.carriedOver - balance.usedAnnual;
+    const remainingSick = balance.sickLeave - balance.usedSick;
+
+    if (leaveType === 'ANNUAL' || leaveType === 'PERSONAL') {
+      if (remainingAnnual < days) {
+        throw new BadRequestException(
+          `Insufficient annual leave balance. Available: ${remainingAnnual} days`,
+        );
+      }
+      return this.prisma.leaveBalance.update({
+        where: { id: balance.id },
+        data: { usedAnnual: balance.usedAnnual + days },
+      });
+    } else if (leaveType === 'SICK') {
+      if (remainingSick < days) {
+        throw new BadRequestException(
+          `Insufficient sick leave balance. Available: ${remainingSick} days`,
+        );
+      }
+      return this.prisma.leaveBalance.update({
+        where: { id: balance.id },
+        data: { usedSick: balance.usedSick + days },
+      });
+    }
+
+    if (remainingAnnual < days) {
+      throw new BadRequestException(
+        `Insufficient leave balance. Available: ${remainingAnnual} days`,
+      );
+    }
+    return this.prisma.leaveBalance.update({
+      where: { id: balance.id },
+      data: { usedAnnual: balance.usedAnnual + days },
     });
-    await this.syncHeadline(tx, employeeId, year, leaveTypeKey, days);
   }
 
-  /**
-   * Give days back — a cancelled or reversed leave.
-   *
-   * `used` is floored at zero rather than allowed to go negative: a negative
-   * `used` silently inflates the remaining balance, and the inflation survives
-   * into next year's carry-forward.
-   */
   async addDays(
     employeeId: string,
     days: number,
-    leaveTypeKey: string,
-    year: number,
-    tx: Prisma.TransactionClient = this.prisma,
+    leaveType: string,
+    year?: number,
   ) {
-    const typeBalance = await tx.leaveTypeBalance.findUnique({
+    const targetYear = year || new Date().getFullYear();
+
+    const libraryItem = await this.prisma.libraryItem.findFirst({
       where: {
-        employeeId_year_leaveTypeKey: { employeeId, year, leaveTypeKey },
+        libraryType: 'LEAVE_TYPE',
+        isActive: true,
+        OR: [
+          { label: leaveType },
+          { label: { equals: leaveType, mode: 'insensitive' } },
+          ...(leaveType === 'ANNUAL' ? [{ label: 'Annual Leave' }] : []),
+          ...(leaveType === 'SICK' ? [{ label: 'Sick Leave' }] : []),
+          ...(leaveType === 'UNPAID' ? [{ label: 'Unpaid Leave' }] : []),
+          ...(leaveType === 'MATERNITY' ? [{ label: 'Maternity Leave' }] : []),
+          ...(leaveType === 'PATERNITY' ? [{ label: 'Paternity Leave' }] : []),
+          ...(leaveType === 'BEREAVEMENT' ? [{ label: 'Bereavement Leave' }] : []),
+        ],
       },
     });
-    if (!typeBalance) return;
 
-    await tx.leaveTypeBalance.update({
-      where: { id: typeBalance.id },
-      data: { used: Math.max(0, typeBalance.used - days) },
+    const leaveTypeKey = libraryItem ? libraryItem.label : leaveType;
+
+    let balance = await this.prisma.leaveBalance.findUnique({
+      where: { employeeId_year: { employeeId, year: targetYear } },
     });
-    await this.syncHeadline(tx, employeeId, year, leaveTypeKey, -days);
-  }
 
-  // ── Administration ─────────────────────────────────────────────────────────
+    if (!balance) {
+      const result = await this.initBalance(employeeId, targetYear);
+      balance = {
+        id: result.data.id,
+        employeeId: result.data.employeeId,
+        year: result.data.year,
+        annualLeave: result.data.annualLeave,
+        sickLeave: result.data.sickLeave,
+        usedAnnual: result.data.usedAnnual,
+        usedSick: result.data.usedSick,
+        carriedOver: result.data.carriedOver,
+        createdAt: result.data.createdAt,
+        updatedAt: result.data.updatedAt,
+      };
+    }
+
+    if (libraryItem) {
+      if (!libraryItem.affectsBalance) {
+        return balance;
+      }
+
+      const typeBalance = await this.prisma.leaveTypeBalance.findUnique({
+        where: {
+          employeeId_year_leaveTypeKey: {
+            employeeId,
+            year: targetYear,
+            leaveTypeKey,
+          },
+        },
+      });
+
+      if (typeBalance) {
+        await this.prisma.leaveTypeBalance.update({
+          where: { id: typeBalance.id },
+          data: { used: Math.max(0, typeBalance.used - days) },
+        });
+      }
+
+      if (leaveTypeKey === 'Annual Leave') {
+        balance = await this.prisma.leaveBalance.update({
+          where: { id: balance.id },
+          data: { usedAnnual: Math.max(0, balance.usedAnnual - days) },
+        });
+      } else if (leaveTypeKey === 'Sick Leave') {
+        balance = await this.prisma.leaveBalance.update({
+          where: { id: balance.id },
+          data: { usedSick: Math.max(0, balance.usedSick - days) },
+        });
+      }
+
+      return balance;
+    }
+
+    if (leaveType === 'SICK') {
+      return this.prisma.leaveBalance.update({
+        where: { id: balance.id },
+        data: { usedSick: Math.max(0, balance.usedSick - days) },
+      });
+    } else {
+      return this.prisma.leaveBalance.update({
+        where: { id: balance.id },
+        data: { usedAnnual: Math.max(0, balance.usedAnnual - days) },
+      });
+    }
+  }
 
   async updateBalance(
     employeeId: string,
     year: number,
-    annualLeave?: number,
+    annualLeave: number,
     sickLeave?: number,
   ) {
+    // The route has no DTO, so an empty body arrived as `undefined` for every
+    // field, Prisma ignored them, and the caller got a 200 that changed
+    // nothing — indistinguishable from a successful update.
     if (annualLeave === undefined && sickLeave === undefined) {
       throw new BadRequestException(
         'Provide at least one of annualLeave or sickLeave',
       );
     }
-    const employee = await this.prisma.employee.findUnique({
+    const subject = await this.prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { id: true },
+      select: { branchId: true },
     });
-    if (!employee) throw new NotFoundException('Employee not found');
+    if (!subject) {
+      throw new NotFoundException('Employee not found');
+    }
+    assertInBranch(subject.branchId);
+    let balance = await this.prisma.leaveBalance.findUnique({
+      where: { employeeId_year: { employeeId, year } },
+    });
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.leaveBalance.upsert({
-        where: { employeeId_year: { employeeId, year } },
-        update: {
-          ...(annualLeave !== undefined ? { annualLeave } : {}),
-          ...(sickLeave !== undefined ? { sickLeave } : {}),
+    if (!balance) {
+      const result = await this.initBalance(employeeId, year);
+      balance = {
+        id: result.data.id,
+        employeeId: result.data.employeeId,
+        year: result.data.year,
+        annualLeave: result.data.annualLeave,
+        sickLeave: result.data.sickLeave,
+        usedAnnual: result.data.usedAnnual,
+        usedSick: result.data.usedSick,
+        carriedOver: result.data.carriedOver,
+        createdAt: result.data.createdAt,
+        updatedAt: result.data.updatedAt,
+      };
+    }
+
+    const updated = await this.prisma.leaveBalance.update({
+      where: { id: balance.id },
+      data: {
+        annualLeave,
+        ...(sickLeave !== undefined && { sickLeave }),
+      },
+    });
+
+    // Sync to LeaveTypeBalance if exists
+    await this.prisma.leaveTypeBalance.upsert({
+      where: {
+        employeeId_year_leaveTypeKey: {
+          employeeId,
+          year,
+          leaveTypeKey: 'Annual Leave',
         },
+      },
+      update: { allocated: annualLeave },
+      create: {
+        employeeId,
+        year,
+        leaveTypeKey: 'Annual Leave',
+        allocated: annualLeave,
+        used: 0,
+        carriedOver: 0,
+      },
+    });
+
+    if (sickLeave !== undefined) {
+      await this.prisma.leaveTypeBalance.upsert({
+        where: {
+          employeeId_year_leaveTypeKey: {
+            employeeId,
+            year,
+            leaveTypeKey: 'Sick Leave',
+          },
+        },
+        update: { allocated: sickLeave },
         create: {
           employeeId,
           year,
-          annualLeave: annualLeave ?? 30,
-          sickLeave: sickLeave ?? 30,
+          leaveTypeKey: 'Sick Leave',
+          allocated: sickLeave,
+          used: 0,
+          carriedOver: 0,
         },
       });
-      if (annualLeave !== undefined) {
-        await upsertAllocation(tx, employeeId, year, ANNUAL, annualLeave);
-      }
-      if (sickLeave !== undefined) {
-        await upsertAllocation(tx, employeeId, year, SICK, sickLeave);
-      }
-    });
+    }
 
-    return this.readBalance(employeeId, year);
+    return {
+      success: true,
+      message: 'Leave balance updated',
+      data: {
+        ...updated,
+        remainingAnnual:
+          updated.annualLeave + updated.carriedOver - updated.usedAnnual,
+        remainingSick: updated.sickLeave - updated.usedSick,
+      },
+    };
   }
 
   async updateTypeBalance(
@@ -413,139 +758,191 @@ export class LeaveBalancesService {
     allocated: number,
     carriedOver?: number,
   ) {
-    const employee = await this.prisma.employee.findUnique({
+    // Same omission as accrueLeaveForEmployee: this writes straight through raw
+    // ids, so the branch envelope has to be asserted explicitly.
+    const subject = await this.prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { id: true },
+      select: { branchId: true },
     });
-    if (!employee) throw new NotFoundException('Employee not found');
+    if (!subject) {
+      throw new NotFoundException('Employee not found');
+    }
+    assertInBranch(subject.branchId);
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.leaveTypeBalance.upsert({
-        where: {
-          employeeId_year_leaveTypeKey: { employeeId, year, leaveTypeKey },
+    let typeBalance = await this.prisma.leaveTypeBalance.findUnique({
+      where: {
+        employeeId_year_leaveTypeKey: {
+          employeeId,
+          year,
+          leaveTypeKey,
         },
-        update: {
-          allocated,
-          ...(carriedOver !== undefined ? { carriedOver } : {}),
-        },
-        create: {
+      },
+    });
+
+    if (!typeBalance) {
+      typeBalance = await this.prisma.leaveTypeBalance.create({
+        data: {
           employeeId,
           year,
           leaveTypeKey,
           allocated,
-          carriedOver: carriedOver ?? 0,
+          used: 0,
+          carriedOver: carriedOver || 0,
         },
       });
+    } else {
+      typeBalance = await this.prisma.leaveTypeBalance.update({
+        where: { id: typeBalance.id },
+        data: {
+          allocated,
+          ...(carriedOver !== undefined && { carriedOver }),
+        },
+      });
+    }
 
-      // The headline row mirrors the two named types, so the payslip figure and
-      // the balances screen cannot disagree about the same entitlement.
-      if (leaveTypeKey === ANNUAL) {
-        await tx.leaveBalance.upsert({
-          where: { employeeId_year: { employeeId, year } },
-          update: {
-            annualLeave: allocated,
-            ...(carriedOver !== undefined ? { carriedOver } : {}),
-          },
-          create: {
-            employeeId,
-            year,
-            annualLeave: allocated,
-            sickLeave: 30,
-            carriedOver: carriedOver ?? 0,
-          },
-        });
-      } else if (leaveTypeKey === SICK) {
-        await tx.leaveBalance.upsert({
-          where: { employeeId_year: { employeeId, year } },
-          update: { sickLeave: allocated },
-          create: {
-            employeeId,
-            year,
-            annualLeave: 30,
-            sickLeave: allocated,
-          },
-        });
-      }
-    });
+    // Sync legacy columns
+    if (leaveTypeKey === 'Annual Leave') {
+      await this.prisma.leaveBalance.upsert({
+        where: { employeeId_year: { employeeId, year } },
+        update: {
+          annualLeave: allocated,
+          ...(carriedOver !== undefined && { carriedOver }),
+        },
+        create: {
+          employeeId,
+          year,
+          annualLeave: allocated,
+          sickLeave: 30,
+          carriedOver: carriedOver || 0,
+        },
+      });
+    } else if (leaveTypeKey === 'Sick Leave') {
+      await this.prisma.leaveBalance.upsert({
+        where: { employeeId_year: { employeeId, year } },
+        update: {
+          sickLeave: allocated,
+        },
+        create: {
+          employeeId,
+          year,
+          annualLeave: 12,
+          sickLeave: allocated,
+        },
+      });
+    }
 
-    return this.readBalance(employeeId, year);
+    return {
+      success: true,
+      data: {
+        ...typeBalance,
+        remaining: typeBalance.allocated + typeBalance.carriedOver - typeBalance.used,
+      },
+    };
   }
 
-  /**
-   * Reset every employee's allocations to the library defaults for a year.
-   *
-   * `used` is deliberately untouched: this changes what people are entitled to,
-   * not what they have already taken. Zeroing it would hand back leave that has
-   * already been spent and already appears as attendance.
-   */
   async setBulkDefaultBalances(year: number) {
     if (!Number.isInteger(year)) {
       throw new BadRequestException('A valid year is required');
     }
-    const [employees, types] = await Promise.all([
-      this.prisma.employee.findMany({
-        where: { status: { not: 'TERMINATED' } },
-        select: { id: true, gender: true },
-      }),
-      this.balanceAffectingTypes(),
-    ]);
+    const employees = await this.prisma.employee.findMany({
+      select: { id: true },
+    });
 
-    let touched = 0;
+    const activeLeaveTypes = await this.prisma.libraryItem.findMany({
+      where: {
+        libraryType: 'LEAVE_TYPE',
+        isActive: true,
+        affectsBalance: true,
+      },
+    });
+
     for (const employee of employees) {
-      const eligible = types.filter((t) =>
-        eligibleForGender(t.genderRestriction, employee.gender),
-      );
-      const annual = eligible.find((t) => t.label === ANNUAL);
-      const sick = eligible.find((t) => t.label === SICK);
+      const legacyBalance = await this.prisma.leaveBalance.findUnique({
+        where: { employeeId_year: { employeeId: employee.id, year } },
+      });
 
-      await this.prisma.$transaction(async (tx) => {
-        await tx.leaveBalance.upsert({
-          where: { employeeId_year: { employeeId: employee.id, year } },
+      if (!legacyBalance) {
+        await this.prisma.leaveBalance.create({
+          data: {
+            employeeId: employee.id,
+            year,
+            annualLeave: 12,
+            sickLeave: 30,
+          },
+        });
+      }
+
+      for (const lt of activeLeaveTypes) {
+        await this.prisma.leaveTypeBalance.upsert({
+          where: {
+            employeeId_year_leaveTypeKey: {
+              employeeId: employee.id,
+              year,
+              leaveTypeKey: lt.label,
+            },
+          },
           update: {
-            annualLeave: annual?.defaultDays ?? 30,
-            sickLeave: sick?.defaultDays ?? 30,
+            allocated: lt.defaultDays || 0,
           },
           create: {
             employeeId: employee.id,
             year,
-            annualLeave: annual?.defaultDays ?? 30,
-            sickLeave: sick?.defaultDays ?? 30,
+            leaveTypeKey: lt.label,
+            allocated: lt.defaultDays || 0,
+            used: 0,
+            carriedOver: 0,
           },
         });
-        for (const type of eligible) {
-          await upsertAllocation(
-            tx,
-            employee.id,
-            year,
-            type.label,
-            type.defaultDays ?? 0,
-          );
+
+        if (lt.label === 'Annual Leave') {
+          await this.prisma.leaveBalance.update({
+            where: { employeeId_year: { employeeId: employee.id, year } },
+            data: { annualLeave: lt.defaultDays || 12 },
+          });
+        } else if (lt.label === 'Sick Leave') {
+          await this.prisma.leaveBalance.update({
+            where: { employeeId_year: { employeeId: employee.id, year } },
+            data: { sickLeave: lt.defaultDays || 30 },
+          });
         }
-      });
-      touched += 1;
+      }
     }
 
     return {
-      success: true as const,
-      message: `Allocations reset to the library defaults for ${touched} employee(s) in ${year}`,
+      success: true,
+      message: `Balances reset to defaults for year ${year}`,
     };
   }
 
+  // ==================== LEAVE ACCRUAL METHODS ====================
+
   /**
-   * Credit one day of annual leave to every active employee.
-   *
-   * The month is the company's, not the server's, and the `LeaveAccrualHistory`
-   * row is what makes a re-run a no-op rather than a second credit.
+   * Automatic leave accrual for all ACTIVE employees
+   * Every month: +1 annual leave day
    */
   async accrueLeaveForAllEmployees(triggeredBy?: string) {
-    const { year, month } = await this.companyNow();
+    const { year, month } = await this.companyYearMonth();
 
+    console.log(`🔄 Starting leave accrual for ${month}/${year}...`);
+
+    // Get all active employees with their balances in one query
     const employees = await this.prisma.employee.findMany({
       where: { status: 'ACTIVE' },
-      select: { id: true, employeeCode: true },
+      select: {
+        id: true,
+        employeeCode: true,
+        fullName: true,
+        leaveBalances: {
+          where: { year },
+          select: { id: true, annualLeave: true },
+        },
+      },
     });
 
-    const already = await this.prisma.leaveAccrualHistory.findMany({
+    console.log(`📋 Found ${employees.length} active employees`);
+
+    // Check existing accruals in batch
+    const existingAccruals = await this.prisma.leaveAccrualHistory.findMany({
       where: {
         employeeId: { in: employees.map((e) => e.id) },
         year,
@@ -554,372 +951,378 @@ export class LeaveBalancesService {
       },
       select: { employeeId: true },
     });
-    const done = new Set(already.map((a) => a.employeeId));
 
-    let credited = 0;
-    let skipped = 0;
+    const accrualedEmployeeIds = new Set(
+      existingAccruals.map((a) => a.employeeId),
+    );
+
+    const results = {
+      success: 0,
+      failed: 0,
+      skipped: 0,
+      details: [] as any[],
+    };
+
+    // Prepare batch operations
+    const balanceUpdates: any[] = [];
+    const historyCreates: any[] = [];
+    const balanceCreates: any[] = [];
+    const daysToAdd = 1;
 
     for (const employee of employees) {
-      if (done.has(employee.id)) {
-        skipped += 1;
-        continue;
+      try {
+        // Skip if already accrued
+        if (accrualedEmployeeIds.has(employee.id)) {
+          console.log(`⏭️  Skipped ${employee.employeeCode} - Already accrued`);
+          results.skipped++;
+          continue;
+        }
+
+        const balance = employee.leaveBalances[0];
+
+        // If no balance exists, prepare to create it
+        if (!balance) {
+          balanceCreates.push({
+            employeeId: employee.id,
+            year,
+            annualLeave: 12 + daysToAdd, // Default 12 + 1 for this month
+            sickLeave: 30,
+            carriedOver: 0,
+            usedAnnual: 0,
+            usedSick: 0,
+          });
+
+          historyCreates.push({
+            employeeId: employee.id,
+            year,
+            month,
+            daysAdded: daysToAdd,
+            balanceBefore: 12,
+            balanceAfter: 12 + daysToAdd,
+            accrualType: 'AUTO',
+            triggeredBy,
+            notes: `Automatic accrual for month ${month}/${year}`,
+          });
+
+          results.success++;
+          results.details.push({
+            employeeCode: employee.employeeCode,
+            fullName: employee.fullName,
+            balanceBefore: 12,
+            balanceAfter: 12 + daysToAdd,
+            daysAdded: daysToAdd,
+          });
+        } else {
+          // Prepare balance update
+          const balanceBefore = balance.annualLeave;
+          const balanceAfter = balanceBefore + daysToAdd;
+
+          balanceUpdates.push({
+            where: { id: balance.id },
+            data: { annualLeave: balanceAfter },
+          });
+
+          historyCreates.push({
+            employeeId: employee.id,
+            year,
+            month,
+            daysAdded: daysToAdd,
+            balanceBefore,
+            balanceAfter,
+            accrualType: 'AUTO',
+            triggeredBy,
+            notes: `Automatic accrual for month ${month}/${year}`,
+          });
+
+          results.success++;
+          results.details.push({
+            employeeCode: employee.employeeCode,
+            fullName: employee.fullName,
+            balanceBefore,
+            balanceAfter,
+            daysAdded: daysToAdd,
+          });
+        }
+      } catch (error) {
+        console.error(`❌ Failed for ${employee.employeeCode}:`, error.message);
+        results.failed++;
       }
-      await this.creditOne(
-        employee.id,
-        MONTHLY_ACCRUAL_DAYS,
-        year,
-        month,
-        'AUTO',
-        triggeredBy,
-        `Automatic accrual for ${month}/${year}`,
-      );
-      credited += 1;
     }
 
+    // Execute all operations in a single transaction
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        // Create new balances
+        if (balanceCreates.length > 0) {
+          await tx.leaveBalance.createMany({
+            data: balanceCreates,
+            skipDuplicates: true,
+          });
+
+          const typeBalanceCreates = balanceCreates.map((bc) => ({
+            employeeId: bc.employeeId,
+            year: bc.year,
+            leaveTypeKey: 'Annual Leave',
+            allocated: bc.annualLeave,
+            used: 0,
+            carriedOver: 0,
+          }));
+
+          await tx.leaveTypeBalance.createMany({
+            data: typeBalanceCreates,
+            skipDuplicates: true,
+          });
+        }
+
+        // Update existing balances in batch and sync type balance
+        for (const update of balanceUpdates) {
+          const lb = await tx.leaveBalance.update(update);
+          await tx.leaveTypeBalance.upsert({
+            where: {
+              employeeId_year_leaveTypeKey: {
+                employeeId: lb.employeeId,
+                year: lb.year,
+                leaveTypeKey: 'Annual Leave',
+              },
+            },
+            update: {
+              allocated: lb.annualLeave,
+            },
+            create: {
+              employeeId: lb.employeeId,
+              year: lb.year,
+              leaveTypeKey: 'Annual Leave',
+              allocated: lb.annualLeave,
+              used: lb.usedAnnual,
+              carriedOver: lb.carriedOver,
+            },
+          });
+        }
+
+        // Create all history records in batch
+        if (historyCreates.length > 0) {
+          await tx.leaveAccrualHistory.createMany({
+            data: historyCreates,
+          });
+        }
+      });
+
+      console.log(`✅ Batch operations completed successfully`);
+    } catch (error) {
+      console.error(`❌ Transaction failed:`, error.message);
+      throw error;
+    }
+
+    console.log(
+      `\n✅ Accrual completed: ${results.success} success, ${results.failed} failed, ${results.skipped} skipped`,
+    );
+
     return {
-      success: true as const,
+      success: true,
       message: `Leave accrual completed for ${month}/${year}`,
-      data: { year, month, credited, skipped, total: employees.length },
+      data: results,
     };
   }
 
-  /** Credit days to one employee by hand — a long-service award, a correction. */
+  /**
+   * Manual leave accrual for 1 employee
+   */
   async accrueLeaveForEmployee(
     employeeId: string,
     daysToAdd: number,
     triggeredBy: string,
     notes?: string,
   ) {
+    const { year, month } = await this.companyYearMonth();
+
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { id: true, employeeCode: true, firstName: true, lastName: true },
+      select: {
+        id: true,
+        employeeCode: true,
+        fullName: true,
+        status: true,
+        branchId: true,
+      },
     });
-    if (!employee) throw new NotFoundException('Employee not found');
 
-    const { year, month } = await this.companyNow();
-    const record = await this.creditOne(
-      employeeId,
-      daysToAdd,
-      year,
-      month,
-      'MANUAL',
-      triggeredBy,
-      notes || 'Manual accrual by HR',
-    );
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    // `findUnique` bypasses the Prisma branch middleware, so without this a
+    // branch-scoped HR could credit leave to an employee they cannot even read.
+    assertInBranch(employee.branchId);
+
+    // Get or create balance
+    let balance = await this.prisma.leaveBalance.findUnique({
+      where: { employeeId_year: { employeeId, year } },
+    });
+
+    if (!balance) {
+      const result = await this.initBalance(employeeId, year);
+      balance = result.data;
+    }
+
+    const balanceBefore = balance.annualLeave;
+    const balanceAfter = balanceBefore + daysToAdd;
+
+    // Update balance
+    await this.prisma.leaveBalance.update({
+      where: { id: balance.id },
+      data: { annualLeave: balanceAfter },
+    });
+
+    // Also update LeaveTypeBalance if exists
+    await this.prisma.leaveTypeBalance.upsert({
+      where: {
+        employeeId_year_leaveTypeKey: {
+          employeeId,
+          year,
+          leaveTypeKey: 'Annual Leave',
+        },
+      },
+      update: {
+        allocated: balanceAfter,
+      },
+      create: {
+        employeeId,
+        year,
+        leaveTypeKey: 'Annual Leave',
+        allocated: balanceAfter,
+        used: balance.usedAnnual,
+        carriedOver: balance.carriedOver,
+      },
+    });
+
+    // Create history record
+    await this.prisma.leaveAccrualHistory.create({
+      data: {
+        employeeId,
+        year,
+        month,
+        daysAdded: daysToAdd,
+        balanceBefore,
+        balanceAfter,
+        accrualType: 'MANUAL',
+        triggeredBy,
+        notes: notes || `Manual accrual by HR`,
+      },
+    });
 
     return {
-      success: true as const,
-      message: `${daysToAdd} day(s) credited`,
-      data: { employee, ...record },
+      success: true,
+      message: 'Leave accrued successfully',
+      data: {
+        employee: {
+          id: employee.id,
+          employeeCode: employee.employeeCode,
+          fullName: employee.fullName,
+        },
+        balanceBefore,
+        balanceAfter,
+        daysToAdd,
+      },
     };
   }
 
+  /**
+   * Get leave accrual history
+   */
   async getAccrualHistory(employeeId?: string, year?: number, month?: number) {
-    const data = await this.prisma.leaveAccrualHistory.findMany({
-      where: {
-        ...(employeeId ? { employeeId } : {}),
-        ...(year ? { year } : {}),
-        ...(month ? { month } : {}),
-      },
+    const where: any = {};
+
+    if (employeeId) {
+      where.employeeId = employeeId;
+    }
+
+    if (year) {
+      where.year = year;
+    }
+
+    if (month) {
+      where.month = month;
+    }
+
+    const history = await this.prisma.leaveAccrualHistory.findMany({
+      where,
       include: {
         employee: {
           select: {
             id: true,
             employeeCode: true,
-            firstName: true,
-            lastName: true,
-            department: { select: { id: true, name: true } },
+            fullName: true,
+            department: { select: { name: true } },
           },
         },
       },
       orderBy: [{ year: 'desc' }, { month: 'desc' }, { createdAt: 'desc' }],
-      take: 500,
     });
 
     return {
-      success: true as const,
-      data,
-      meta: { total: data.length, filters: { employeeId, year, month } },
-    };
-  }
-
-  /** Company-wide entitlement, one row per leave type. */
-  async getCompanyLeaveOverview(year: number | undefined) {
-    const targetYear = year ?? (await this.companyYear());
-
-    const [grouped, headcount] = await Promise.all([
-      this.prisma.leaveTypeBalance.groupBy({
-        by: ['leaveTypeKey'],
-        where: { year: targetYear },
-        _sum: { allocated: true, used: true, carriedOver: true },
-        _count: { employeeId: true },
-      }),
-      this.prisma.employee.count({ where: { status: 'ACTIVE' } }),
-    ]);
-
-    const leaveTypes = grouped
-      .map((g) => {
-        const allocated = g._sum.allocated ?? 0;
-        const used = g._sum.used ?? 0;
-        const carriedOver = g._sum.carriedOver ?? 0;
-        return {
-          leaveTypeKey: g.leaveTypeKey,
-          totalAllocated: allocated,
-          totalUsed: used,
-          totalCarriedOver: carriedOver,
-          totalRemaining: allocated + carriedOver - used,
-          // Null, never 0%, when there was nothing to divide by: an empty type
-          // and a wholly unused one are different claims.
-          utilisation:
-            allocated + carriedOver > 0
-              ? Math.round((used / (allocated + carriedOver)) * 1000) / 10
-              : null,
-          employeeCount: g._count.employeeId,
-        };
-      })
-      .sort((a, b) => b.totalAllocated - a.totalAllocated);
-
-    return {
-      success: true as const,
-      data: { year: targetYear, activeHeadcount: headcount, leaveTypes },
-    };
-  }
-
-  /** The leave types an employee may pick from, with their rules attached. */
-  async getLeaveTypes() {
-    const data = await this.prisma.libraryItem.findMany({
-      where: { libraryType: LibraryType.LEAVE_TYPE, isActive: true },
-      orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
-    });
-    return { success: true as const, data };
-  }
-
-  // ── Internals ──────────────────────────────────────────────────────────────
-
-  private async balanceAffectingTypes() {
-    return this.prisma.libraryItem.findMany({
-      where: {
-        libraryType: LibraryType.LEAVE_TYPE,
-        isActive: true,
-        affectsBalance: true,
+      success: true,
+      data: history,
+      meta: {
+        total: history.length,
+        filters: { employeeId, year, month },
       },
-      orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
-    });
+    };
   }
 
-  private async backfillMissingTypes(employeeId: string, year: number) {
-    const [employee, types, existing] = await Promise.all([
-      this.prisma.employee.findUnique({
-        where: { id: employeeId },
-        select: { gender: true },
-      }),
-      this.balanceAffectingTypes(),
-      this.prisma.leaveTypeBalance.findMany({
-        where: { employeeId, year },
-        select: { leaveTypeKey: true },
-      }),
-    ]);
+  async getCompanyLeaveOverview(year?: number) {
+    const targetYear = year || new Date().getFullYear();
 
-    const have = new Set(existing.map((row) => row.leaveTypeKey));
-    const missing = types.filter(
-      (t) =>
-        !have.has(t.label) &&
-        eligibleForGender(t.genderRestriction, employee?.gender ?? null),
-    );
-    if (!missing.length) return;
-
-    await this.prisma.leaveTypeBalance.createMany({
-      data: missing.map((t) => ({
-        employeeId,
-        year,
-        leaveTypeKey: t.label,
-        allocated: t.defaultDays ?? 0,
-      })),
-      skipDuplicates: true,
+    const grouped = await this.prisma.leaveTypeBalance.groupBy({
+      by: ['leaveTypeKey'],
+      where: { year: targetYear },
+      _sum: { allocated: true, used: true, carriedOver: true },
+      _count: { employeeId: true },
     });
-  }
 
-  private async readBalance(employeeId: string, year: number) {
-    const [headline, types] = await Promise.all([
-      this.prisma.leaveBalance.findUnique({
-        where: { employeeId_year: { employeeId, year } },
-      }),
-      this.prisma.leaveTypeBalance.findMany({
-        where: { employeeId, year },
-        orderBy: { leaveTypeKey: 'asc' },
-      }),
+    const startOfYear = new Date(Date.UTC(targetYear, 0, 1));
+    const endOfYear = new Date(Date.UTC(targetYear, 11, 31));
+
+    const [pending, approved, rejected, total, totalEmployees] = await Promise.all([
+      this.prisma.leaveRequest.count({ where: { status: 'PENDING', startDate: { gte: startOfYear, lte: endOfYear } } }),
+      this.prisma.leaveRequest.count({ where: { status: 'APPROVED', startDate: { gte: startOfYear, lte: endOfYear } } }),
+      this.prisma.leaveRequest.count({ where: { status: 'REJECTED', startDate: { gte: startOfYear, lte: endOfYear } } }),
+      this.prisma.leaveRequest.count({ where: { startDate: { gte: startOfYear, lte: endOfYear } } }),
+      this.prisma.employee.count({ where: { status: 'ACTIVE', NOT: { user: { role: 'ADMIN' } } } }),
     ]);
-    if (!headline) throw new NotFoundException('Leave balance not found');
-
-    const leaveTypeBalances = types.map(toTypeView);
 
     return {
-      success: true as const,
+      success: true,
       data: {
-        id: headline.id,
-        employeeId,
-        year,
-        annualLeave: headline.annualLeave,
-        sickLeave: headline.sickLeave,
-        usedAnnual: headline.usedAnnual,
-        usedSick: headline.usedSick,
-        carriedOver: headline.carriedOver,
-        remainingAnnual:
-          headline.annualLeave + headline.carriedOver - headline.usedAnnual,
-        remainingSick: headline.sickLeave - headline.usedSick,
-        leaveTypeBalances,
-        totals: {
-          allocated: leaveTypeBalances.reduce((a, t) => a + t.allocated, 0),
-          used: leaveTypeBalances.reduce((a, t) => a + t.used, 0),
-          carriedOver: leaveTypeBalances.reduce((a, t) => a + t.carriedOver, 0),
-          remaining: leaveTypeBalances.reduce((a, t) => a + t.remaining, 0),
-        },
-        createdAt: headline.createdAt,
-        updatedAt: headline.updatedAt,
+        year: targetYear,
+        totalEmployees,
+        leaveTypes: grouped.map((g) => ({
+          leaveTypeKey: g.leaveTypeKey,
+          totalAllocated: g._sum.allocated || 0,
+          totalUsed: g._sum.used || 0,
+          totalCarriedOver: g._sum.carriedOver || 0,
+          totalRemaining: (g._sum.allocated || 0) + (g._sum.carriedOver || 0) - (g._sum.used || 0),
+          employeeCount: g._count.employeeId,
+        })),
+        requestStats: { pending, approved, rejected, total },
       },
     };
   }
 
-  /** Keep the two named headline columns in step with their per-type rows. */
-  private async syncHeadline(
-    tx: Prisma.TransactionClient,
-    employeeId: string,
-    year: number,
-    leaveTypeKey: string,
-    delta: number,
-  ) {
-    if (leaveTypeKey !== ANNUAL && leaveTypeKey !== SICK) return;
-    const headline = await tx.leaveBalance.findUnique({
-      where: { employeeId_year: { employeeId, year } },
+  async getLeaveTypes() {
+    const leaveTypes = await this.prisma.libraryItem.findMany({
+      where: {
+        libraryType: 'LEAVE_TYPE',
+        isActive: true,
+      },
+      orderBy: [
+        { sortOrder: 'asc' },
+        { label: 'asc' },
+      ],
     });
-    if (!headline) return;
 
-    // Written as two explicit branches rather than a computed key: Prisma's
-    // update payload is a typed union, and a dynamic key widens it to `any`,
-    // which is how a typo in a column name reaches the database.
-    if (leaveTypeKey === ANNUAL) {
-      await tx.leaveBalance.update({
-        where: { id: headline.id },
-        data: { usedAnnual: Math.max(0, headline.usedAnnual + delta) },
-      });
-    } else {
-      await tx.leaveBalance.update({
-        where: { id: headline.id },
-        data: { usedSick: Math.max(0, headline.usedSick + delta) },
-      });
-    }
+    return {
+      success: true,
+      data: leaveTypes,
+    };
   }
-
-  /**
-   * One credit, plus the history row that makes it idempotent.
-   *
-   * Both in one transaction: a credit with no history row would be applied again
-   * on the next tick, and a history row with no credit would block the month for
-   * ever.
-   */
-  private async creditOne(
-    employeeId: string,
-    days: number,
-    year: number,
-    month: number,
-    accrualType: 'AUTO' | 'MANUAL',
-    triggeredBy: string | undefined,
-    notes: string,
-  ) {
-    return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.leaveBalance.findUnique({
-        where: { employeeId_year: { employeeId, year } },
-      });
-
-      const balanceBefore = existing?.annualLeave ?? 0;
-      const balanceAfter = balanceBefore + days;
-
-      await tx.leaveBalance.upsert({
-        where: { employeeId_year: { employeeId, year } },
-        update: { annualLeave: balanceAfter },
-        create: {
-          employeeId,
-          year,
-          annualLeave: balanceAfter,
-          sickLeave: 30,
-        },
-      });
-      await upsertAllocation(tx, employeeId, year, ANNUAL, balanceAfter);
-
-      await tx.leaveAccrualHistory.create({
-        data: {
-          employeeId,
-          year,
-          month,
-          daysAdded: days,
-          balanceBefore,
-          balanceAfter,
-          accrualType,
-          triggeredBy: triggeredBy ?? null,
-          notes,
-        },
-      });
-
-      return { year, month, daysAdded: days, balanceBefore, balanceAfter };
-    });
-  }
-}
-
-function toTypeView(row: {
-  id: string;
-  employeeId: string;
-  year: number;
-  leaveTypeKey: string;
-  allocated: number;
-  used: number;
-  carriedOver: number;
-}): TypeBalanceView {
-  return {
-    id: row.id,
-    employeeId: row.employeeId,
-    year: row.year,
-    leaveTypeKey: row.leaveTypeKey,
-    allocated: row.allocated,
-    used: row.used,
-    carriedOver: row.carriedOver,
-    remaining: row.allocated + row.carriedOver - row.used,
-  };
-}
-
-/**
- * Set an allocation without touching what has been spent.
- *
- * `used` is absent from the update on purpose — changing an entitlement is not
- * the same act as handing back leave already taken.
- */
-async function upsertAllocation(
-  tx: Prisma.TransactionClient,
-  employeeId: string,
-  year: number,
-  leaveTypeKey: string,
-  allocated: number,
-) {
-  await tx.leaveTypeBalance.upsert({
-    where: {
-      employeeId_year_leaveTypeKey: { employeeId, year, leaveTypeKey },
-    },
-    update: { allocated },
-    create: { employeeId, year, leaveTypeKey, allocated },
-  });
-}
-
-/**
- * Does a gender-restricted type apply to this employee?
- *
- * An employee who has not stated a gender keeps every UNRESTRICTED type and gets
- * none of the restricted ones — the alternative is guessing, and the guess would
- * show up as an entitlement they cannot take or one they are owed and were never
- * given.
- */
-function eligibleForGender(
-  restriction: string | null,
-  gender: string | null | undefined,
-): boolean {
-  if (!restriction) return true;
-  return (gender ?? '').trim().toUpperCase() === restriction.toUpperCase();
 }

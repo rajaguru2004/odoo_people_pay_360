@@ -1,60 +1,92 @@
+import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
-  IsBoolean,
-  IsEnum,
-  IsInt,
+  IsNumber,
   IsOptional,
-  IsString,
+  IsDateString,
   Matches,
-  MaxLength,
   Min,
+  IsString,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { SalaryComponentType } from '@prisma/client';
+
+/**
+ * The component types that predate admin-defined ones.
+ *
+ * NOT a closed set any more: an admin who adds "HRA" or "DA" to the
+ * `SALARY_COMPONENT_TYPE` library must be able to store a component under that
+ * name, and the old `@IsEnum` here is exactly why they could not — every
+ * unrecognised label collapsed to `OTHER`, so a payslip could never show a real
+ * breakup. These stay as documentation and as the values the seeded library
+ * produces.
+ *
+ * Only two codes mean anything to the payroll engine (see
+ * `payroll-earnings.util.ts`): `BASIC` is the basic part of the contracted rate,
+ * `PAYROLL_CONFIG` is internal deduction-override bookkeeping and carries no
+ * money. Every other code is summed as an allowance, whatever it is called.
+ */
+export enum ComponentType {
+  BASIC = 'BASIC',
+  ALLOWANCE = 'ALLOWANCE',
+  LUNCH = 'LUNCH',
+  TRANSPORT = 'TRANSPORT',
+  PHONE = 'PHONE',
+  HOUSING = 'HOUSING',
+  POSITION = 'POSITION',
+  BONUS = 'BONUS',
+  OTHER = 'OTHER',
+  /** Stores per-employee payroll deduction overrides as JSON in the note field */
+  PAYROLL_CONFIG = 'PAYROLL_CONFIG',
+}
+
+/**
+ * An uppercase slug, bounded by the `VarChar(50)` column. Constrained rather
+ * than free text so the value stays a stable machine key that reports and the
+ * payslip formatters can group on — a label change must not fork history.
+ */
+export const COMPONENT_TYPE_PATTERN = /^[A-Z][A-Z0-9_]{0,49}$/;
 
 export class CreateSalaryComponentDto {
   @ApiProperty({
-    example: 'HRA',
+    description: 'Employee ID (UUID)',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @IsString()
+  employeeId: string;
+
+  @ApiProperty({
     description:
-      'Stable machine key. Uppercased on the way in — a payslip line joins on it, so it must not depend on how it was typed.',
+      'Salary component type code. Any uppercase slug (A-Z, 0-9, _) up to 50 characters — the seeded values are listed under ComponentType, but an admin-defined library item such as HRA or DA is equally valid.',
+    example: 'HRA',
   })
   @IsString()
-  @MaxLength(32)
-  @Matches(/^[A-Za-z][A-Za-z0-9_]*$/, {
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @Matches(COMPONENT_TYPE_PATTERN, {
     message:
-      'code must start with a letter and contain only letters, numbers and underscores',
+      'componentType must be an uppercase code of up to 50 characters (letters, digits and underscores), e.g. BASIC or HRA',
   })
-  code: string;
+  componentType: string;
 
-  @ApiProperty({ example: 'Housing Allowance' })
-  @IsString()
-  @MaxLength(160)
-  name: string;
-
-  @ApiProperty({ enum: SalaryComponentType })
-  @IsEnum(SalaryComponentType)
-  type: SalaryComponentType;
-
-  @ApiPropertyOptional({
-    default: false,
-    description: 'Counts toward gratuity / end-of-service accrual.',
-  })
-  @IsOptional()
-  @IsBoolean()
-  isGratuityBase?: boolean;
-
-  @ApiPropertyOptional({ default: true })
-  @IsOptional()
-  @IsBoolean()
-  isTaxable?: boolean;
-
-  @ApiPropertyOptional({
-    default: 100,
-    description: 'Display order on a payslip. Lower comes first.',
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
+  @ApiProperty({ description: 'Amount', example: 1000000 })
+  @IsNumber()
   @Min(0)
-  sequence?: number;
+  amount: number;
+
+  @ApiProperty({
+    description: 'Effective date',
+    example: '2026-01-01',
+    required: false,
+  })
+  @IsOptional()
+  @IsDateString()
+  effectiveDate?: string;
+
+  @ApiProperty({
+    description: 'Notes',
+    example: 'Lunch allowance',
+    required: false,
+  })
+  @IsOptional()
+  note?: string;
 }

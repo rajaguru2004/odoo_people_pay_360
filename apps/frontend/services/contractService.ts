@@ -1,73 +1,46 @@
 import axiosInstance from '@/lib/axios';
 import { ApiResponse } from '@/types/api';
-import type { ReviewPayload } from '@/types/common';
-import type {
-  Contract,
-  ContractListQuery,
-  CreateContractPayload,
-  CreateTerminationPayload,
-  TerminationRequest,
-  UpdateContractPayload,
-} from '@/types/contract';
-import type { RequestStatus } from '@/types/common';
+import { Contract, CreateContractData, UpdateContractData, ExpiringContract } from '@/types/contract';
+
+interface QueryContractParams {
+  employeeId?: string;
+  contractType?: string;
+  status?: string;
+  page?: number;
+  limit?: number;
+}
 
 class ContractService {
-  list(query: ContractListQuery = {}): Promise<ApiResponse<Contract[]>> {
-    return axiosInstance.get('/contracts', { params: query });
+  async getAll(params?: QueryContractParams): Promise<ApiResponse<Contract[]>> {
+    return axiosInstance.get('/contracts', { params });
   }
 
-  /** Rows carry a computed `daysUntilExpiry`, negative once the term has lapsed. */
-  expiring(days = 30): Promise<ApiResponse<Contract[]>> {
-    return axiosInstance.get('/contracts/expiring', { params: { days } });
-  }
-
-  get(id: string): Promise<ApiResponse<Contract>> {
+  async getById(id: string): Promise<ApiResponse<Contract>> {
     return axiosInstance.get(`/contracts/${id}`);
   }
 
-  create(payload: CreateContractPayload): Promise<ApiResponse<Contract>> {
-    return axiosInstance.post('/contracts', payload);
+  async getByEmployee(employeeId: string): Promise<ApiResponse<Contract[]>> {
+    return axiosInstance.get(`/contracts/employee/${employeeId}`);
   }
 
-  update(
-    id: string,
-    payload: UpdateContractPayload,
-  ): Promise<ApiResponse<Contract>> {
-    return axiosInstance.patch(`/contracts/${id}`, payload);
+  async getExpiring(days: number = 30): Promise<ApiResponse<ExpiringContract[]>> {
+    return axiosInstance.get('/contracts/expiring', { params: { days } });
   }
 
-  /** Marks the current contract RENEWED and creates its successor, atomically. */
-  renew(
-    id: string,
-    payload: CreateContractPayload,
-  ): Promise<ApiResponse<Contract>> {
-    return axiosInstance.post(`/contracts/${id}/renew`, payload);
+  async getStatistics(): Promise<ApiResponse<{ total: number; active: number; expired: number; expiringSoon: number }>> {
+    return axiosInstance.get('/contracts/statistics');
   }
 
-  // ── Terminations ──────────────────────────────────────────────────────────
-
-  listTerminations(
-    query: { page?: number; limit?: number; status?: RequestStatus } = {},
-  ): Promise<ApiResponse<TerminationRequest[]>> {
-    return axiosInstance.get('/contracts/terminations', { params: query });
+  async create(data: CreateContractData): Promise<ApiResponse<Contract>> {
+    return axiosInstance.post('/contracts', data);
   }
 
-  createTermination(
-    payload: CreateTerminationPayload,
-  ): Promise<ApiResponse<TerminationRequest>> {
-    return axiosInstance.post('/contracts/terminations', payload);
+  async update(id: string, data: UpdateContractData): Promise<ApiResponse<Contract>> {
+    return axiosInstance.patch(`/contracts/${id}`, data);
   }
 
-  /**
-   * Approving is the only place employment actually ends: the contract and the
-   * employee record change together, and neither moves while the request is
-   * merely pending.
-   */
-  reviewTermination(
-    id: string,
-    payload: ReviewPayload,
-  ): Promise<ApiResponse<TerminationRequest>> {
-    return axiosInstance.patch(`/contracts/terminations/${id}/review`, payload);
+  async delete(id: string): Promise<ApiResponse<void>> {
+    return axiosInstance.delete(`/contracts/${id}`);
   }
 }
 

@@ -1,35 +1,48 @@
 import {
-  IsBoolean,
-  IsEnum,
-  IsOptional,
   IsString,
+  IsOptional,
   IsUUID,
+  IsEnum,
   MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { TeamType } from '@prisma/client';
+
+export enum TeamType {
+  PERMANENT = 'PERMANENT',
+  PROJECT = 'PROJECT',
+  CROSS_FUNCTIONAL = 'CROSS_FUNCTIONAL',
+}
 
 export class CreateTeamDto {
-  @ApiProperty({ example: 'PAY-CORE' })
-  @IsString()
-  @MaxLength(32)
-  code: string;
-
-  @ApiProperty({ example: 'Payroll Core' })
+  @ApiProperty({ example: 'Backend Team', description: 'Team name' })
   @IsString()
   @MaxLength(255)
   name: string;
 
-  @ApiPropertyOptional()
+  @ApiProperty({ example: 'BE-TEAM', description: 'Unique team code' })
+  @IsString()
+  @MaxLength(50)
+  code: string;
+
+  @ApiPropertyOptional({
+    example: 'Backend development team',
+    description: 'Team description',
+  })
   @IsOptional()
   @IsString()
   description?: string;
 
-  @ApiProperty({ description: 'Department the team belongs to' })
+  @ApiProperty({
+    example: 'uuid',
+    description: 'Department ID that owns this team',
+  })
   @IsUUID()
   departmentId: string;
 
-  @ApiPropertyOptional({ description: 'Employee who leads the team' })
+  @ApiPropertyOptional({
+    example: 'uuid',
+    description: 'Team lead employee ID',
+  })
   @IsOptional()
   @IsUUID()
   teamLeadId?: string;
@@ -38,9 +51,4 @@ export class CreateTeamDto {
   @IsOptional()
   @IsEnum(TeamType)
   type?: TeamType;
-
-  @ApiPropertyOptional({ default: true })
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
 }

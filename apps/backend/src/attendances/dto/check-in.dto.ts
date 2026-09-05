@@ -1,33 +1,39 @@
-import {
-  IsLatitude,
-  IsLongitude,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsNumber, IsOptional, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ApiPropertyOptional } from '@nestjs/swagger';
 
-/**
- * The ESS punch. No employee id: the caller IS the employee, resolved from the
- * principal — accepting one would let anyone punch in for anyone.
- */
 export class CheckInDto {
-  @ApiPropertyOptional({ example: 23.588, description: 'Device latitude' })
+  @ApiProperty({
+    example: 13.0827,
+    required: false,
+    description: 'Employee GPS latitude at time of check-in',
+  })
   @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
   @Type(() => Number)
-  @IsLatitude()
   latitude?: number;
 
-  @ApiPropertyOptional({ example: 58.3829, description: 'Device longitude' })
+  @ApiProperty({
+    example: 80.2707,
+    required: false,
+    description: 'Employee GPS longitude at time of check-in',
+  })
   @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
   @Type(() => Number)
-  @IsLongitude()
   longitude?: number;
 
-  @ApiPropertyOptional({ example: 'Client site visit' })
+  @ApiProperty({
+    required: false,
+    description: 'GPS accuracy radius in meters, if available from the browser',
+  })
   @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  notes?: string;
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  accuracy?: number;
 }

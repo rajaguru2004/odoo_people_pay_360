@@ -621,9 +621,9 @@ Two smaller ones worth knowing:
 
 ### Seed
 
-`apps/backend/prisma/seed.ts` seeds **seven salary components** in
+`apps/backend/prisma/seed.ts` seeds **six salary components** in
 `seedSalaryComponents()` — `BASIC`, `HRA`, `TRANSPORT`, `OTHER_ALLOW`
-(earnings), `SOCIAL_SEC_EE`, `LOAN_REPAY` (deductions) and `SOCIAL_SEC_ER`
+(earnings), `SOCIAL_SEC_EE` (deduction) and `SOCIAL_SEC_ER`
 (employer contribution). These pre-dated this work.
 
 `seedSalaryStructures(employees)` runs after `seedContracts`, since a structure
@@ -774,8 +774,8 @@ produce an honest demo.
 | Percentage-of-basic salary rules | Fixed amounts only, matching HRM's live engine. Adding it later is one nullable enum column plus one branch in the calculator. |
 | Statutory tax and social-insurance **calculators** | The components exist as catalogue rows with typed amounts. Deriving them needs a rate table and jurisdiction rules the platform does not have. |
 | Gratuity / end-of-service | `SalaryComponent.isGratuityBase` is captured and stored, so the input is ready. Nothing reads it yet. |
-| WPS wage files, bank transfer files | No banking integration in the repo. |
-| Advances and loans, garnishments, reimbursements, leave encashment, carry-forward | Each needs its own model. `LOAN_REPAY` exists as a plain deduction component — an amount somebody types, not a balance the system tracks. |
+| Bank transfer files | No banking integration in the repo. |
+| Garnishments, leave encashment, carry-forward | Each needs its own model. |
 | Run versioning, unlock-relock, payroll batches, payroll calendar periods and cut-off enforcement, off-cycle / bonus / final-settlement run types | Out of scope for a base system; each is recorded as a seam with its contract. |
 | Notifications, the approval engine, audit logging | No `MailModule`, no `NotificationsModule`, and no audit interceptor in the repo. The `AuditLog` model exists but only `auth.service.ts` writes to it, and only a `LOGIN` row — no business write in any module is audited. |
 | The overtime lane and paid-leave classification | No `OvertimeRequest`, no `LeaveRequest`. `ON_LEAVE` is treated as paid. |

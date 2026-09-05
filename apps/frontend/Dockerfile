@@ -1,70 +1,76 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1 — Dependency Installer (deps)
-#   Isolated layer for node_modules so the builder can copy them without
-#   re-installing on every source change.
+#   Isolated layer for node_modules so the builder stage can copy them without
+#   re-running npm ci on every source change.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-alpine AS deps
 
 WORKDIR /app
 
-# Required by some native npm packages on Alpine.
+# Required for some native npm packages on Alpine
 RUN apk add --no-cache libc6-compat
 
-COPY package.json package-lock.json* ./
-RUN npm install
+# Copy manifests only — layer is cached unless package.json/lock changes
+COPY package.json package-lock.json ./
+
+# Install ALL deps (devDeps needed by Next.js build toolchain)
+RUN npm ci
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2 — Builder
-#   Every NEXT_PUBLIC_* value is INLINED by `next build`, so each one has to
-#   arrive as a build ARG. Setting them on the running container does nothing at
-#   all — that is the single most common cause of "the deployed app is talking
-#   to the wrong API".
+#   Receives the API URL as a build argument so the same Dockerfile works for
+#   every environment (dev / staging / prod) without code changes.
+#   Next.js bakes NEXT_PUBLIC_* vars at compile time, so the ARG must be
+#   provided before `next build`.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-ARG NEXT_PUBLIC_API_URL=http://localhost:3011
+# ── Build-time configuration ─────────────────────────────────────────────────
+# Override with --build-arg NEXT_PUBLIC_API_URL=<url> for different environments
+ARG NEXT_PUBLIC_API_URL=https://api.ess.develop.thefusionapps.com
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
-ARG NEXT_PUBLIC_APP_NAME="People Pay 360"
-ENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME
-
-# Empty by default: with no id the analytics layer renders nothing and fetches
-# nothing, so dev and CI images stay untracked.
+# Google Analytics 4 measurement id (e.g. G-XXXXXXXXXX).
+# Empty by default: the analytics layer renders nothing and fetches nothing
+# unless a real id is baked in, so dev and CI images stay untracked.
+# Must be a BUILD arg — NEXT_PUBLIC_* is inlined by `next build`, so setting it
+# on the running container has no effect at all.
 ARG NEXT_PUBLIC_GA_MEASUREMENT_ID=
 ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=$NEXT_PUBLIC_GA_MEASUREMENT_ID
 
-# The demo-account panel on the sign-in screen. Absent means OFF in this image,
-# because NODE_ENV is production below — which is the safe default: the panel
-# prints an administrator email and inlines its password into the bundle.
-# Pass --build-arg NEXT_PUBLIC_DEMO_LOGINS=true only for a throwaway dataset.
-ARG NEXT_PUBLIC_DEMO_LOGINS=
-ENV NEXT_PUBLIC_DEMO_LOGINS=$NEXT_PUBLIC_DEMO_LOGINS
-ARG NEXT_PUBLIC_DEMO_PASSWORD=
-ENV NEXT_PUBLIC_DEMO_PASSWORD=$NEXT_PUBLIC_DEMO_PASSWORD
-
+# Microsoft Clarity project id (e.g. y9zmq4qs0j).
+# Empty by default for the same reason as the GA id above: no id, no tag, no
+# session recording — so dev and CI images stay unrecorded. Also a BUILD arg,
+# because NEXT_PUBLIC_* is inlined by `next build`.
+ARG NEXT_PUBLIC_CLARITY_PROJECT_ID=
+ENV NEXT_PUBLIC_CLARITY_PROJECT_ID=$NEXT_PUBLIC_CLARITY_PROJECT_ID
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Opt in to the standalone bundle. It is off by default in next.config.ts so
-# that `next start` keeps working outside this image — see the note there.
-ENV NEXT_OUTPUT_STANDALONE=true
-
+# Inherit the resolved node_modules from the deps stage
 COPY --from=deps /app/node_modules ./node_modules
+
+# Copy all application source files
 COPY . .
 
-# With `output: 'standalone'` in next.config.ts this emits:
-#   .next/standalone/  — self-contained server (no node_modules needed)
-#   .next/static/      — hashed client assets
+# Run Next.js production build.
+# With `output: 'standalone'` in next.config.ts, this emits:
+#   .next/standalone/   — self-contained minimal server (no node_modules needed)
+#   .next/static/       — hashed client assets
+#   public/             — static public files
 RUN npm run build
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 3 — Runner
-#   Minimal image: the standalone bundle, static assets, public assets. No
-#   node_modules, no TypeScript toolchain, no devDeps.
+#   Ultra-minimal Alpine image that only contains:
+#     • the standalone server bundle (server.js + embedded runtime)
+#     • static assets
+#     • public assets
+#   No node_modules, no TypeScript toolchain, no devDeps.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
@@ -73,20 +79,26 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Create a non-root user for security
 RUN addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 nextjs
 
+# ── Copy standalone server output ─────────────────────────────────────────────
+# The standalone directory contains server.js + a trimmed node_modules.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-# These must sit next to server.js for Next to serve them.
+
+# ── Copy static & public assets ──────────────────────────────────────────────
+# These must sit next to server.js so Next.js can serve them.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 USER nextjs
 
+# ── Expose & launch ──────────────────────────────────────────────────────────
 EXPOSE 3000
 
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-# The standalone bundle ships its own minimal server.js at the root.
+# The standalone bundle ships with its own minimal server.js at the root.
 CMD ["node", "server.js"]

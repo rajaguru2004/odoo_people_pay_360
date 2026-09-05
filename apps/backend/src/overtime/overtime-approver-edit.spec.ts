@@ -1,442 +1,678 @@
+import { Test, TestingModule } from '@nestjs/testing';
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
-import { OvertimeDayType, OvertimeType, RequestStatus } from '@prisma/client';
-import type { PrismaService } from '../prisma/prisma.service';
-import type { SystemSettingsService } from '../system-settings/system-settings.service';
-import type { Principal } from '../auth/auth.service';
-import type { WorkingDaysService } from '../leave-requests/working-days.service';
-import type { OvertimePolicyService } from '../overtime-policy/overtime-policy.service';
-import {
-  OVERTIME_SETTING_DEFAULTS,
-  loadOvertimeConfig,
-} from '../overtime-policy/overtime-config';
-import {
-  resolvedFromGlobal,
-  type ResolvedOvertimeConfig,
-} from '../overtime-policy/overtime-policy.types';
 import { OvertimeService } from './overtime.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
+import { SystemSettingsService } from '../system-settings/system-settings.service';
+import { ApprovalEngineService } from '../approvals/approval-engine.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { HolidaysService } from '../holidays/holidays.service';
+import { OvertimePolicyService } from '../overtime-policy/overtime-policy.service';
+import { AuditService } from '../audit/audit.service';
 
 /**
- * The approver edit: correcting a request while approving it.
+ * An approver correcting an overtime request while approving it.
  *
- * Two properties are load-bearing and both are covered here:
+ * The two behaviours this file exists to pin, because both are silent when
+ * broken and neither is visible from the response of a single call:
  *
- *  • the correction is PERSISTED BEFORE the decision, so the finalize step
- *    recomputes from the corrected window rather than the filed one;
- *  • the food-allowance override is NULLABLE, because "did not touch it" and
- *    "set it to zero" are different facts.
+ *   1. The correction is persisted BEFORE the decision is recorded. An
+ *      intermediate approver in a chain returns with the request still PENDING
+ *      and never reaches finalizeOvertimeApproval(), so an edit deferred to
+ *      there is lost on every step but the last — the request goes to the next
+ *      approver showing the numbers the employee filed.
+ *   2. `siteAllowance` survives approval. finalizeOvertimeApproval() recomputes
+ *      and overwrites every derived column from the policy; a site allowance is
+ *      approver-granted with nothing to recompute it from, so naming it in that
+ *      update payload would zero it on the way through.
+ *
+ * The engine, Prisma, mail and settings are mocked; the real service logic runs.
  */
 
-const EMPLOYEE = {
-  id: 'emp-1',
-  employeeCode: 'EMP-0011',
-  firstName: 'Ravi',
-  lastName: 'Kumar',
-  avatarUrl: null,
-  position: 'Shift Supervisor',
-  branchId: 'branch-1',
-  departmentId: 'dept-ops',
-  supervisorId: 'emp-boss',
-  employmentType: null,
-  overtimePolicyId: null,
-  department: { id: 'dept-ops', name: 'Operations' },
-  branch: { id: 'branch-1', code: 'SOH', name: 'Sohar' },
+const CFG = {
+  enabled: true,
+  eligible: true,
+  lateThreshold: '22:00',
+  foodAllowanceEnabled: true,
+  foodAllowanceThreshold: '22:00',
+  foodAllowanceAmount: 150,
+  regularRate: 1.5,
+  lateRate: 1.5,
+  doubleOtEnabled: true,
+  doubleRate: 2,
+  shiftEndTime: '17:00',
+  doubleFoodAllowanceAnyTime: false,
+  doubleOtAllowAnytime: true,
+  maxHoursPerDay: 8,
+  maxHoursPerDoubleDay: 12,
+  maxHoursPerMonth: 40,
+  maxHoursPerYear: 200,
+  allowEmployeeSubmit: true,
+  holidayBehavior: 'STANDARD',
+  dayEndBoundary: null,
+  policyId: null,
+  policyName: null,
+  sunday: null,
+  holiday: null,
 };
 
-const HR: Principal = {
-  id: 'user-hr',
-  email: 'hr@peoplepay360.com',
-  role: 'HR_MANAGER',
-  employeeId: 'emp-hr',
-  departmentId: 'dept-hr',
-  branchId: 'branch-1',
-};
+const SUPERVISOR = { id: 'user-sup', role: 'EMPLOYEE' };
 
-const UPDATED_AT = new Date('2026-08-20T11:04:22.581Z');
-
-const STORED = {
+/** A weekday request, 17:00–21:00: 4h REGULAR, no food allowance. */
+const baseRow = () => ({
   id: 'ot-1',
   employeeId: 'emp-1',
-  date: new Date('2026-08-19T00:00:00.000Z'),
-  startTime: new Date('2026-08-19T17:00:00.000Z'),
-  endTime: new Date('2026-08-19T21:00:00.000Z'),
+  date: new Date('2026-08-20T00:00:00Z'),
+  startTime: new Date('2026-08-20T17:00:00Z'),
+  endTime: new Date('2026-08-20T21:00:00Z'),
   hours: 4,
   regularHours: 4,
   lateHours: 0,
   doubleHours: 0,
   doubleLateHours: 0,
-  dayType: OvertimeDayType.WEEKDAY,
-  otType: OvertimeType.REGULAR,
+  dayType: 'WEEKDAY',
   foodAllowance: 0,
-  siteAllowance: 5,
-  foodAllowanceOverride: null as number | null,
+  foodAllowanceOverride: null,
+  siteAllowance: 0,
+  siteAllowanceNote: null,
   approverNote: null,
-  originalStartTime: null as Date | null,
-  originalEndTime: null as Date | null,
+  editedById: null,
+  editedAt: null,
+  originalStartTime: null,
+  originalEndTime: null,
+  otType: 'REGULAR',
   overtimePolicyId: null,
-  status: RequestStatus.PENDING,
-  updatedAt: UPDATED_AT,
-  employee: EMPLOYEE,
-};
+  reason: 'Client cutover',
+  status: 'PENDING',
+  updatedAt: new Date('2026-08-20T11:00:00Z'),
+  employee: {
+    id: 'emp-1',
+    employeeCode: 'E-1',
+    fullName: 'Priya R',
+    email: 'priya@example.com',
+    departmentId: 'dept-1',
+    branchId: null,
+    baseSalary: 60000,
+    employmentType: null,
+    overtimePolicyId: null,
+    salaryType: 'MONTHLY',
+    department: { id: 'dept-1', name: 'Ops' },
+    user: { id: 'user-emp' },
+  },
+});
 
-async function baseConfig(
-  overrides: Partial<ResolvedOvertimeConfig> = {},
-): Promise<ResolvedOvertimeConfig> {
-  const settings = {
-    get: (key: string) => Promise.resolve(OVERTIME_SETTING_DEFAULTS[key]),
-  } as unknown as SystemSettingsService;
-  return {
-    ...resolvedFromGlobal(await loadOvertimeConfig(settings)),
-    maxHoursPerDay: 8,
-    ...overrides,
-  };
+interface Harness {
+  service: OvertimeService;
+  prisma: any;
+  engine: any;
+  audit: any;
+  settings: any;
+  row: any;
 }
 
-function makeHarness(options: {
-  cfg: ResolvedOvertimeConfig;
-  stored?: Record<string, unknown>;
-  monthlyHours?: number;
-}) {
-  let current = { ...STORED, ...(options.stored ?? {}) };
-
-  const overtimeRequest = {
-    findUnique: jest.fn(() => Promise.resolve(current)),
-    findFirst: jest.fn().mockResolvedValue(null),
-    update: jest.fn(({ data }: { data: Record<string, unknown> }) => {
-      // The real update returns the NEW row, and the finalize step re-reads it.
-      // Mirroring that is the only way the ordering property is testable.
-      current = { ...current, ...data };
-      return Promise.resolve({ ...current, employee: EMPLOYEE });
-    }),
-    aggregate: jest
-      .fn()
-      .mockResolvedValue({ _sum: { hours: options.monthlyHours ?? 0 } }),
-  };
+async function harness(
+  opts: {
+    row?: any;
+    settings?: Record<string, string>;
+    canAct?: boolean;
+    engaged?: boolean;
+    /** decide() finalizing => the last step; false => an intermediate step. */
+    finalized?: boolean;
+  } = {},
+): Promise<Harness> {
+  const row = opts.row ?? baseRow();
+  const store = {
+    attendance_day_end_time: '23:59',
+    office_start_time: '08:00',
+    overtime_approver_edit_enabled: 'true',
+    overtime_site_allowance_enabled: 'true',
+    overtime_site_allowance_max: '0',
+    ...(opts.settings ?? {}),
+  } as Record<string, string>;
 
   const prisma = {
-    overtimeRequest,
-    employee: { findUnique: jest.fn().mockResolvedValue(EMPLOYEE) },
-    department: { findMany: jest.fn().mockResolvedValue([]) },
+    overtimeRequest: {
+      findUnique: jest.fn().mockImplementation(async () => ({ ...row })),
+      update: jest.fn().mockImplementation(async ({ data }: any) => {
+        Object.assign(row, data);
+        return { ...row };
+      }),
+      aggregate: jest.fn().mockResolvedValue({ _sum: { hours: 0 } }),
+    },
+    employee: {
+      findUnique: jest.fn().mockResolvedValue({
+        branchId: null,
+        departmentId: 'dept-1',
+        employmentType: null,
+        overtimePolicyId: null,
+      }),
+    },
+    user: { findUnique: jest.fn().mockResolvedValue(null) },
   };
 
-  const policies = {
-    resolveOvertimeConfig: jest.fn().mockResolvedValue(options.cfg),
-    configForPolicyId: jest.fn().mockResolvedValue(options.cfg),
-  } as unknown as OvertimePolicyService;
+  const engine = {
+    trailFor: jest.fn().mockResolvedValue({
+      engaged: opts.engaged ?? true,
+      steps: [],
+      activeStep: 1,
+      canAct: opts.canAct ?? true,
+    }),
+    decide: jest.fn().mockResolvedValue({
+      engaged: opts.engaged ?? true,
+      finalized: opts.finalized ?? false,
+    }),
+    isChainParticipant: jest.fn().mockResolvedValue(true),
+  };
+  const audit = { log: jest.fn() };
 
-  const systemSettings = {
-    get: jest.fn((key: string) =>
-      Promise.resolve(
-        key === 'attendance_office_start'
-          ? '08:00'
-          : OVERTIME_SETTING_DEFAULTS[key],
-      ),
-    ),
-  } as unknown as SystemSettingsService;
-
-  const workingDays = {
-    isHoliday: jest.fn().mockResolvedValue(false),
-    isWeeklyOff: jest.fn().mockResolvedValue(false),
-  } as unknown as WorkingDaysService;
+  const moduleRef: TestingModule = await Test.createTestingModule({
+    providers: [
+      OvertimeService,
+      { provide: PrismaService, useValue: prisma },
+      { provide: MailService, useValue: { sendOvertimeApproved: jest.fn() } },
+      {
+        provide: SystemSettingsService,
+        useValue: {
+          getSetting: jest
+            .fn()
+            .mockImplementation(async (k: string, d?: string) => store[k] ?? d),
+          getOvertimeConfig: jest.fn().mockResolvedValue({ ...CFG }),
+        },
+      },
+      { provide: ApprovalEngineService, useValue: engine },
+      {
+        provide: NotificationsService,
+        useValue: {
+          notifyUser: jest.fn().mockResolvedValue(undefined),
+          notifyUsers: jest.fn().mockResolvedValue(undefined),
+        },
+      },
+      {
+        provide: HolidaysService,
+        useValue: {
+          isHoliday: jest.fn().mockResolvedValue(false),
+          isWeeklyOff: jest.fn().mockResolvedValue(false),
+        },
+      },
+      {
+        provide: OvertimePolicyService,
+        useValue: {
+          resolveOvertimeConfig: jest.fn().mockResolvedValue({ ...CFG }),
+          configForPolicyId: jest.fn().mockResolvedValue({ ...CFG }),
+        },
+      },
+      { provide: AuditService, useValue: audit },
+    ],
+  }).compile();
 
   return {
-    service: new OvertimeService(
-      prisma as unknown as PrismaService,
-      policies,
-      systemSettings,
-      workingDays,
-    ),
-    overtimeRequest,
-    row: () => current,
+    service: moduleRef.get(OvertimeService),
+    prisma,
+    engine,
+    audit,
+    settings: store,
+    row,
   };
 }
 
-describe('the correction is written before the decision', () => {
-  it('recomputes the buckets from the CORRECTED window, not the filed one', async () => {
-    const { service, overtimeRequest } = makeHarness({
-      cfg: await baseConfig(),
+/** The single update() the edit performs, i.e. not the finalize one. */
+const editWrite = (prisma: any) =>
+  prisma.overtimeRequest.update.mock.calls.find(
+    (c: any[]) => c[0].data.editedAt !== undefined,
+  )?.[0].data;
+
+describe('OvertimeService — approver edit at approval', () => {
+  describe('persistence ordering', () => {
+    it('writes the correction BEFORE the decision is recorded', async () => {
+      const h = await harness();
+      const order: string[] = [];
+      h.prisma.overtimeRequest.update.mockImplementation(async () => {
+        order.push('write');
+        return { ...h.row };
+      });
+      h.engine.decide.mockImplementation(async () => {
+        order.push('decide');
+        return { engaged: true, finalized: false };
+      });
+
+      await h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+        endTime: '2026-08-20T23:00:00Z',
+      });
+
+      expect(order).toEqual(['write', 'decide']);
     });
 
-    await service.approve('ot-1', HR, {
-      startTime: '2026-08-19T17:00:00Z',
-      endTime: '2026-08-19T23:00:00Z',
-      approverNote: 'Gate log shows 23:00.',
+    it('keeps an intermediate approver’s correction, though the request stays PENDING', async () => {
+      const h = await harness({ finalized: false });
+
+      const result: any = await h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+        endTime: '2026-08-20T23:00:00Z',
+      });
+
+      expect(result.status).toBe('PENDING');
+      expect(new Date(result.endTime).toISOString()).toBe(
+        '2026-08-20T23:00:00.000Z',
+      );
     });
 
-    const [editCall, finalizeCall] = overtimeRequest.update.mock.calls as Array<
-      [{ data: Record<string, any> }]
-    >;
-    // First write: the times and the note. The tier buckets are deliberately
-    // absent — they are derived, and the finalize step owns them.
-    expect((editCall[0].data.endTime as Date).toISOString()).toBe(
-      '2026-08-19T23:00:00.000Z',
-    );
-    expect(editCall[0].data.regularHours).toBeUndefined();
+    it('snapshots the filed window on the first edit only', async () => {
+      const h = await harness();
 
-    // Second write: the decision, priced against the corrected six hours.
-    expect(finalizeCall[0].data.status).toBe(RequestStatus.APPROVED);
-    expect(finalizeCall[0].data.hours).toBe(6);
-    expect(finalizeCall[0].data.regularHours).toBe(5);
-    expect(finalizeCall[0].data.lateHours).toBe(1);
-    expect(finalizeCall[0].data.otType).toBe(OvertimeType.LATE);
-  });
+      await h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+        endTime: '2026-08-20T22:00:00Z',
+      });
+      expect(h.row.originalEndTime.toISOString()).toBe(
+        '2026-08-20T21:00:00.000Z',
+      );
 
-  it('snapshots what the employee filed, on the FIRST edit only', async () => {
-    const { service, overtimeRequest } = makeHarness({
-      cfg: await baseConfig(),
+      h.prisma.overtimeRequest.update.mockClear();
+      await h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+        endTime: '2026-08-20T23:00:00Z',
+      });
+
+      // Still the ORIGINAL 21:00, not the 22:00 the first edit produced.
+      expect(h.row.originalEndTime.toISOString()).toBe(
+        '2026-08-20T21:00:00.000Z',
+      );
+      expect(editWrite(h.prisma)).not.toHaveProperty('originalEndTime');
     });
 
-    await service.approve('ot-1', HR, { endTime: '2026-08-19T22:00:00Z' });
+    it('leaves the derived tier columns to the approval recompute', async () => {
+      const h = await harness();
 
-    const editCall = overtimeRequest.update.mock.calls[0][0].data as Record<
-      string,
-      Date
-    >;
-    expect(editCall.originalStartTime.toISOString()).toBe(
-      '2026-08-19T17:00:00.000Z',
-    );
-    expect(editCall.originalEndTime.toISOString()).toBe(
-      '2026-08-19T21:00:00.000Z',
-    );
-  });
+      await h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+        endTime: '2026-08-20T23:00:00Z',
+      });
 
-  it('leaves an existing snapshot alone on a second edit', async () => {
-    // Otherwise a second approver's correction overwrites the original with an
-    // already-edited value, and what the employee actually filed is gone.
-    const { service, overtimeRequest } = makeHarness({
-      cfg: await baseConfig(),
-      stored: {
-        originalStartTime: new Date('2026-08-19T16:00:00.000Z'),
-        originalEndTime: new Date('2026-08-19T20:00:00.000Z'),
-      },
+      const data = editWrite(h.prisma);
+      expect(data).toHaveProperty('startTime');
+      expect(data).toHaveProperty('endTime');
+      expect(data).not.toHaveProperty('hours');
+      expect(data).not.toHaveProperty('regularHours');
+      expect(data).not.toHaveProperty('lateHours');
+      expect(data).not.toHaveProperty('otType');
     });
 
-    await service.approve('ot-1', HR, { endTime: '2026-08-19T22:00:00Z' });
+    it('records the before/after pair in the audit log', async () => {
+      const h = await harness();
 
-    expect(
-      overtimeRequest.update.mock.calls[0][0].data.originalStartTime,
-    ).toBeUndefined();
-  });
+      await h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+        endTime: '2026-08-20T23:00:00Z',
+        approverNote: 'Gate log shows 23:00',
+      });
 
-  it('does not write an edit at all for a plain approve', async () => {
-    const { service, overtimeRequest } = makeHarness({
-      cfg: await baseConfig(),
-    });
-    await service.approve('ot-1', HR);
-    expect(overtimeRequest.update).toHaveBeenCalledTimes(1);
-    expect(overtimeRequest.update.mock.calls[0][0].data.status).toBe(
-      RequestStatus.APPROVED,
-    );
-  });
-});
-
-describe('the food-allowance override', () => {
-  it('records a 0 rather than treating it as absent', async () => {
-    const { service, overtimeRequest } = makeHarness({
-      cfg: await baseConfig(),
+      const entry = h.audit.log.mock.calls[0][0];
+      expect(entry.action).toBe('OVERTIME_APPROVER_EDIT');
+      expect(entry.resourceType).toBe('OvertimeRequest');
+      expect(entry.resourceId).toBe('ot-1');
+      expect(entry.userId).toBe('user-sup');
+      expect(new Date(entry.oldData.endTime).toISOString()).toBe(
+        '2026-08-20T21:00:00.000Z',
+      );
+      expect(new Date(entry.newData.endTime).toISOString()).toBe(
+        '2026-08-20T23:00:00.000Z',
+      );
     });
 
-    await service.approve('ot-1', HR, {
-      startTime: '2026-08-19T17:00:00Z',
-      endTime: '2026-08-19T23:00:00Z',
-      foodAllowance: 0,
-    });
+    it('does not touch the request at all for a bodyless approve', async () => {
+      const h = await harness({ finalized: false });
 
-    const editCall = overtimeRequest.update.mock.calls[0][0].data;
-    expect(editCall.foodAllowanceOverride).toBe(0);
+      await h.service.approve('ot-1', 'user-sup', SUPERVISOR);
 
-    // And it survives the recompute, which would otherwise have granted 3.
-    const finalizeCall = overtimeRequest.update.mock.calls[1][0].data;
-    expect(finalizeCall.foodAllowance).toBe(0);
-  });
-
-  it('refuses an override when the policy pays no food allowance at all', async () => {
-    // Overriding it there would be inventing a payment the policy does not have.
-    const { service } = makeHarness({
-      cfg: await baseConfig({ foodAllowanceEnabled: false }),
-    });
-    await expect(
-      service.approve('ot-1', HR, { foodAllowance: 5 }),
-    ).rejects.toThrow(/Food allowance is disabled/);
-  });
-});
-
-describe('the site allowance', () => {
-  it('is refused while the company has it switched off', async () => {
-    const { service } = makeHarness({ cfg: await baseConfig() });
-    await expect(
-      service.approve('ot-1', HR, { siteAllowance: 5 }),
-    ).rejects.toThrow(/Site allowance is disabled/);
-  });
-
-  it('is capped, with 0 meaning no ceiling', async () => {
-    const capped = makeHarness({
-      cfg: await baseConfig({
-        siteAllowanceEnabled: true,
-        siteAllowanceMax: 10,
-      }),
-    });
-    await expect(
-      capped.service.approve('ot-1', HR, { siteAllowance: 25 }),
-    ).rejects.toThrow(/exceeds the maximum of 10/);
-
-    const uncapped = makeHarness({
-      cfg: await baseConfig({
-        siteAllowanceEnabled: true,
-        siteAllowanceMax: 0,
-      }),
-    });
-    await expect(
-      uncapped.service.approve('ot-1', HR, { siteAllowance: 25 }),
-    ).resolves.toBeDefined();
-  });
-
-  it('survives the approval recompute untouched', async () => {
-    const { service, overtimeRequest } = makeHarness({
-      cfg: await baseConfig({ siteAllowanceEnabled: true }),
-    });
-
-    await service.approve('ot-1', HR, {
-      siteAllowance: 25,
-      siteAllowanceNote: 'Offshore rig',
-    });
-
-    expect(overtimeRequest.update.mock.calls[0][0].data.siteAllowance).toBe(25);
-    // The finalize payload must never name it, or every approval zeroes it.
-    expect(
-      'siteAllowance' in overtimeRequest.update.mock.calls[1][0].data,
-    ).toBe(false);
-  });
-});
-
-describe('validating the correction', () => {
-  it('refuses a window that clamps to nothing', async () => {
-    // An approver who moves a shift past the day boundary would otherwise
-    // approve a request worth zero hours, and nobody finds out until the payslip.
-    const { service } = makeHarness({
-      cfg: await baseConfig({ dayEndBoundary: '18:00' }),
-    });
-    await expect(
-      service.approve('ot-1', HR, {
-        startTime: '2026-08-19T19:00:00Z',
-        endTime: '2026-08-19T21:00:00Z',
-      }),
-    ).rejects.toThrow(/no payable overtime hours/);
-  });
-
-  it('holds the approver to the same outside-work-hours rule as the employee', async () => {
-    const { service } = makeHarness({ cfg: await baseConfig() });
-    await expect(
-      service.approve('ot-1', HR, {
-        startTime: '2026-08-19T14:00:00Z',
-        endTime: '2026-08-19T21:00:00Z',
-      }),
-    ).rejects.toThrow(/outside regular working hours/);
-  });
-
-  it('refuses a correction above the daily cap', async () => {
-    const { service } = makeHarness({
-      cfg: await baseConfig({ maxHoursPerDay: 4 }),
-    });
-    await expect(
-      service.approve('ot-1', HR, { endTime: '2026-08-19T23:00:00Z' }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it('excludes the row under edit from the period caps', async () => {
-    // The row is itself PENDING and already inside the sum, so counting it would
-    // charge the employee twice and refuse an edit that LOWERS the hours.
-    const { service } = makeHarness({
-      cfg: await baseConfig(),
-      // 28 already filed this month, of which this request's 4 are part.
-      monthlyHours: 28,
-    });
-    await expect(
-      service.approve('ot-1', HR, { endTime: '2026-08-19T19:00:00Z' }),
-    ).resolves.toBeDefined();
-  });
-
-  it('refuses an edit made against a stale version', async () => {
-    // Two approvers can hold the same request open, and last-write-wins would let
-    // one silently discard the other's correction.
-    const { service } = makeHarness({ cfg: await baseConfig() });
-    await expect(
-      service.approve('ot-1', HR, {
-        endTime: '2026-08-19T22:00:00Z',
-        expectedUpdatedAt: '2026-08-20T10:00:00.000Z',
-      }),
-    ).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  it('accepts an edit made against the current version', async () => {
-    const { service } = makeHarness({ cfg: await baseConfig() });
-    await expect(
-      service.approve('ot-1', HR, {
-        endTime: '2026-08-19T22:00:00Z',
-        expectedUpdatedAt: UPDATED_AT.toISOString(),
-      }),
-    ).resolves.toBeDefined();
-  });
-
-  it('refuses every edit while the company has approver edits switched off', async () => {
-    const { service } = makeHarness({
-      cfg: await baseConfig({ approverEditEnabled: false }),
-    });
-    await expect(
-      service.approve('ot-1', HR, { endTime: '2026-08-19T22:00:00Z' }),
-    ).rejects.toThrow(/Editing an overtime request/);
-    // …but a plain approve still works.
-    const plain = makeHarness({
-      cfg: await baseConfig({ approverEditEnabled: false }),
-    });
-    await expect(plain.service.approve('ot-1', HR)).resolves.toBeDefined();
-  });
-});
-
-describe('previewApproverEdit', () => {
-  it('writes nothing and returns what the correction would produce', async () => {
-    const { service, overtimeRequest } = makeHarness({
-      cfg: await baseConfig(),
-    });
-
-    const preview = await service.previewApproverEdit(
-      'ot-1',
-      { endTime: '2026-08-19T23:00:00Z' },
-      HR,
-    );
-
-    expect(overtimeRequest.update).not.toHaveBeenCalled();
-    expect(preview).toMatchObject({
-      hours: 6,
-      regularHours: 5,
-      lateHours: 1,
-      otType: OvertimeType.LATE,
-      foodAllowance: 3,
-      // Carried, never recomputed.
-      siteAllowance: 5,
-      regularRate: 1.25,
-      lateRate: 1.5,
+      expect(h.prisma.overtimeRequest.update).not.toHaveBeenCalled();
+      expect(h.audit.log).not.toHaveBeenCalled();
     });
   });
 
-  it('refuses a caller who could not approve the request either', async () => {
-    const { service } = makeHarness({ cfg: await baseConfig() });
-    await expect(
-      service.previewApproverEdit(
+  describe('the corrected window drives the money', () => {
+    it('re-tiers REGULAR to LATE and pays the food allowance', async () => {
+      const h = await harness({ finalized: true });
+
+      const updated: any = await h.service.approve(
         'ot-1',
-        { endTime: '2026-08-19T23:00:00Z' },
-        {
-          id: 'user-other',
-          email: 'other@peoplepay360.com',
-          role: 'EMPLOYEE',
-          employeeId: 'emp-other',
-          departmentId: 'dept-it',
-          branchId: 'branch-1',
-        },
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+        'user-sup',
+        SUPERVISOR,
+        { endTime: '2026-08-20T23:00:00Z' },
+      );
+
+      expect(updated.status).toBe('APPROVED');
+      expect(Number(updated.hours)).toBe(6);
+      expect(Number(updated.regularHours)).toBe(5);
+      expect(Number(updated.lateHours)).toBe(1);
+      expect(updated.otType).toBe('LATE');
+      expect(Number(updated.foodAllowance)).toBe(150);
+    });
+
+    it('reads an end at or before the start as crossing midnight', async () => {
+      const h = await harness({ finalized: true });
+
+      const updated: any = await h.service.approve(
+        'ot-1',
+        'user-sup',
+        SUPERVISOR,
+        // 17:00 -> 01:00, tagged on the same calendar date as it is at filing.
+        { endTime: '2026-08-20T01:00:00Z' },
+      );
+
+      // Clamped at the 23:59 attendance day boundary, so 17:00–23:59 is payable.
+      expect(Number(updated.hours)).toBeCloseTo(6.98, 1);
+    });
+
+    it('refuses a corrected window with no payable hours left', async () => {
+      const h = await harness({
+        settings: { attendance_day_end_time: '18:00' },
+      });
+
+      await expect(
+        h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+          startTime: '2026-08-20T19:00:00Z',
+          endTime: '2026-08-20T21:00:00Z',
+        }),
+      ).rejects.toThrow(/no payable overtime hours/i);
+    });
+
+    it('holds the correction to the daily cap', async () => {
+      // Boundary at 05:00 — a before-noon boundary means the NEXT day, so the
+      // clamp does not bite here and the 9h window reaches the cap check.
+      const h = await harness({ settings: { attendance_day_end_time: '05:00' } });
+
+      await expect(
+        h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+          startTime: '2026-08-20T17:00:00Z',
+          endTime: '2026-08-21T02:00:00Z',
+        }),
+      ).rejects.toThrow(/Daily overtime limit exceeded/);
+    });
+
+    it('holds the correction to the monthly cap, excluding the row being edited', async () => {
+      const h = await harness();
+      // 38h on OTHER requests; this row's own 4h must not be counted again.
+      h.prisma.overtimeRequest.aggregate.mockResolvedValue({
+        _sum: { hours: 38 },
+      });
+
+      await expect(
+        h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+          endTime: '2026-08-20T22:00:00Z',
+        }),
+      ).rejects.toThrow(/Monthly overtime limit exceeded/);
+
+      // The aggregate that ran must have excluded this id, or the refusal above
+      // proves nothing: 4h + 38h would exceed the cap on its own.
+      const where = h.prisma.overtimeRequest.aggregate.mock.calls[0][0].where;
+      expect(where.id).toEqual({ not: 'ot-1' });
+    });
+
+    it('holds the correction to the outside-work-hours rule', async () => {
+      const h = await harness();
+
+      await expect(
+        h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+          startTime: '2026-08-20T10:00:00Z',
+          endTime: '2026-08-20T21:00:00Z',
+        }),
+      ).rejects.toThrow(/outside of regular work hours/i);
+    });
+  });
+
+  describe('food allowance override', () => {
+    it('honours an explicit 0 against a policy that would pay 150', async () => {
+      const h = await harness({ finalized: true });
+
+      const updated: any = await h.service.approve(
+        'ot-1',
+        'user-sup',
+        SUPERVISOR,
+        { endTime: '2026-08-20T23:00:00Z', foodAllowance: 0 },
+      );
+
+      // The window earns the allowance; the approver said no.
+      expect(Number(updated.foodAllowance)).toBe(0);
+      expect(Number(updated.foodAllowanceOverride)).toBe(0);
+    });
+
+    it('lets the policy decide when no override is sent', async () => {
+      const h = await harness({ finalized: true });
+
+      const updated: any = await h.service.approve(
+        'ot-1',
+        'user-sup',
+        SUPERVISOR,
+        { endTime: '2026-08-20T23:00:00Z' },
+      );
+
+      expect(updated.foodAllowanceOverride).toBeNull();
+      expect(Number(updated.foodAllowance)).toBe(150);
+    });
+
+    it('refuses an override while the policy pays no food allowance at all', async () => {
+      const h = await harness();
+      const otPolicy: any = (h.service as any).otPolicy;
+      otPolicy.resolveOvertimeConfig.mockResolvedValue({
+        ...CFG,
+        foodAllowanceEnabled: false,
+      });
+
+      await expect(
+        h.service.approve('ot-1', 'user-sup', SUPERVISOR, { foodAllowance: 50 }),
+      ).rejects.toThrow(/Food allowance is disabled/);
+    });
+  });
+
+  describe('site allowance', () => {
+    it('survives the approval recompute', async () => {
+      const h = await harness({ finalized: true });
+
+      const updated: any = await h.service.approve(
+        'ot-1',
+        'user-sup',
+        SUPERVISOR,
+        { siteAllowance: 25, siteAllowanceNote: 'Offshore rig' },
+      );
+
+      expect(updated.status).toBe('APPROVED');
+      expect(Number(updated.siteAllowance)).toBe(25);
+      expect(updated.siteAllowanceNote).toBe('Offshore rig');
+
+      // Proved structurally too: naming the column in the finalize payload is
+      // exactly the mistake that would zero it.
+      const finalize = h.prisma.overtimeRequest.update.mock.calls.find(
+        (c: any[]) => c[0].data.status === 'APPROVED',
+      )[0].data;
+      expect(finalize).not.toHaveProperty('siteAllowance');
+    });
+
+    it('is refused while the feature is off', async () => {
+      const h = await harness({
+        settings: { overtime_site_allowance_enabled: 'false' },
+      });
+
+      await expect(
+        h.service.approve('ot-1', 'user-sup', SUPERVISOR, { siteAllowance: 25 }),
+      ).rejects.toThrow(/Site allowance is disabled/);
+    });
+
+    it('is refused above the configured ceiling', async () => {
+      const h = await harness({
+        settings: { overtime_site_allowance_max: '20' },
+      });
+
+      await expect(
+        h.service.approve('ot-1', 'user-sup', SUPERVISOR, { siteAllowance: 25 }),
+      ).rejects.toThrow(/exceeds the maximum of 20/);
+    });
+
+    it('treats a ceiling of 0 as no ceiling', async () => {
+      const h = await harness({
+        settings: { overtime_site_allowance_max: '0' },
+        finalized: true,
+      });
+
+      const updated: any = await h.service.approve(
+        'ot-1',
+        'user-sup',
+        SUPERVISOR,
+        { siteAllowance: 5000 },
+      );
+
+      expect(Number(updated.siteAllowance)).toBe(5000);
+    });
+
+    it('is written as a bare 0 when only a note is sent', async () => {
+      const h = await harness();
+
+      await h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+        siteAllowanceNote: 'noted, no money',
+      });
+
+      expect(Number(h.row.siteAllowance)).toBe(0);
+    });
+  });
+
+  describe('who may edit', () => {
+    it('refuses an approver who cannot act on the current step', async () => {
+      const h = await harness({ canAct: false });
+
+      await expect(
+        h.service.approve('ot-1', 'user-other', { id: 'user-other', role: 'EMPLOYEE' }, {
+          siteAllowance: 25,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(h.prisma.overtimeRequest.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses a plain EMPLOYEE on the legacy no-chain path', async () => {
+      // approve() itself admits role EMPLOYEE here without an ownership test.
+      // Rewriting hours and allowances is deliberately held to a higher bar.
+      const h = await harness({ engaged: false });
+
+      await expect(
+        h.service.approve('ot-1', 'user-sup', SUPERVISOR, { siteAllowance: 25 }),
+      ).rejects.toThrow(/do not have permission to edit/i);
+    });
+
+    it('allows HR_MANAGER on the legacy no-chain path', async () => {
+      const h = await harness({ engaged: false });
+
+      await h.service.approve(
+        'ot-1',
+        'user-hr',
+        { id: 'user-hr', role: 'HR_MANAGER' },
+        { siteAllowance: 25 },
+      );
+
+      expect(Number(h.row.siteAllowance)).toBe(25);
+    });
+
+    it('refuses a MANAGER outside their own departments', async () => {
+      const h = await harness({ engaged: false });
+
+      await expect(
+        h.service.approve(
+          'ot-1',
+          'user-mgr',
+          { id: 'user-mgr', role: 'MANAGER', managedDepartmentIds: ['dept-9'] },
+          { siteAllowance: 25 },
+        ),
+      ).rejects.toThrow(/do not have permission to edit/i);
+    });
+  });
+
+  describe('guards', () => {
+    it('refuses any edit while the kill switch is off, but still approves', async () => {
+      const h = await harness({
+        settings: { overtime_approver_edit_enabled: 'false' },
+        finalized: true,
+      });
+
+      await expect(
+        h.service.approve('ot-1', 'user-sup', SUPERVISOR, { siteAllowance: 25 }),
+      ).rejects.toThrow(/disabled/i);
+
+      // The bodyless decision is untouched by the switch.
+      const updated: any = await h.service.approve('ot-1', 'user-sup', SUPERVISOR);
+      expect(updated.status).toBe('APPROVED');
+    });
+
+    it('refuses a stale expectedUpdatedAt with a 409', async () => {
+      const h = await harness();
+
+      await expect(
+        h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+          siteAllowance: 25,
+          expectedUpdatedAt: '2026-08-20T09:00:00.000Z',
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('accepts a matching expectedUpdatedAt', async () => {
+      const h = await harness();
+
+      await h.service.approve('ot-1', 'user-sup', SUPERVISOR, {
+        siteAllowance: 25,
+        expectedUpdatedAt: h.row.updatedAt.toISOString(),
+      });
+
+      expect(Number(h.row.siteAllowance)).toBe(25);
+    });
+
+    it('refuses an edit on a request that is no longer pending', async () => {
+      const h = await harness({ row: { ...baseRow(), status: 'APPROVED' } });
+
+      await expect(
+        h.service.approve('ot-1', 'user-sup', SUPERVISOR, { siteAllowance: 25 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('edit-preview', () => {
+    it('returns the corrected breakdown and rates without writing', async () => {
+      const h = await harness();
+
+      const preview: any = await h.service.previewApproverEdit(
+        'ot-1',
+        { endTime: '2026-08-20T23:00:00Z' },
+        SUPERVISOR,
+      );
+
+      expect(preview.hours).toBe(6);
+      expect(preview.regularHours).toBe(5);
+      expect(preview.lateHours).toBe(1);
+      expect(preview.otType).toBe('LATE');
+      expect(preview.foodAllowance).toBe(150);
+      expect(preview.regularRate).toBe(1.5);
+      expect(preview.lateRate).toBe(1.5);
+      expect(h.prisma.overtimeRequest.update).not.toHaveBeenCalled();
+      expect(h.audit.log).not.toHaveBeenCalled();
+    });
+
+    it('shows an override in place of the computed allowance', async () => {
+      const h = await harness();
+
+      const preview: any = await h.service.previewApproverEdit(
+        'ot-1',
+        { endTime: '2026-08-20T23:00:00Z', foodAllowance: 0 },
+        SUPERVISOR,
+      );
+
+      expect(preview.foodAllowance).toBe(0);
+      expect(preview.foodAllowanceOverride).toBe(0);
+    });
+
+    it('refuses a preview the edit itself would refuse', async () => {
+      const h = await harness({ canAct: false });
+
+      await expect(
+        h.service.previewApproverEdit(
+          'ot-1',
+          { endTime: '2026-08-20T23:00:00Z' },
+          { id: 'user-other', role: 'EMPLOYEE' },
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
   });
 });

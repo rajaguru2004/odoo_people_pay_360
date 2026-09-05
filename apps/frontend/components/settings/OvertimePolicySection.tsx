@@ -1,70 +1,33 @@
 'use client';
 
-import { useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Clock, Pencil, Plus, Power, Star, Trash2, X } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Select } from '@/components/ui/Select';
-import { EmptyState } from '@/components/common/EmptyState';
-import { useLibraryItems } from '@/hooks/useLibraryItems';
 import {
-  useCreateOvertimePolicy,
-  useDeleteOvertimePolicy,
-  useOvertimePolicies,
-  useSetDefaultOvertimePolicy,
-  useSetOvertimePolicyActive,
-  useUpdateOvertimePolicy,
-} from '@/hooks/useOvertimePolicies';
-import { apiErrorMessage } from '@/utils/apiError';
-import type { OvertimePolicy, OvertimePolicyRules } from '@/types/overtime';
-import { Field, SectionCard, SettingInput, ToggleRow } from './SettingsPrimitives';
+  Loader2,
+  Clock,
+  Plus,
+  Trash2,
+  Pencil,
+  Star,
+  Power,
+  Save,
+  X,
+  Info,
+} from 'lucide-react';
+import systemSettingsService from '@/services/systemSettingsService';
+import libraryService from '@/services/libraryService';
+import overtimePolicyService, {
+  EmploymentType,
+  HolidayBehavior,
+  OvertimePolicy,
+  OvertimePolicyRules,
+} from '@/services/overtimePolicyService';
 
-/**
- * The four company-wide switches, which are deliberately NOT per policy: they
- * decide whether the overtime feature is open at all, and a rate card should
- * not be able to contradict that.
- *
- * Every one is read server-side as `!== 'false'`, so an unset key is on.
- */
-export const OVERTIME_GATE_KEYS = [
-  'overtime_enabled',
-  'overtime_allow_employee_submit',
-  'overtime_require_manager_approval',
-  'overtime_require_reason',
-] as const;
+const inputCls =
+  'w-full h-10 px-3 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/30 transition-all';
 
-const GATES: { key: (typeof OVERTIME_GATE_KEYS)[number]; label: string; description: string }[] = [
-  {
-    key: 'overtime_enabled',
-    label: 'Overtime is open',
-    description:
-      'Turns the whole module off company-wide. Requests already recorded are kept either way.',
-  },
-  {
-    key: 'overtime_allow_employee_submit',
-    label: 'Employees may submit their own',
-    description: 'With this off, only HR and administrators log overtime on their behalf.',
-  },
-  {
-    key: 'overtime_require_manager_approval',
-    label: 'Approval required before it pays',
-    description: 'Unapproved hours are recorded but never reach a payslip.',
-  },
-  {
-    key: 'overtime_require_reason',
-    label: 'A reason is mandatory',
-    description: 'With this off the reason field stays on the form but may be left blank.',
-  },
-];
-
-/**
- * What a policy that specifies nothing behaves like.
- *
- * The server composes a partial `rules` blob over the company overtime config,
- * so these are the editor's starting point rather than the authority — a new
- * policy saved untouched writes exactly what the company already does.
- */
+// Defaults mirror the backend global overtime defaults, so a policy created
+// without touching a field behaves like the standard rules.
 const DEFAULT_RULES: OvertimePolicyRules = {
   eligible: true,
   holidayBehavior: 'STANDARD',
@@ -72,10 +35,10 @@ const DEFAULT_RULES: OvertimePolicyRules = {
   regularRate: 1.5,
   lateRate: 1.5,
   doubleOtEnabled: true,
-  doubleRate: 2,
+  doubleRate: 2.0,
   doubleOtAllowAnytime: true,
-  sunday: { regularRate: 2, lateRate: 2, lateThreshold: '22:00' },
-  holiday: { regularRate: 2, lateRate: 2, lateThreshold: '22:00' },
+  sunday: { regularRate: 2.0, lateRate: 2.0, lateThreshold: '22:00' },
+  holiday: { regularRate: 2.0, lateRate: 2.0, lateThreshold: '22:00' },
   shiftEndTime: '17:00',
   dayEndBoundary: null,
   foodAllowanceEnabled: true,
@@ -88,687 +51,691 @@ const DEFAULT_RULES: OvertimePolicyRules = {
   maxHoursPerYear: 200,
 };
 
-interface PolicyForm {
+interface FormState {
   id?: string;
   name: string;
   description: string;
-  employmentType: string;
+  employmentType: '' | EmploymentType;
   isDefault: boolean;
   isActive: boolean;
   rules: OvertimePolicyRules;
 }
 
-const blankForm = (): PolicyForm => ({
+const blankForm = (): FormState => ({
   name: '',
   description: '',
   employmentType: '',
   isDefault: false,
   isActive: true,
-  rules: structuredClone(DEFAULT_RULES),
+  rules: JSON.parse(JSON.stringify(DEFAULT_RULES)),
 });
 
-/**
- * Defaults are merged UNDER a stored policy, including into the two rate tiers.
- *
- * A policy written before a rule existed has no value for it, and a number
- * input handed `undefined` becomes uncontrolled — React then keeps whatever the
- * previous policy left in the DOM when the drawer is reopened on another row.
- */
-const formOf = (policy: OvertimePolicy): PolicyForm => ({
-  id: policy.id,
-  name: policy.name,
-  description: policy.description ?? '',
-  employmentType: policy.employmentType ?? '',
-  isDefault: policy.isDefault,
-  isActive: policy.isActive,
-  rules: {
-    ...DEFAULT_RULES,
-    ...policy.rules,
-    sunday: { ...DEFAULT_RULES.sunday, ...policy.rules?.sunday },
-    holiday: { ...DEFAULT_RULES.holiday, ...policy.rules?.holiday },
-  },
-});
+function Toggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-primary/30 ${checked ? 'bg-brand-primary' : 'bg-slate-300'}`}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : 'translate-x-0.5'}`}
+      />
+    </button>
+  );
+}
 
-/** A rate multiplier or an hour cap. */
-function NumberField({
+// Hover tooltip (info "ⓘ" icon) explaining what a setting does.
+function Hint({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex align-middle">
+      <Info className="h-3.5 w-3.5 cursor-help text-slate-400 hover:text-slate-600" />
+      <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 w-56 -translate-x-1/2 rounded-lg bg-slate-800 px-2.5 py-1.5 text-[11px] font-normal leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function FieldLabel({ label, hint }: { label: string; hint?: string }) {
+  return (
+    <span className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-600">
+      {label}
+      {hint && <Hint text={hint} />}
+    </span>
+  );
+}
+
+function Num({
   label,
-  hint,
   value,
   onChange,
   step = 0.1,
+  hint,
 }: {
   label: string;
-  hint?: string;
   value: number;
-  onChange: (value: number) => void;
+  onChange: (v: number) => void;
   step?: number;
+  hint?: string;
 }) {
   return (
-    <Field label={label} hint={hint}>
-      {(id) => (
-        <SettingInput
-          id={id}
-          type="number"
-          step={step}
-          min={0}
-          value={Number.isFinite(value) ? String(value) : ''}
-          // A cleared field is zero, not NaN. Sending NaN serialises to null and
-          // the API rejects the whole payload for a field the user only blanked
-          // on the way to typing a new number.
-          onChange={(raw) => onChange(raw === '' ? 0 : Number(raw))}
-        />
-      )}
-    </Field>
+    <label className="block">
+      <FieldLabel label={label} hint={hint} />
+      <input
+        type="number"
+        step={step}
+        className={inputCls}
+        value={Number.isFinite(value) ? value : ''}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+      />
+    </label>
   );
 }
 
-function TimeField({
+function Time({
   label,
-  hint,
   value,
   onChange,
+  hint,
+  placeholder,
 }: {
   label: string;
-  hint?: string;
   value: string;
-  onChange: (value: string) => void;
+  onChange: (v: string) => void;
+  hint?: string;
+  placeholder?: string;
 }) {
   return (
-    <Field label={label} hint={hint}>
-      {(id) => <SettingInput id={id} type="time" value={value} onChange={onChange} />}
-    </Field>
+    <label className="block">
+      <FieldLabel label={label} hint={hint} />
+      <input
+        type="time"
+        className={inputCls}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
   );
 }
 
-/** One row of the policy list. */
-function PolicyRow({
-  policy,
-  onEdit,
-  onSetDefault,
-  onToggleActive,
-  onDelete,
-  busy,
+// A labelled on/off row with an optional tooltip — mirrors the global settings.
+function ToggleField({
+  checked,
+  onChange,
+  label,
+  hint,
 }: {
-  policy: OvertimePolicy;
-  onEdit: () => void;
-  onSetDefault: () => void;
-  onToggleActive: () => void;
-  onDelete: () => void;
-  busy: boolean;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  hint?: string;
 }) {
-  const scope = policy.employmentType
-    ? `Employment type: ${policy.employmentType}`
-    : policy.isDefault
-      ? 'Company-wide fallback'
-      : 'Not targeted at anyone';
-
-  const rates = `Regular ${policy.rules?.regularRate}× · Late ${policy.rules?.lateRate}× · Double ${policy.rules?.doubleRate}×`;
-  const assignees = policy._count?.employees;
-
   return (
-    <li className="flex flex-wrap items-center justify-between gap-3 p-4 sm:px-5">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-text-heading">{policy.name}</span>
-          {policy.isDefault && <Badge tone="warning">Default</Badge>}
-          {!policy.isActive && <Badge>Inactive</Badge>}
-          {policy.rules?.holidayBehavior === 'IGNORE' && <Badge tone="info">Ignores holidays</Badge>}
-          {policy.rules?.eligible === false && <Badge tone="error">Not eligible</Badge>}
-        </div>
-        <p className="mt-0.5 text-xs text-text-muted">
-          {scope}
-          {typeof assignees === 'number' && ` · ${assignees} assigned directly`} · {rates}
-        </p>
-      </div>
-
-      <div className="flex shrink-0 items-center gap-1">
-        {!policy.isDefault && (
-          <button
-            type="button"
-            aria-label={`Make ${policy.name} the company default`}
-            title="Make the company default"
-            disabled={busy}
-            onClick={onSetDefault}
-            className="rounded-[var(--radius-button)] p-1.5 text-text-muted transition-colors hover:bg-surface-border-light hover:text-status-warning disabled:opacity-60"
-          >
-            <Star className="h-4 w-4" aria-hidden />
-          </button>
-        )}
-        <button
-          type="button"
-          aria-label={`${policy.isActive ? 'Deactivate' : 'Activate'} ${policy.name}`}
-          title={policy.isActive ? 'Deactivate' : 'Activate'}
-          disabled={busy}
-          onClick={onToggleActive}
-          className="rounded-[var(--radius-button)] p-1.5 text-text-muted transition-colors hover:bg-surface-border-light hover:text-brand-primary disabled:opacity-60"
-        >
-          <Power className="h-4 w-4" aria-hidden />
-        </button>
-        <button
-          type="button"
-          aria-label={`Edit ${policy.name}`}
-          title="Edit"
-          onClick={onEdit}
-          className="rounded-[var(--radius-button)] p-1.5 text-text-muted transition-colors hover:bg-surface-border-light hover:text-brand-primary"
-        >
-          <Pencil className="h-4 w-4" aria-hidden />
-        </button>
-        <button
-          type="button"
-          aria-label={`Delete ${policy.name}`}
-          title="Delete"
-          disabled={busy}
-          onClick={onDelete}
-          className="rounded-[var(--radius-button)] p-1.5 text-text-muted transition-colors hover:bg-status-error-bg hover:text-status-error disabled:opacity-60"
-        >
-          <Trash2 className="h-4 w-4" aria-hidden />
-        </button>
-      </div>
-    </li>
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2.5">
+      <span className="flex items-center gap-1.5 text-sm text-slate-700">
+        {label}
+        {hint && <Hint text={hint} />}
+      </span>
+      <Toggle checked={checked} onChange={onChange} />
+    </div>
   );
 }
 
-export function OvertimePolicySection({
-  settings,
-  onChangeSetting,
-  canEdit,
+// Section wrapper: a titled card, matching the global Overtime Settings layout.
+function Section({
+  title,
+  hint,
+  children,
 }: {
-  /** The settings map, for the four company-wide gates. */
-  settings: Record<string, string>;
-  onChangeSetting: (key: string, value: string) => void;
-  /** ADMIN. HR may read the policies; every mutation route is administrators only. */
-  canEdit: boolean;
+  title: string;
+  hint?: string;
+  children: ReactNode;
 }) {
-  const [form, setForm] = useState<PolicyForm | null>(null);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <h4 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+        {title}
+        {hint && <Hint text={hint} />}
+      </h4>
+      {children}
+    </div>
+  );
+}
 
-  const { data, isLoading, isError, error } = useOvertimePolicies();
-  const employmentTypes = useLibraryItems({ type: 'EMPLOYMENT_TYPE', activeOnly: true });
+// Company-wide overtime gates (not per-policy). Managed here now that the legacy
+// Overtime Settings screen is gone.
+type Gates = {
+  overtime_enabled: boolean;
+  overtime_allow_employee_submit: boolean;
+  overtime_require_manager_approval: boolean;
+  overtime_require_reason: boolean;
+};
 
-  const createPolicy = useCreateOvertimePolicy();
-  const updatePolicy = useUpdateOvertimePolicy();
-  const setDefault = useSetDefaultOvertimePolicy();
-  const setActive = useSetOvertimePolicyActive();
-  const deletePolicy = useDeleteOvertimePolicy();
+export default function OvertimePolicySection() {
+  const [gates, setGates] = useState<Gates>({
+    overtime_enabled: true,
+    overtime_allow_employee_submit: true,
+    overtime_require_manager_approval: true,
+    overtime_require_reason: true,
+  });
+  const [policies, setPolicies] = useState<OvertimePolicy[]>([]);
+  const [contractTypes, setContractTypes] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingGate, setSavingGate] = useState(false);
+  const [form, setForm] = useState<FormState | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const policies = data?.data ?? [];
-  const typeLabels = (employmentTypes.data?.data ?? []).map((item) => item.label);
-  const busy = setDefault.isPending || setActive.isPending || deletePolicy.isPending;
-  const saving = createPolicy.isPending || updatePolicy.isPending;
+  const load = async () => {
+    try {
+      const [settingsRes, listRes, ctRes] = await Promise.all([
+        systemSettingsService.getAll(),
+        overtimePolicyService.list(),
+        libraryService.getAll('EMPLOYMENT_TYPE', true).catch(() => null),
+      ]);
+      const gv = (k: string) =>
+        settingsRes.data.find((s) => s.key === k)?.value !== 'false';
+      setGates({
+        overtime_enabled: gv('overtime_enabled'),
+        overtime_allow_employee_submit: gv('overtime_allow_employee_submit'),
+        overtime_require_manager_approval: gv('overtime_require_manager_approval'),
+        overtime_require_reason: gv('overtime_require_reason'),
+      });
+      setPolicies(listRes.data || []);
+      setContractTypes((ctRes?.data || []).map((i) => i.label));
+    } catch (e: any) {
+      toast.error(
+        e?.response?.data?.message || e?.message || 'Failed to load policies',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const setRule = <K extends keyof OvertimePolicyRules>(key: K, value: OvertimePolicyRules[K]) =>
-    setForm((current) => (current ? { ...current, rules: { ...current.rules, [key]: value } } : current));
+  useEffect(() => {
+    load();
+  }, []);
+
+  const saveGate = async (key: keyof Gates, v: boolean) => {
+    setSavingGate(true);
+    try {
+      await systemSettingsService.update({ [key]: String(v) });
+      setGates((g) => ({ ...g, [key]: v }));
+      toast.success('Overtime settings updated');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to update');
+    } finally {
+      setSavingGate(false);
+    }
+  };
+
+  const openCreate = () => setForm(blankForm());
+  const openEdit = (p: OvertimePolicy) =>
+    setForm({
+      id: p.id,
+      name: p.name,
+      description: p.description ?? '',
+      employmentType: p.employmentType ?? '',
+      isDefault: p.isDefault,
+      isActive: p.isActive,
+      rules: { ...DEFAULT_RULES, ...p.rules, sunday: { ...DEFAULT_RULES.sunday, ...p.rules.sunday }, holiday: { ...DEFAULT_RULES.holiday, ...p.rules.holiday } },
+    });
+
+  const setRule = <K extends keyof OvertimePolicyRules>(
+    key: K,
+    val: OvertimePolicyRules[K],
+  ) => setForm((f) => (f ? { ...f, rules: { ...f.rules, [key]: val } } : f));
 
   const setTier = (
     tier: 'sunday' | 'holiday',
-    key: 'regularRate' | 'lateRate' | 'lateThreshold',
-    value: number | string,
+    key: keyof OvertimePolicyRules['sunday'],
+    val: number | string,
   ) =>
-    setForm((current) =>
-      current
-        ? { ...current, rules: { ...current.rules, [tier]: { ...current.rules[tier], [key]: value } } }
-        : current,
+    setForm((f) =>
+      f ? { ...f, rules: { ...f.rules, [tier]: { ...f.rules[tier], [key]: val } } } : f,
     );
 
   const save = async () => {
     if (!form) return;
     if (!form.name.trim()) {
-      toast.error('Give the policy a name');
+      toast.error('Policy name is required');
       return;
     }
-
-    const payload = {
-      name: form.name.trim(),
-      description: form.description.trim() || undefined,
-      isActive: form.isActive,
-      isDefault: form.isDefault,
-      // '' means "not targeted", which the column stores as null rather than as
-      // an employment type nobody has.
-      employmentType: form.employmentType || null,
-      rules: form.rules,
-    };
-
+    setSaving(true);
     try {
+      const dto = {
+        name: form.name.trim(),
+        description: form.description || undefined,
+        isActive: form.isActive,
+        isDefault: form.isDefault,
+        employmentType: form.employmentType || null,
+        rules: form.rules,
+      };
       if (form.id) {
-        await updatePolicy.mutateAsync({ id: form.id, payload });
+        await overtimePolicyService.update(form.id, dto);
         toast.success('Policy updated');
       } else {
-        await createPolicy.mutateAsync(payload);
+        await overtimePolicyService.create(dto);
         toast.success('Policy created');
       }
       setForm(null);
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not save the policy'));
+      await load();
+    } catch (e: any) {
+      toast.error(
+        e?.response?.data?.message || e?.message || 'Failed to save policy',
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
-  const promote = async (policy: OvertimePolicy) => {
+  const setDefault = async (p: OvertimePolicy) => {
     try {
-      await setDefault.mutateAsync(policy.id);
-      toast.success(`"${policy.name}" is now the company default`);
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not change the default'));
+      await overtimePolicyService.setDefault(p.id);
+      toast.success(`"${p.name}" is now the company default`);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed');
     }
   };
 
-  const flip = async (policy: OvertimePolicy) => {
+  const toggleActive = async (p: OvertimePolicy) => {
     try {
-      await setActive.mutateAsync({ id: policy.id, isActive: !policy.isActive });
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not change the policy'));
+      await overtimePolicyService.setActive(p.id, !p.isActive);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed');
     }
   };
 
-  const remove = async (policy: OvertimePolicy) => {
-    if (
-      !window.confirm(
-        `Delete "${policy.name}"? Everyone on it falls back to their employment-type policy, then to the company default.`,
-      )
-    ) {
+  const remove = async (p: OvertimePolicy) => {
+    if (!confirm(`Delete overtime policy "${p.name}"? Assignees fall back to their employment-type / default policy.`))
       return;
-    }
     try {
-      await deletePolicy.mutateAsync(policy.id);
+      await overtimePolicyService.remove(p.id);
       toast.success('Policy deleted');
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not delete the policy'));
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to delete');
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 p-6 text-slate-500">
+        <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-4 sm:space-y-5">
-      <SectionCard
-        title="Overtime controls"
-        description="Company-wide switches. Rates and caps are set per policy below."
-        icon={Clock}
-      >
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          {GATES.map((gate) => (
-            <ToggleRow
-              key={gate.key}
-              label={gate.label}
-              description={gate.description}
-              disabled={!canEdit}
-              checked={settings[gate.key] !== 'false'}
-              onChange={(value) => onChangeSetting(gate.key, value ? 'true' : 'false')}
-            />
-          ))}
+    <div className="space-y-6">
+      {/* Company-wide overtime controls */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="mb-1 flex items-center gap-2 font-semibold text-slate-800">
+          <Clock className="h-5 w-5 text-brand-primary" /> Overtime controls
+          {savingGate && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
         </div>
-        <p className="text-xs text-text-muted">
-          Each employee resolves one policy, in order: their own override, then their
-          employment type, then the company default.
+        <p className="mb-4 max-w-3xl text-sm text-slate-500">
+          Company-wide overtime switches. Pay rates, thresholds and holiday
+          behaviour are configured per <strong>policy</strong> below — each
+          employee resolves one via <strong>Employee Override → Employment Type →
+          Company Default</strong>.
         </p>
-      </SectionCard>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <ToggleField
+            label="Enable overtime"
+            checked={gates.overtime_enabled}
+            onChange={(v) => saveGate('overtime_enabled', v)}
+            hint="Turn the overtime request system on/off company-wide. When off, employees and managers cannot view or submit overtime. Existing requests are preserved."
+          />
+          <ToggleField
+            label="Allow employee submission"
+            checked={gates.overtime_allow_employee_submit}
+            onChange={(v) => saveGate('overtime_allow_employee_submit', v)}
+            hint="When on, employees can submit their own overtime. When off, only admins / HR log overtime for them."
+          />
+          <ToggleField
+            label="Require manager approval"
+            checked={gates.overtime_require_manager_approval}
+            onChange={(v) => saveGate('overtime_require_manager_approval', v)}
+            hint="When on, overtime must be approved by a manager or HR before it counts towards payroll."
+          />
+          <ToggleField
+            label="Require overtime reason"
+            checked={gates.overtime_require_reason}
+            onChange={(v) => saveGate('overtime_require_reason', v)}
+            hint="When on, the reason field is mandatory (min. 10 characters) on the overtime request form. When off, it is shown as optional and may be left blank."
+          />
+        </div>
+      </div>
 
-      <div className="surface-panel">
-        <div className="flex items-center justify-between gap-4 border-b border-surface-border-light px-4 py-3 sm:px-5">
-          <h3 className="text-sm font-semibold text-text-heading sm:text-base">Policies</h3>
-          {canEdit && (
-            <Button size="sm" onClick={() => setForm(blankForm())}>
-              <Plus className="h-4 w-4" aria-hidden />
-              New policy
-            </Button>
-          )}
+      {/* Policy list */}
+      <div className="rounded-xl border border-slate-200 bg-white">
+        <div className="flex items-center justify-between border-b border-slate-100 p-4">
+          <h3 className="font-semibold text-slate-800">Policies</h3>
+          <button
+            type="button"
+            onClick={openCreate}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-primary px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" /> New policy
+          </button>
         </div>
 
-        {isLoading ? (
-          <p className="px-4 py-10 text-center text-sm text-text-muted sm:px-5">Loading policies…</p>
-        ) : isError ? (
-          <p className="px-4 py-10 text-center text-sm text-status-error sm:px-5">
-            {apiErrorMessage(error, 'Could not load the overtime policies')}
-          </p>
-        ) : policies.length === 0 ? (
-          <EmptyState
-            title="No overtime policies yet"
-            description="Create a company default first, then add targeted policies — a daily-wage policy that treats a public holiday as an ordinary day, for instance."
-            icon={<Clock className="h-6 w-6" aria-hidden />}
-          />
+        {policies.length === 0 ? (
+          <div className="p-6 text-sm text-slate-500">
+            No policies yet. Create a Company Default, then add targeted policies
+            (e.g. a Daily Wage policy that ignores National Holidays).
+          </div>
         ) : (
-          <ul className="divide-y divide-surface-border-light">
-            {policies.map((policy) => (
-              <PolicyRow
-                key={policy.id}
-                policy={policy}
-                busy={busy || !canEdit}
-                onEdit={() => setForm(formOf(policy))}
-                onSetDefault={() => promote(policy)}
-                onToggleActive={() => flip(policy)}
-                onDelete={() => remove(policy)}
-              />
+          <ul className="divide-y divide-slate-100">
+            {policies.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3 p-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-medium text-slate-800">{p.name}</span>
+                    {p.isDefault && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                        <Star className="h-3 w-3" /> Default
+                      </span>
+                    )}
+                    {!p.isActive && (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+                        Inactive
+                      </span>
+                    )}
+                    {p.rules?.holidayBehavior === 'IGNORE' && (
+                      <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                        Ignores holidays
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {p.employmentType
+                      ? `Employment type: ${p.employmentType}`
+                      : p.isDefault
+                        ? 'Company-wide default'
+                        : 'Not targeted'}
+                    {typeof p._count?.employees === 'number' &&
+                      ` · ${p._count.employees} direct assignee(s)`}
+                    {` · Reg ${p.rules?.regularRate}× / Late ${p.rules?.lateRate}× / Double ${p.rules?.doubleRate}×`}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {!p.isDefault && (
+                    <button
+                      title="Set as company default"
+                      onClick={() => setDefault(p)}
+                      className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-amber-600"
+                    >
+                      <Star className="h-4 w-4" />
+                    </button>
+                  )}
+                  <button
+                    title={p.isActive ? 'Deactivate' : 'Activate'}
+                    onClick={() => toggleActive(p)}
+                    className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                  >
+                    <Power className="h-4 w-4" />
+                  </button>
+                  <button
+                    title="Edit"
+                    onClick={() => openEdit(p)}
+                    className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-brand-primary"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    title="Delete"
+                    onClick={() => remove(p)}
+                    className="rounded-lg p-2 text-slate-500 hover:bg-red-50 hover:text-red-600"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </li>
             ))}
           </ul>
         )}
       </div>
 
+      {/* Editor — right slide-over drawer */}
       {form && (
         <div
-          className="fixed inset-0 z-50 flex justify-end bg-text-heading/40"
-          role="dialog"
-          aria-modal="true"
-          aria-label={form.id ? 'Edit overtime policy' : 'New overtime policy'}
+          className="fixed inset-0 z-50 flex justify-end bg-black/40"
           onClick={() => setForm(null)}
         >
           <div
-            className="flex h-full w-full max-w-3xl flex-col bg-surface-page shadow-xl"
-            onClick={(event) => event.stopPropagation()}
+            className="flex h-full w-full max-w-4xl flex-col bg-slate-50 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-surface-border bg-surface-card px-5 py-4">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
               <div>
-                <h3 className="text-base font-semibold text-text-heading">
+                <h3 className="text-base font-semibold text-slate-800">
                   {form.id ? 'Edit overtime policy' : 'New overtime policy'}
                 </h3>
-                <p className="mt-0.5 text-xs text-text-muted">
-                  Everything here is scoped to this policy. The company-wide switches stay
-                  on the panel behind.
+                <p className="text-xs text-slate-500">
+                  The same settings as global Overtime Settings, scoped to this policy.
                 </p>
               </div>
               <button
-                type="button"
-                aria-label="Close"
                 onClick={() => setForm(null)}
-                className="rounded-[var(--radius-button)] p-1.5 text-text-muted transition-colors hover:bg-surface-border-light"
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
               >
-                <X className="h-5 w-5" aria-hidden />
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            {/*
-              A reader gets the same drawer with every control inert. `fieldset`
-              rather than a prop threaded through forty inputs: it disables the
-              whole subtree natively, so a control added later is covered without
-              anyone remembering to. HR may look at a rate card — every write
-              route behind it is administrators only.
-            */}
-            <fieldset
-              disabled={!canEdit}
-              className="min-w-0 flex-1 space-y-4 overflow-y-auto p-4 [min-inline-size:0] disabled:opacity-90 sm:p-5"
-            >
-              <SectionCard title="Policy" icon={Clock} collapsible={false}>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <Field label="Name">
-                    {(id) => (
-                      <SettingInput
-                        id={id}
-                        value={form.name}
-                        onChange={(name) => setForm({ ...form, name })}
-                        placeholder="Daily wage overtime"
+            {/* Body */}
+            <div className="flex-1 space-y-4 overflow-y-auto p-4">
+              <Section title="Policy">
+                <div className="space-y-3">
+                  <label className="block">
+                    <FieldLabel label="Name *" />
+                    <input
+                      className={inputCls}
+                      value={form.name}
+                      onChange={(e) => setForm({ ...form, name: e.target.value })}
+                      placeholder="e.g. Daily Wage OT"
+                    />
+                  </label>
+                  <label className="block">
+                    <FieldLabel label="Description" />
+                    <input
+                      className={inputCls}
+                      value={form.description}
+                      onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    />
+                  </label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <FieldLabel
+                        label="Employment type target"
+                        hint="Which Employment Type (from the library) this policy applies to. Employees of this type inherit it unless they have a direct override. Leave blank for an untargeted policy."
                       />
-                    )}
-                  </Field>
-
-                  <Field label="Description">
-                    {(id) => (
-                      <SettingInput
-                        id={id}
-                        value={form.description}
-                        onChange={(description) => setForm({ ...form, description })}
-                        placeholder="Who this is for, in a line"
-                      />
-                    )}
-                  </Field>
-
-                  <Field
-                    label="Employment type"
-                    hint="Everyone of this type inherits the policy unless they have an override of their own. Leave it unset for a policy nobody inherits."
-                  >
-                    {(id) => (
-                      <Select
-                        id={id}
+                      <select
+                        className={inputCls}
                         value={form.employmentType}
-                        onChange={(event) =>
-                          setForm({ ...form, employmentType: event.target.value })
-                        }
+                        onChange={(e) => setForm({ ...form, employmentType: e.target.value })}
                       >
-                        <option value="">Not targeted</option>
-                        {/* A stored value the library no longer offers is kept as
-                            an option: dropping it would silently retarget the
-                            policy on the next save. */}
-                        {form.employmentType && !typeLabels.includes(form.employmentType) && (
-                          <option value={form.employmentType}>
-                            {form.employmentType} (no longer in the library)
-                          </option>
-                        )}
-                        {typeLabels.map((label) => (
-                          <option key={label} value={label}>
-                            {label}
-                          </option>
+                        <option value="">— Not targeted —</option>
+                        {form.employmentType &&
+                          !contractTypes.includes(form.employmentType) && (
+                            <option value={form.employmentType}>{form.employmentType}</option>
+                          )}
+                        {contractTypes.map((label) => (
+                          <option key={label} value={label}>{label}</option>
                         ))}
-                      </Select>
-                    )}
-                  </Field>
-
-                  <Field
-                    label="Public holidays"
-                    hint="Ignore treats a public holiday as an ordinary weekday, which is how daily-wage staff are paid in several of the jurisdictions this runs in."
-                  >
-                    {(id) => (
-                      <Select
-                        id={id}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <FieldLabel
+                        label="Holiday behaviour"
+                        hint="STANDARD pays the holiday premium tier on National Holidays. IGNORE treats a National Holiday as an ordinary weekday (no premium) — e.g. for daily-wage staff."
+                      />
+                      <select
+                        className={inputCls}
                         value={form.rules.holidayBehavior}
-                        onChange={(event) =>
-                          setRule('holidayBehavior', event.target.value as 'STANDARD' | 'IGNORE')
-                        }
+                        onChange={(e) => setRule('holidayBehavior', e.target.value as HolidayBehavior)}
                       >
-                        <option value="STANDARD">Pay the holiday premium</option>
-                        <option value="IGNORE">Ignore — treat as a weekday</option>
-                      </Select>
-                    )}
-                  </Field>
+                        <option value="STANDARD">Standard (holiday premium)</option>
+                        <option value="IGNORE">Ignore (treat holiday as weekday)</option>
+                      </select>
+                    </label>
+                  </div>
                 </div>
+              </Section>
 
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                  <ToggleRow
-                    label="Eligible for overtime"
+              <Section title="Status">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <ToggleField
+                    label="Eligible for OT"
                     checked={form.rules.eligible}
-                    onChange={(eligible) => setRule('eligible', eligible)}
+                    onChange={(v) => setRule('eligible', v)}
+                    hint="When off, employees under this policy cannot register overtime at all."
                   />
-                  <ToggleRow
+                  <ToggleField
                     label="Company default"
                     checked={form.isDefault}
-                    onChange={(isDefault) => setForm({ ...form, isDefault })}
+                    onChange={(v) => setForm({ ...form, isDefault: v })}
+                    hint="Fallback policy for employees with no override and no matching employment-type policy. Exactly one active default."
                   />
-                  <ToggleRow
+                  <ToggleField
                     label="Active"
                     checked={form.isActive}
-                    onChange={(isActive) => setForm({ ...form, isActive })}
+                    onChange={(v) => setForm({ ...form, isActive: v })}
+                    hint="Inactive policies are skipped during resolution."
                   />
                 </div>
-              </SectionCard>
+              </Section>
 
-              <SectionCard
-                title="Boundaries"
-                description="When a working day becomes overtime, and when it stops counting"
-                icon={Clock}
-                collapsible={false}
-              >
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <TimeField
-                    label="Shift end"
-                    hint="Weekday overtime is only counted after this time."
+              <Section title="Shift & overtime boundaries">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <Time
+                    label="Shift end (OT after)"
                     value={form.rules.shiftEndTime}
-                    onChange={(value) => setRule('shiftEndTime', value)}
+                    onChange={(v) => setRule('shiftEndTime', v)}
+                    hint="Weekday overtime is only permitted after this time (end of the normal shift)."
                   />
-                  <TimeField
-                    label="Late threshold"
-                    hint="Weekday overtime worked past this time pays the late rate instead of the regular one."
+                  <Time
+                    label="Late OT threshold"
                     value={form.rules.lateThreshold}
-                    onChange={(value) => setRule('lateThreshold', value)}
+                    onChange={(v) => setRule('lateThreshold', v)}
+                    hint="Weekday OT worked past this time is paid at the Late rate instead of the Regular OT rate."
                   />
-                  <Field
-                    label="Day-end override"
-                    hint="Leave blank to inherit the attendance day end from the Attendance settings."
-                  >
-                    {(id) => (
-                      <SettingInput
-                        id={id}
-                        type="time"
-                        value={form.rules.dayEndBoundary ?? ''}
-                        onChange={(value) => setRule('dayEndBoundary', value || null)}
-                      />
-                    )}
-                  </Field>
+                  <Time
+                    label="Day-end boundary"
+                    value={form.rules.dayEndBoundary ?? ''}
+                    onChange={(v) => setRule('dayEndBoundary', v || null)}
+                    hint="Overtime is only counted up to this attendance-day boundary. Leave blank to inherit the global attendance day-end time."
+                  />
                 </div>
-              </SectionCard>
+              </Section>
 
-              <SectionCard
-                title="Rates"
-                description="Multipliers applied to the hourly rate"
-                icon={Clock}
-                collapsible={false}
-              >
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-                  <NumberField
-                    label="Weekday regular ×"
-                    hint="Before the late threshold."
-                    value={form.rules.regularRate}
-                    onChange={(value) => setRule('regularRate', value)}
-                  />
-                  <NumberField
-                    label="Weekday late ×"
-                    hint="After the late threshold."
-                    value={form.rules.lateRate}
-                    onChange={(value) => setRule('lateRate', value)}
-                  />
-                  <NumberField
+              <Section title="Weekday OT rates" hint="Multipliers applied to the hourly rate for weekday overtime.">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <Num label="Regular ×" value={form.rules.regularRate} onChange={(v) => setRule('regularRate', v)} hint="Multiplier for weekday OT before the late threshold." />
+                  <Num label="Late ×" value={form.rules.lateRate} onChange={(v) => setRule('lateRate', v)} hint="Multiplier for weekday OT worked after the late threshold." />
+                </div>
+              </Section>
+
+              <Section title="Rest-day & holiday rates">
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <ToggleField
+                      label="Double OT enabled"
+                      checked={form.rules.doubleOtEnabled}
+                      onChange={(v) => setRule('doubleOtEnabled', v)}
+                      hint="Enable the higher rest-day / holiday (double) OT tier. When off, all OT uses weekday rates."
+                    />
+                    <ToggleField
+                      label="Double OT any time"
+                      checked={form.rules.doubleOtAllowAnytime}
+                      onChange={(v) => setRule('doubleOtAllowAnytime', v)}
+                      hint="Allow rest-day / holiday OT to be logged at any time of day, not just after shift end."
+                    />
+                  </div>
+                  <Num
                     label="Fallback double ×"
-                    hint="Used on a rest day or holiday when no specific tier below applies."
                     value={form.rules.doubleRate}
-                    onChange={(value) => setRule('doubleRate', value)}
+                    onChange={(v) => setRule('doubleRate', v)}
+                    hint="Multiplier used for a rest-day/holiday when no specific Sunday/Holiday rate applies (legacy fallback)."
                   />
+                  <div className="grid grid-cols-3 gap-3">
+                    <Num label="Sunday reg ×" value={form.rules.sunday.regularRate} onChange={(v) => setTier('sunday', 'regularRate', v)} hint="Rest-day (weekly-off) OT multiplier before the Sunday late threshold." />
+                    <Num label="Sunday late ×" value={form.rules.sunday.lateRate} onChange={(v) => setTier('sunday', 'lateRate', v)} hint="Rest-day OT multiplier after the Sunday late threshold." />
+                    <Time label="Sunday late at" value={form.rules.sunday.lateThreshold} onChange={(v) => setTier('sunday', 'lateThreshold', v)} hint="Time after which rest-day OT switches to the Sunday late rate." />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <Num label="Holiday reg ×" value={form.rules.holiday.regularRate} onChange={(v) => setTier('holiday', 'regularRate', v)} hint="National-Holiday OT multiplier before the holiday late threshold." />
+                    <Num label="Holiday late ×" value={form.rules.holiday.lateRate} onChange={(v) => setTier('holiday', 'lateRate', v)} hint="National-Holiday OT multiplier after the holiday late threshold." />
+                    <Time label="Holiday late at" value={form.rules.holiday.lateThreshold} onChange={(v) => setTier('holiday', 'lateThreshold', v)} hint="Time after which holiday OT switches to the holiday late rate." />
+                  </div>
                 </div>
+              </Section>
 
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  <ToggleRow
-                    label="Rest-day and holiday tier"
-                    description="Off makes every hour pay the weekday rates."
-                    checked={form.rules.doubleOtEnabled}
-                    onChange={(value) => setRule('doubleOtEnabled', value)}
-                  />
-                  <ToggleRow
-                    label="Countable at any hour"
-                    description="Rest-day and holiday overtime need not wait for the shift to end."
-                    checked={form.rules.doubleOtAllowAnytime}
-                    onChange={(value) => setRule('doubleOtAllowAnytime', value)}
-                  />
+              <Section title="Food allowance">
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <ToggleField
+                      label="Enabled"
+                      checked={form.rules.foodAllowanceEnabled}
+                      onChange={(v) => setRule('foodAllowanceEnabled', v)}
+                      hint="Pay a flat food allowance when OT runs past the threshold time."
+                    />
+                    <ToggleField
+                      label="Any time on double days"
+                      checked={form.rules.doubleFoodAllowanceAnyTime}
+                      onChange={(v) => setRule('doubleFoodAllowanceAnyTime', v)}
+                      hint="On rest-day / holiday OT, pay the food allowance regardless of the threshold time."
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    <Num label="Amount" value={form.rules.foodAllowanceAmount} step={1} onChange={(v) => setRule('foodAllowanceAmount', v)} hint="Flat food-allowance amount paid per qualifying OT day." />
+                    <Time label="Threshold" value={form.rules.foodAllowanceThreshold} onChange={(v) => setRule('foodAllowanceThreshold', v)} hint="OT ending after this time qualifies for the food allowance." />
+                  </div>
                 </div>
+              </Section>
 
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-                  <NumberField
-                    label="Rest day regular ×"
-                    value={form.rules.sunday.regularRate}
-                    onChange={(value) => setTier('sunday', 'regularRate', value)}
-                  />
-                  <NumberField
-                    label="Rest day late ×"
-                    value={form.rules.sunday.lateRate}
-                    onChange={(value) => setTier('sunday', 'lateRate', value)}
-                  />
-                  <TimeField
-                    label="Rest day late from"
-                    value={form.rules.sunday.lateThreshold}
-                    onChange={(value) => setTier('sunday', 'lateThreshold', value)}
-                  />
+              <Section title="Hour caps" hint="Maximum overtime hours accepted; requests exceeding a cap are rejected.">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <Num label="Per weekday" value={form.rules.maxHoursPerDay} step={1} onChange={(v) => setRule('maxHoursPerDay', v)} hint="Max OT hours on a normal weekday." />
+                  <Num label="Per rest day" value={form.rules.maxHoursPerDoubleDay} step={1} onChange={(v) => setRule('maxHoursPerDoubleDay', v)} hint="Max OT hours on a rest day / holiday." />
+                  <Num label="Per month" value={form.rules.maxHoursPerMonth} step={1} onChange={(v) => setRule('maxHoursPerMonth', v)} hint="Max OT hours per employee per month." />
+                  <Num label="Per year" value={form.rules.maxHoursPerYear} step={1} onChange={(v) => setRule('maxHoursPerYear', v)} hint="Max OT hours per employee per year." />
                 </div>
+              </Section>
 
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-                  <NumberField
-                    label="Holiday regular ×"
-                    value={form.rules.holiday.regularRate}
-                    onChange={(value) => setTier('holiday', 'regularRate', value)}
-                  />
-                  <NumberField
-                    label="Holiday late ×"
-                    value={form.rules.holiday.lateRate}
-                    onChange={(value) => setTier('holiday', 'lateRate', value)}
-                  />
-                  <TimeField
-                    label="Holiday late from"
-                    value={form.rules.holiday.lateThreshold}
-                    onChange={(value) => setTier('holiday', 'lateThreshold', value)}
-                  />
-                </div>
-              </SectionCard>
+              <p className="px-1 pb-2 text-xs text-slate-400">
+                Feature enable, employee submission and manager-approval rules are company-wide —
+                manage them in Overtime Settings.
+              </p>
+            </div>
 
-              <SectionCard
-                title="Food allowance"
-                description="A flat amount paid on a qualifying overtime day"
-                icon={Clock}
-                collapsible={false}
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4">
+              <button
+                onClick={() => setForm(null)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
               >
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  <ToggleRow
-                    label="Pay a food allowance"
-                    checked={form.rules.foodAllowanceEnabled}
-                    onChange={(value) => setRule('foodAllowanceEnabled', value)}
-                  />
-                  <ToggleRow
-                    label="Always on rest days"
-                    description="Pay it on a rest day or holiday regardless of the hour."
-                    checked={form.rules.doubleFoodAllowanceAnyTime}
-                    onChange={(value) => setRule('doubleFoodAllowanceAnyTime', value)}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-                  <NumberField
-                    label="Amount"
-                    step={1}
-                    hint="Quoted in the company's default currency."
-                    value={form.rules.foodAllowanceAmount}
-                    onChange={(value) => setRule('foodAllowanceAmount', value)}
-                  />
-                  <TimeField
-                    label="Qualifying time"
-                    hint="Overtime ending after this time earns the allowance."
-                    value={form.rules.foodAllowanceThreshold}
-                    onChange={(value) => setRule('foodAllowanceThreshold', value)}
-                  />
-                </div>
-              </SectionCard>
-
-              <SectionCard
-                title="Caps"
-                description="Hours beyond these are refused when the request is filed"
-                icon={Clock}
-                collapsible={false}
+                Cancel
+              </button>
+              <button
+                onClick={save}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
               >
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                  <NumberField
-                    label="Per weekday"
-                    step={1}
-                    value={form.rules.maxHoursPerDay}
-                    onChange={(value) => setRule('maxHoursPerDay', value)}
-                  />
-                  <NumberField
-                    label="Per rest day"
-                    step={1}
-                    value={form.rules.maxHoursPerDoubleDay}
-                    onChange={(value) => setRule('maxHoursPerDoubleDay', value)}
-                  />
-                  <NumberField
-                    label="Per month"
-                    step={1}
-                    value={form.rules.maxHoursPerMonth}
-                    onChange={(value) => setRule('maxHoursPerMonth', value)}
-                  />
-                  <NumberField
-                    label="Per year"
-                    step={1}
-                    value={form.rules.maxHoursPerYear}
-                    onChange={(value) => setRule('maxHoursPerYear', value)}
-                  />
-                </div>
-              </SectionCard>
-            </fieldset>
-
-            <div className="flex justify-end gap-2 border-t border-surface-border bg-surface-card px-5 py-4">
-              <Button variant="outline" onClick={() => setForm(null)}>
-                {canEdit ? 'Cancel' : 'Close'}
-              </Button>
-              {canEdit && (
-                <Button onClick={save} isLoading={saving}>
-                  {form.id ? 'Save changes' : 'Create policy'}
-                </Button>
-              )}
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {form.id ? 'Save changes' : 'Create policy'}
+              </button>
             </div>
           </div>
         </div>

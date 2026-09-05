@@ -1,147 +1,145 @@
-'use client';
-
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import attendanceService from '@/services/attendanceService';
-import type {
-  AttendanceListQuery,
-  BulkAttendancePayload,
-  CheckInPayload,
-  CreateAttendancePayload,
-  MonthlyReportQuery,
-  UpdateAttendancePayload,
-} from '@/types/attendance';
 
-export const attendanceKeys = {
-  all: ['attendances'] as const,
-  list: (query: AttendanceListQuery) =>
-    [...attendanceKeys.all, 'list', query] as const,
-  detail: (id: string) => [...attendanceKeys.all, 'detail', id] as const,
-  today: () => [...attendanceKeys.all, 'today'] as const,
-  summary: (params: Record<string, unknown>) =>
-    [...attendanceKeys.all, 'summary', params] as const,
-  monthly: (query: MonthlyReportQuery) =>
-    [...attendanceKeys.all, 'monthly', query] as const,
-  employee: (employeeId: string, params: Record<string, unknown>) =>
-    [...attendanceKeys.all, 'employee', employeeId, params] as const,
-};
-
-export function useAttendances(query: AttendanceListQuery = {}) {
-  return useQuery({
-    queryKey: attendanceKeys.list(query),
-    queryFn: () => attendanceService.list(query),
-  });
+interface AttendanceQueryParams {
+    employeeId?: string;
+    month?: number;
+    year?: number;
 }
 
-export function useAttendance(id: string | undefined) {
-  return useQuery({
-    queryKey: attendanceKeys.detail(id!),
-    queryFn: () => attendanceService.get(id!),
-    enabled: !!id,
-  });
+export function useMyAttendances(month?: number, year?: number) {
+    return useQuery({
+        queryKey: ['attendances', 'my', month, year],
+        queryFn: () => attendanceService.getMyAttendances(month, year),
+        staleTime: 30 * 1000, // 30 seconds
+    });
 }
 
-/**
- * The month the attendance log grid draws.
- *
- * `placeholderData` keeps the previous month on screen while the next one
- * loads. Without it the grid unmounts on every press of the stepper and the
- * page jumps back to the top, which makes walking back through the year feel
- * like six separate page loads.
- */
-export function useMonthlyAttendance(query: MonthlyReportQuery) {
-  return useQuery({
-    queryKey: attendanceKeys.monthly(query),
-    queryFn: () => attendanceService.monthlyReport(query),
-    placeholderData: (previous) => previous,
-  });
+export function useEmployeeAttendances(employeeId: string, month?: number, year?: number) {
+    return useQuery({
+        queryKey: ['attendances', 'employee', employeeId, month, year],
+        queryFn: () => attendanceService.getEmployeeAttendances(employeeId, month, year),
+        staleTime: 30 * 1000,
+        enabled: !!employeeId,
+    });
 }
 
 export function useTodayAttendance() {
-  return useQuery({
-    queryKey: attendanceKeys.today(),
-    queryFn: () => attendanceService.today(),
-    // Today's board is the one screen people leave open. Half a minute is short
-    // enough that a colleague's arrival shows up, long enough not to poll the
-    // aggregate to death.
-    refetchInterval: 30_000,
-  });
+    return useQuery({
+        queryKey: ['attendances', 'today'],
+        queryFn: () => attendanceService.getTodayAttendance(),
+        staleTime: 10 * 1000, // 10 seconds - very fresh data
+        refetchInterval: 30 * 1000, // Refetch every 30 seconds
+    });
 }
 
-export function useAttendanceSummary(params: {
-  startDate: string;
-  endDate: string;
-  departmentId?: string;
-  branchId?: string;
-}) {
-  return useQuery({
-    queryKey: attendanceKeys.summary(params),
-    queryFn: () => attendanceService.summary(params),
-    enabled: Boolean(params.startDate && params.endDate),
-  });
+export function useTodayAllAttendances() {
+    return useQuery({
+        queryKey: ['attendances', 'today', 'all'],
+        queryFn: () => attendanceService.getTodayAllAttendances(),
+        staleTime: 30 * 1000,
+        refetchInterval: 60 * 1000, // Refetch every minute
+    });
 }
 
-export function useEmployeeAttendance(
-  employeeId: string | undefined,
-  params: { startDate?: string; endDate?: string } = {},
-) {
-  return useQuery({
-    queryKey: attendanceKeys.employee(employeeId!, params),
-    queryFn: () => attendanceService.forEmployee(employeeId!, params),
-    enabled: !!employeeId,
-  });
+export function useAttendanceStats(month?: number, year?: number) {
+    return useQuery({
+        queryKey: ['attendances', 'stats', month, year],
+        queryFn: () => attendanceService.getStatistics(month, year),
+        staleTime: 60 * 1000, // 1 minute
+    });
+}
+
+export function useMonthlyReport(month: number, year: number) {
+    return useQuery({
+        queryKey: ['attendances', 'report', month, year],
+        queryFn: () => attendanceService.getMonthlyReport(month, year),
+        staleTime: 5 * 60 * 1000, // 5 minutes
+        enabled: !!month && !!year,
+    });
 }
 
 export function useCheckIn() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CheckInPayload = {}) =>
-      attendanceService.checkIn(payload),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.all }),
-  });
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: () => attendanceService.checkIn(),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['attendances'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        },
+    });
 }
 
 export function useCheckOut() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CheckInPayload = {}) =>
-      attendanceService.checkOut(payload),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.all }),
-  });
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: () => attendanceService.checkOut(),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['attendances'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        },
+    });
 }
 
-export function useCreateAttendance() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CreateAttendancePayload) =>
-      attendanceService.create(payload),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.all }),
-  });
+// Attendance Corrections
+export function useAttendanceCorrections(params?: { status?: string; employeeId?: string }) {
+    return useQuery({
+        queryKey: ['attendance-corrections', params],
+        queryFn: () => attendanceService.getCorrections(params),
+        staleTime: 60 * 1000,
+    });
 }
 
-export function useUpdateAttendance() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      id,
-      payload,
-    }: {
-      id: string;
-      payload: UpdateAttendancePayload;
-    }) => attendanceService.update(id, payload),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.all }),
-  });
+export function usePendingCorrections() {
+    return useQuery({
+        queryKey: ['attendance-corrections', 'pending'],
+        queryFn: () => attendanceService.getPendingCorrections(),
+        staleTime: 30 * 1000,
+    });
 }
 
-export function useBulkAttendance() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: BulkAttendancePayload) =>
-      attendanceService.bulk(payload),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.all }),
-  });
+export function useMyCorrections() {
+    return useQuery({
+        queryKey: ['attendance-corrections', 'my'],
+        queryFn: () => attendanceService.getMyCorrections(),
+        staleTime: 60 * 1000,
+    });
+}
+
+export function useCreateCorrection() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (data: any) => attendanceService.createCorrection(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['attendance-corrections'] });
+            queryClient.invalidateQueries({ queryKey: ['attendances'] });
+        },
+    });
+}
+
+export function useApproveCorrection() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (id: string) => attendanceService.approveCorrection(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['attendance-corrections'] });
+            queryClient.invalidateQueries({ queryKey: ['attendances'] });
+        },
+    });
+}
+
+export function useRejectCorrection() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+            attendanceService.rejectCorrection(id, reason),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['attendance-corrections'] });
+        },
+    });
 }

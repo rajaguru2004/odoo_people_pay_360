@@ -1,73 +1,81 @@
 /**
- * A y-axis a reader can do arithmetic against.
+ * Five round ticks that clear the tallest bar without towering over it.
  *
- * `BarOverviewChart` takes a ceiling and its tick labels rather than deriving
- * them, so every caller that does not think about it draws bars against a
- * hard-coded 60. Rounding the peak UP to a round number keeps the tallest bar
- * inside the plot and the gridlines on values worth reading: a chart topping out
- * at 47 wants a 50 axis in steps of 10, not a 47 axis in steps of 9.4.
+ * The naive `ceil(max/25)*25` put a six-person branch on a 0–25 axis, so every
+ * bar sat in the bottom fifth of the panel and the shape of the month was
+ * invisible. Step through the 1/2/5 decades instead and take the first that
+ * fits.
+ *
+ * Lifted out of `app/dashboard/time/page.tsx` when the Schedules and
+ * Leave & Overtime hubs adopted the same chart: three copies of an axis rule is
+ * three panels that scale differently on the same screen.
  */
-export function axisFor(
-  peak: number,
-  steps = 5,
-): { max: number; ticks: string[] } {
-  const safePeak = Number.isFinite(peak) && peak > 0 ? peak : 1;
-
-  // The step is the first "nice" number at or above peak/steps: 1, 2, 5 and
-  // their powers of ten. Anything else puts a gridline on 3.7.
-  const rough = safePeak / steps;
-  const magnitude = 10 ** Math.floor(Math.log10(rough));
-  const normalised = rough / magnitude;
-  const step =
-    (normalised <= 1 ? 1 : normalised <= 2 ? 2 : normalised <= 5 ? 5 : 10) *
-    magnitude;
-
-  const max = Math.ceil(safePeak / step) * step;
-  const ticks: string[] = [];
-  for (let value = 0; value <= max + step / 2; value += step) {
-    // A whole-number axis prints whole numbers. Steps below 1 keep one decimal
-    // so a 0.5 gridline does not render as two identical "0" labels.
-    ticks.push(step >= 1 ? String(Math.round(value)) : value.toFixed(1));
-  }
-  // ASCENDING, lowest first. `BarOverviewChart` reverses the array itself to
-  // draw the axis top-down (see its `yAxisTicks` default, `['0' … '60']`), so
-  // returning display order here reverses it twice: the labels came out
-  // 0 at the top and the peak at the bottom, with the bars appearing to hang
-  // downwards. Both the Payroll and Schedules hubs drew that way.
-  return { max, ticks };
-}
-
-/** A CSV cell, quoted only when it has to be. */
-export function csvCell(value: unknown): string {
-  const text = value === null || value === undefined ? '' : String(value);
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+export function axisFor(max: number): { max: number; ticks: string[] } {
+  // The ladder runs to money magnitudes, not just headcount ones. It used to
+  // stop at 5000 and fall through to `Math.ceil(max/5)`, which on a payroll
+  // total of 519,446 produced the axis 0 / 103,890 / 207,780 / 311,670 …:
+  // arithmetically correct, unreadable, and not a round number anywhere.
+  //
+  // Only integers, and only the 1/2/5 decades the doc-comment promises — 2.5
+  // is deliberately absent below 10,000 because a headcount axis that steps in
+  // half-people is worse than a coarse one. Every value that matched before
+  // still matches first, so no existing hub's axis moves.
+  const steps = [
+    1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000,
+    10_000, 20_000, 25_000, 50_000, 100_000, 200_000, 250_000, 500_000,
+    1_000_000, 2_000_000, 2_500_000, 5_000_000,
+    10_000_000, 20_000_000, 25_000_000, 50_000_000, 100_000_000,
+  ];
+  const step = steps.find((s) => s * 5 >= max) ?? Math.ceil(max / 5);
+  const top = step * 5;
+  return { max: top, ticks: Array.from({ length: 6 }, (_, i) => String(i * step)) };
 }
 
 /**
- * Hand the reader a spreadsheet of what is on screen.
+ * `1200000` → `1.2M`, `200000` → `200k`.
  *
- * The object URL is revoked immediately after the click. Without that every
- * export holds its blob in memory for the life of the tab, and a reader stepping
- * through a year of windows leaks one per step.
+ * For axis ticks only. Six-digit labels down the side of a chart are wider than
+ * the bars they measure, and the reader is after the magnitude rather than the
+ * exact figure — which the tooltip carries in full, formatted as money.
  */
-export function downloadCsv(
-  filename: string,
-  header: string[],
-  rows: Array<Array<string | number>>,
-): void {
-  const csv = [
-    header.join(','),
-    ...rows.map((row) => row.map(csvCell).join(',')),
-  ].join('\n');
+export function compactTick(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${trimZero(value / 1_000_000)}M`;
+  if (abs >= 1_000) return `${trimZero(value / 1_000)}k`;
+  return String(value);
+}
 
-  const url = URL.createObjectURL(
-    new Blob([csv], { type: 'text/csv;charset=utf-8;' }),
-  );
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
+function trimZero(n: number): string {
+  return String(Math.round(n * 10) / 10);
+}
+
+/**
+ * One row of a CSV, with the quoting the format actually requires.
+ *
+ * Shared for the same reason as the axis: every hub exports its trend, and a
+ * hub that forgets to escape a department called "Sales, EMEA" writes a file
+ * that opens one column wider than it should.
+ */
+export function csvCell(value: unknown): string {
+  const s = value === null || value === undefined ? '' : String(value);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * Hand the browser a CSV to save.
+ *
+ * The object URL is revoked immediately after the click: without it every
+ * export leaks a blob for the lifetime of the tab, which on a dashboard people
+ * leave open all day is a real number.
+ */
+export function downloadCsv(filename: string, header: string[], body: (string | number)[][]): void {
+  const csv = [header.join(','), ...body.map((row) => row.map(csvCell).join(','))].join('\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
   URL.revokeObjectURL(url);
 }

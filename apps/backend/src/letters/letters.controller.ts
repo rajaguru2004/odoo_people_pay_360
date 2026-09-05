@@ -9,124 +9,111 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiQuery,
-  ApiTags,
-} from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
-import { LettersService } from './letters.service';
-import { RequestLetterDto } from './dto/request-letter.dto';
-import { RejectLetterDto } from './dto/reject-letter.dto';
-import { UpsertLetterTemplateDto } from './dto/upsert-letter-template.dto';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { Principal } from '../auth/auth.service';
-
-const HR_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.HR_MANAGER];
+import { AuditResource } from '../audit/audit-resource.decorator';
+import { LettersService } from './letters.service';
+import { RejectLetterDto } from './dto/reject-letter.dto';
+import { RequestLetterDto } from './dto/request-letter.dto';
+import { UpsertLetterTemplateDto } from './dto/upsert-letter-template.dto';
 
 @ApiTags('Letters')
-@ApiBearerAuth('JWT-auth')
-@Controller('letters')
+@ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('letters')
+@AuditResource('LetterRequest')
 export class LettersController {
   constructor(private readonly letters: LettersService) {}
 
   @Get('stats')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'The letter desk in four numbers' })
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'Letter queue summary' })
   stats() {
     return this.letters.stats();
   }
 
   @Get('templates')
-  @ApiOperation({ summary: 'The letters that can be requested' })
-  @ApiQuery({ name: 'activeOnly', required: false, type: Boolean })
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Available letter templates' })
   listTemplates(@Query('activeOnly') activeOnly?: string) {
     return this.letters.listTemplates(activeOnly === 'true');
   }
 
   @Put('templates')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Create or reword a letter template' })
-  upsertTemplate(
-    @CurrentUser() user: Principal,
-    @Body() dto: UpsertLetterTemplateDto,
-  ) {
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Create or update a letter template (admin-editable wording)' })
+  upsertTemplate(@CurrentUser() user: any, @Body() dto: UpsertLetterTemplateDto) {
     return this.letters.upsertTemplate(dto, user.id);
   }
 
   @Get('my-requests')
-  @ApiOperation({ summary: "The caller's own letter requests" })
-  myRequests(@CurrentUser() user: Principal) {
-    if (!user?.employeeId) return [];
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: "The current user's own letter requests" })
+  myRequests(@CurrentUser() user: any) {
+    if (!user?.employeeId) return { success: true, data: [] };
     return this.letters.findByEmployee(user.employeeId);
   }
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
-  @ApiOperation({ summary: 'The whole letter queue' })
-  @ApiQuery({ name: 'status', required: false })
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({ summary: 'All letter requests' })
   findAll(@Query('status') status?: string) {
     return this.letters.findAll({ status });
   }
 
   @Post()
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
   @ApiOperation({
-    summary: 'Request a letter',
-    description:
-      'A template flagged requiresApproval:false issues immediately; anything stating pay waits for HR.',
-  })
-  @ApiQuery({
-    name: 'employeeId',
-    required: false,
-    description: 'HR requesting on somebody else’s behalf',
+    summary:
+      'Request a letter. Templates flagged requiresApproval:false issue immediately; anything stating pay waits for HR.',
   })
   request(
-    @CurrentUser() user: Principal,
+    @CurrentUser() user: any,
     @Body() dto: RequestLetterDto,
     @Query('employeeId') employeeIdOverride?: string,
   ) {
     const employeeId =
-      employeeIdOverride && HR_ROLES.includes(user?.role)
+      employeeIdOverride && ['ADMIN', 'HR_MANAGER'].includes(user?.role)
         ? employeeIdOverride
-        : user?.employeeId;
+        : user.employeeId;
     return this.letters.request(employeeId, dto, user);
   }
 
   @Post(':id/issue')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
+  @Roles('ADMIN', 'HR_MANAGER')
   @ApiOperation({
-    summary: 'Render, number and file the letter in the employee’s vault',
+    summary:
+      'Render, serial-number and store the letter privately, and file it in the employee document vault',
   })
-  issue(
-    @CurrentUser() user: Principal,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  issue(@CurrentUser() user: any, @Param('id', ParseUUIDPipe) id: string) {
     return this.letters.issue(id, user);
   }
 
   @Post(':id/reject')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
+  @Roles('ADMIN', 'HR_MANAGER')
   @ApiOperation({
-    summary: 'Refuse a request. The reason reaches the employee verbatim.',
+    summary:
+      'Reject a letter request. The reason is required and is sent to the employee verbatim.',
   })
   reject(
-    @CurrentUser() user: Principal,
+    @CurrentUser() user: any,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectLetterDto,
   ) {
+    // A whole DTO rather than `@Body('reason')`: the global ValidationPipe only
+    // runs when the parameter's metatype is a class, so the primitive binding
+    // this replaces was unvalidated by construction.
     return this.letters.reject(id, dto.reason, user);
   }
 }
 
 /**
- * Verification is unauthenticated on purpose — a bank checking a certificate
- * has no account here. It answers only whether the serial was issued and when;
+ * Verification is deliberately unauthenticated — a bank checking a certificate
+ * has no account here. It returns only whether the serial was issued and when;
  * never the name, the salary, or the document itself.
  */
 @ApiTags('Letters')
@@ -136,7 +123,7 @@ export class LetterVerificationController {
 
   @Public()
   @Get('verify/:serial')
-  @ApiOperation({ summary: 'Confirm a letter serial was issued' })
+  @ApiOperation({ summary: 'Confirm a letter serial was issued (no content disclosed)' })
   verify(@Param('serial') serial: string) {
     return this.letters.verify(serial);
   }

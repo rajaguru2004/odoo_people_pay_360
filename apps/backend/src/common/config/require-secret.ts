@@ -1,19 +1,33 @@
+import { Logger } from '@nestjs/common';
+
+const logger = new Logger('SecretConfig');
+
 /**
- * Read a secret from configuration, or refuse to start.
+ * Resolves a secret from the environment.
  *
- * There is no default value on purpose. A defaulted signing key is worse than a
- * missing one: every deployment that forgot to set it ends up sharing the same
- * key, so a token minted against any of them is valid against all of them, and
- * nothing about that failure is visible until it is exploited. Crashing at boot
- * is loud, immediate, and happens before the process can serve a request.
+ * These previously fell back to a literal committed to the repository
+ * (`'ess-portal-secret-key-2026'`). Any deployment that forgot to set the
+ * variable was signing JWTs with a publicly known key, which lets anyone forge
+ * a token for any user and role.
+ *
+ * In production a missing secret is fatal — failing to boot is far better than
+ * booting insecurely. Outside production it falls back to a per-process random
+ * value so local development still works, at the cost of invalidating tokens on
+ * restart (which is the correct trade-off: it makes the misconfiguration
+ * obvious rather than silent).
  */
-export function requireSecret(name: string, value: string | undefined): string {
-  const trimmed = value?.trim();
-  if (!trimmed) {
+export function requireSecret(name: string, value?: string | null): string {
+  if (value && value.trim().length > 0) return value;
+
+  if (process.env.NODE_ENV === 'production') {
     throw new Error(
-      `${name} is not set. Refusing to start — see apps/backend/.env.example. ` +
-        `Generate one with: openssl rand -base64 48`,
+      `${name} is not set. Refusing to start with an insecure default.`,
     );
   }
-  return trimmed;
+
+  logger.warn(
+    `${name} is not set — using an ephemeral development secret. ` +
+      `Tokens will not survive a restart. Set ${name} before deploying.`,
+  );
+  return `dev-only-${name}-${process.pid}-${Math.random().toString(36).slice(2)}`;
 }

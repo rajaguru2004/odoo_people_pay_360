@@ -29,8 +29,7 @@ export class CreateOvertimePolicyDto {
 
   @ApiPropertyOptional({
     default: false,
-    description:
-      'Make this the company-wide default, unsetting the previous one',
+    description: 'Mark as the company-wide default policy (unsets the previous)',
   })
   @IsOptional()
   @IsBoolean()
@@ -38,8 +37,7 @@ export class CreateOvertimePolicyDto {
 
   @ApiPropertyOptional({
     description:
-      'The EMPLOYMENT_TYPE library label this policy targets — the middle ' +
-      'inheritance tier. Omit for a default or unscoped policy.',
+      'Employment type this policy targets (middle inheritance tier) — a Contract Type library label, e.g. "Daily Wage". Omit for a non-type-scoped / default policy.',
   })
   @IsOptional()
   @IsString()

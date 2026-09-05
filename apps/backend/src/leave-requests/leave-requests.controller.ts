@@ -1,233 +1,240 @@
 import {
-  Body,
   Controller,
-  Delete,
   Get,
-  Param,
-  ParseUUIDPipe,
   Post,
+  Delete,
+  Body,
+  Param,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiQuery,
+} from '@nestjs/swagger';
+import { LeaveRequestsService } from './leave-requests.service';
+import { LeaveHubService } from './leave-hub.service';
+import type { HubPeriod } from '../common/hub/hub-range.util';
+import {
+  CreateLeaveRequestDto,
+  ApproveRejectDto,
+} from './dto/create-leave-request.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { Principal } from '../auth/auth.service';
-import { LeaveRequestsService } from './leave-requests.service';
-import { LeaveHubService } from './leave-hub.service';
-import {
-  CreateLeaveRequestDto,
-  DecideLeaveRequestDto,
-} from './dto/create-leave-request.dto';
-import { RejectLeaveRequestDto } from './dto/reject-leave-request.dto';
-import { ListLeaveRequestsDto } from './dto/list-leave-requests.dto';
-import { LeaveHubSummaryDto } from './dto/hub-summary.dto';
+import { AuditResource } from '../audit/audit-resource.decorator';
 
-@ApiTags('Leave requests')
+@ApiTags('Leave Requests')
 @ApiBearerAuth('JWT-auth')
 @Controller('leave-requests')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@AuditResource('LeaveRequest')
 export class LeaveRequestsController {
   constructor(
-    private readonly service: LeaveRequestsService,
-    private readonly hub: LeaveHubService,
+    private readonly leaveRequestsService: LeaveRequestsService,
+    private readonly leaveHubService: LeaveHubService,
   ) {}
 
-  /**
-   * Every literal route is declared BEFORE `:id`. `GET /leave-requests/pending`
-   * after `GET /leave-requests/:id` is parsed as a uuid and answers 400 — for
-   * the whole queue, not just one row.
-   */
+  // Like team-balances, this must precede `:id` or Nest reads "hub-summary"
+  // as a leave-request UUID and answers 400 for the whole dashboard.
   @Get('hub-summary')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER)
+  @Roles('ADMIN', 'HR_MANAGER')
   @ApiOperation({
-    summary:
-      'Everything the Leave & Overtime landing page draws, in one request',
+    summary: 'Leave & Overtime module hub summary',
     description:
-      "The selected period's request counts (all four statuses, CANCELLED " +
-      'included), leave days prorated to the part of each request inside the ' +
-      'window, the year balance the window ends in, the overtime worked, and ' +
-      'the same window one step back for every delta on the page. A rate is ' +
-      'null, never 0%, when there was nothing to divide by.',
+      'Everything the Leave & Overtime landing dashboard draws, in one ' +
+      "request: the selected period's request counts (all four statuses, " +
+      'CANCELLED included), leave days prorated to the part of each request ' +
+      'inside the window, the year balance the window ends in, the overtime ' +
+      'worked, plus the same window one step back for every delta on the ' +
+      'page. Rates are null, never 0%, when there was nothing to divide by.',
   })
-  hubSummary(
-    @CurrentUser() user: Principal,
-    @Query() query: LeaveHubSummaryDto,
+  @ApiQuery({
+    name: 'period',
+    required: false,
+    enum: ['today', 'week', 'month', 'year'],
+    example: 'month',
+  })
+  @ApiQuery({
+    name: 'anchor',
+    required: false,
+    type: String,
+    description:
+      'Any date inside the period being viewed (YYYY-MM-DD). Defaults to today; ' +
+      'page with the prevAnchor/nextAnchor the response returns.',
+  })
+  @ApiResponse({ status: 200, description: 'Leave & Overtime hub summary retrieved' })
+  async getHubSummary(
+    @CurrentUser() user: any,
+    @Query('period') period?: HubPeriod,
+    @Query('anchor') anchor?: string,
   ) {
-    return this.hub.getHubSummary(query.period ?? 'month', query.anchor, user);
+    return this.leaveHubService.getHubSummary(period || 'month', anchor, user);
   }
 
+  // Item 21 — team-balances must be before :id to avoid route conflict
   @Get('team-balances')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER)
+  @Roles('MANAGER')
   @ApiOperation({
-    summary: 'What the people you are responsible for have left',
+    summary: 'Get team leave balances (Manager only)',
+    description:
+      "Returns remaining leave balances for all employees in the manager's department",
   })
-  teamBalances(@CurrentUser() user: Principal) {
-    return this.service.getTeamBalances(user);
+  @ApiResponse({ status: 200, description: 'Team balances retrieved' })
+  getTeamBalances(@CurrentUser() user: any) {
+    return this.leaveRequestsService.getTeamBalances(user);
+  }
+
+  @Get()
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER')
+  @ApiOperation({ summary: 'Get all leave requests' })
+  @ApiQuery({ name: 'employeeId', required: false })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'],
+  })
+  @ApiQuery({ name: 'leaveType', required: false })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  findAll(
+    @CurrentUser() user: any,
+    @Query()
+    query: {
+      employeeId?: string;
+      status?: string;
+      leaveType?: string;
+      startDate?: string;
+      endDate?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    },
+  ) {
+    return this.leaveRequestsService.findAll(query, user);
   }
 
   @Get('pending')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER)
-  @ApiOperation({ summary: 'The approval queue' })
-  findPending(
-    @CurrentUser() user: Principal,
-    @Query() query: ListLeaveRequestsDto,
-  ) {
-    return this.service.findAll({ ...query, status: 'PENDING' }, user);
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER')
+  @ApiOperation({
+    summary: 'Get pending requests',
+    description: 'Get all pending leave requests for approval',
+  })
+  findPending(@CurrentUser() user: any) {
+    return this.leaveRequestsService.findPending(user);
   }
 
-  @Get('stats')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Queue health' })
-  stats(@CurrentUser() user: Principal) {
-    return this.service.stats(user);
-  }
-
-  /**
-   * Open to every role. The narrowing happens in the service from the principal,
-   * because whether a row may be read depends on WHOSE it is and a decorator
-   * cannot see that.
-   */
   @Get('my-requests')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.HR_MANAGER,
-    UserRole.PAYROLL_OFFICER,
-    UserRole.MANAGER,
-    UserRole.EMPLOYEE,
-  )
-  @ApiOperation({ summary: 'My own leave' })
-  findMine(
-    @CurrentUser() user: Principal,
-    @Query() query: ListLeaveRequestsDto,
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({
+    summary: 'Get my leave requests',
+    description: 'Get current user leave requests',
+  })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'leaveType', required: false })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  getMyRequests(
+    @CurrentUser() user: any,
+    @Query()
+    query: {
+      status?: string;
+      leaveType?: string;
+      startDate?: string;
+      endDate?: string;
+    },
   ) {
-    if (!user.employeeId) {
-      // An ADMIN account need not be linked to an employee record. An empty page
-      // is the honest answer; a 500 from `employeeId: undefined` is not.
-      return {
-        success: true,
-        data: [],
-        meta: { total: 0, page: 1, limit: 20, totalPages: 1 },
-      };
+    // An ADMIN account need not be linked to an employee record. Passing an
+    // undefined id straight through reached
+    // `findUnique({ where: { id: undefined } })` and answered 500.
+    if (!user?.employeeId) {
+      return { success: true, data: [] };
     }
-    return this.service.findAll(
-      { ...query, employeeId: user.employeeId },
+    return this.leaveRequestsService.findByEmployee(user.employeeId, query, user);
+  }
+
+  @Get('employee/:employeeId')
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER')
+  @ApiOperation({ summary: 'Get employee leave requests' })
+  @ApiParam({ name: 'employeeId', description: 'Employee UUID' })
+  findByEmployee(
+    @Param('employeeId') employeeId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.leaveRequestsService.findByEmployee(employeeId, undefined, user);
+  }
+
+  @Get(':id')
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Get leave request by ID' })
+  @ApiParam({ name: 'id', description: 'Leave request UUID' })
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.leaveRequestsService.findOne(id, user);
+  }
+
+  @Post()
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({
+    summary: 'Create leave request',
+    description: 'Submit a new leave request',
+  })
+  @ApiResponse({ status: 201, description: 'Leave request created' })
+  create(@Body() dto: CreateLeaveRequestDto, @CurrentUser() user: any) {
+    return this.leaveRequestsService.create(dto, user.id, user.employeeId, user);
+  }
+
+  @Post(':id/approve')
+  // EMPLOYEE is admitted so a supervisor (who may hold no elevated role) can act;
+  // per-step eligibility is enforced in the approval engine, not the route guard.
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Approve leave request' })
+  @ApiParam({ name: 'id', description: 'Leave request UUID' })
+  approve(
+    @Param('id') id: string,
+    @Body() dto: ApproveRejectDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.leaveRequestsService.approve(
+      id,
+      user.id,
+      dto?.comment || dto?.rejectedReason,
       user,
     );
   }
 
-  /**
-   * The list answers BY NAME — who is off, and why. That is a management view,
-   * which is why an employee is refused it while still being entitled to their
-   * own history above.
-   */
-  @Get()
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER)
-  @ApiOperation({ summary: 'List leave requests' })
-  findAll(
-    @CurrentUser() user: Principal,
-    @Query() query: ListLeaveRequestsDto,
-  ) {
-    return this.service.findAll(query, user);
-  }
-
-  @Get('employee/:employeeId')
-  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER)
-  @ApiOperation({ summary: 'One employee leave history' })
-  findByEmployee(
-    @CurrentUser() user: Principal,
-    @Param('employeeId', ParseUUIDPipe) employeeId: string,
-    @Query() query: ListLeaveRequestsDto,
-  ) {
-    return this.service.findAll({ ...query, employeeId }, user);
-  }
-
-  @Get(':id')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.HR_MANAGER,
-    UserRole.PAYROLL_OFFICER,
-    UserRole.MANAGER,
-    UserRole.EMPLOYEE,
-  )
-  @ApiOperation({ summary: 'One leave request' })
-  findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: Principal,
-  ) {
-    return this.service.findOne(id, user);
-  }
-
-  @Post()
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.HR_MANAGER,
-    UserRole.MANAGER,
-    UserRole.EMPLOYEE,
-  )
-  @ApiOperation({ summary: 'File a leave request' })
-  create(@Body() dto: CreateLeaveRequestDto, @CurrentUser() user: Principal) {
-    return this.service.create(dto, user);
-  }
-
-  /**
-   * EMPLOYEE is admitted so a SUPERVISOR — who usually holds no elevated role —
-   * can decide the requests they are named on. Eligibility is enforced in the
-   * service against `Employee.supervisorId`, not by the route guard.
-   */
-  @Post(':id/approve')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.HR_MANAGER,
-    UserRole.MANAGER,
-    UserRole.EMPLOYEE,
-  )
-  @ApiOperation({
-    summary: 'Approve a leave request',
-    description:
-      'Deducts the balance, marks it approved and writes an ON_LEAVE ' +
-      'attendance row for every working day — in one transaction. The response ' +
-      'reports any day that already had attendance and was left alone.',
-  })
-  approve(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: DecideLeaveRequestDto,
-    @CurrentUser() user: Principal,
-  ) {
-    return this.service.approve(id, user, dto?.comment);
-  }
-
   @Post(':id/reject')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.HR_MANAGER,
-    UserRole.MANAGER,
-    UserRole.EMPLOYEE,
-  )
-  @ApiOperation({ summary: 'Reject a leave request' })
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Reject leave request' })
+  @ApiParam({ name: 'id', description: 'Leave request UUID' })
   reject(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: RejectLeaveRequestDto,
-    @CurrentUser() user: Principal,
+    @Param('id') id: string,
+    @Body() dto: ApproveRejectDto,
+    @CurrentUser() user: any,
   ) {
-    return this.service.reject(id, user, dto.comment);
+    return this.leaveRequestsService.reject(
+      id,
+      user.id,
+      dto?.comment || dto?.rejectedReason,
+      user,
+    );
   }
 
   @Delete(':id')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.HR_MANAGER,
-    UserRole.MANAGER,
-    UserRole.EMPLOYEE,
-  )
-  @ApiOperation({ summary: 'Withdraw your own pending request' })
-  cancel(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: Principal,
-  ) {
-    return this.service.cancel(id, user);
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({
+    summary: 'Cancel leave request',
+    description: 'Cancel own pending request',
+  })
+  @ApiParam({ name: 'id', description: 'Leave request UUID' })
+  cancel(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.leaveRequestsService.cancel(id, user.id, user.employeeId);
   }
 }

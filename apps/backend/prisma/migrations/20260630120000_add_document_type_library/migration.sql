@@ -1,0 +1,2 @@
+-- Add DOCUMENT_TYPE to LibraryType enum
+ALTER TYPE "LibraryType" ADD VALUE IF NOT EXISTS 'DOCUMENT_TYPE';

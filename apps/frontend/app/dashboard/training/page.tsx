@@ -1,45 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  BookOpen,
-  CalendarDays,
-  Check,
   GraduationCap,
+  Loader2,
   Plus,
-  UserPlus,
   X,
+  Check,
+  UserPlus,
+  CalendarDays,
+  Sparkles,
+  BadgeCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { Textarea } from '@/components/ui/Textarea';
-import { EmptyState } from '@/components/common/EmptyState';
-import { StatCard } from '@/components/common/StatCard';
 import { usePageHeader } from '@/hooks/usePageHeader';
-import {
-  useCourses,
-  useCreateCourse,
-  useCreateSession,
-  useDecideNomination,
-  useNominate,
-  useNominations,
-  useRecordAttendance,
-  useTrainingSessions,
-  useTrainingStats,
-} from '@/hooks/useTraining';
-import { useBranches } from '@/hooks/useBranches';
-import { useEmployees } from '@/hooks/useEmployees';
-import { useLibraryItems } from '@/hooks/useLibraryItems';
+import trainingService from '@/services/trainingService';
+import MasterEmptyHint from '@/components/common/MasterEmptyHint';
+import employeeService from '@/services/employeeService';
 import { useAuthStore } from '@/store/authStore';
-import { apiErrorMessage } from '@/utils/apiError';
-import { formatDateOnly } from '@/utils/formatDate';
-import { fullName } from '@/utils/formatters';
-import type {
+import {
+  Course,
   CreateCourseData,
   CreateSessionData,
   NominationStatus,
@@ -49,775 +30,747 @@ import type {
 
 type Tab = 'sessions' | 'nominations' | 'courses';
 
-const TABS: { value: Tab; label: string }[] = [
-  { value: 'sessions', label: 'Sessions' },
-  { value: 'nominations', label: 'Nominations' },
-  { value: 'courses', label: 'Courses' },
-];
-
-const STATUS_TONE: Record<
-  NominationStatus,
-  'neutral' | 'success' | 'warning' | 'error' | 'info'
-> = {
-  PENDING: 'warning',
-  APPROVED: 'success',
-  REJECTED: 'error',
-  CANCELLED: 'neutral',
-  ATTENDED: 'info',
-  NO_SHOW: 'warning',
+const NOMINATION_STYLE: Record<NominationStatus, string> = {
+  PENDING: 'bg-amber-50 text-amber-700',
+  APPROVED: 'bg-emerald-50 text-emerald-700',
+  REJECTED: 'bg-red-50 text-red-700',
+  CANCELLED: 'bg-slate-100 text-slate-600',
+  ATTENDED: 'bg-blue-50 text-blue-700',
+  NO_SHOW: 'bg-orange-50 text-orange-700',
 };
 
-const EMPTY_COURSE: CreateCourseData = { code: '', title: '' };
-const EMPTY_SESSION: CreateSessionData = {
-  courseId: '',
-  startDate: '',
-  endDate: '',
-};
+const inputCls =
+  'w-full h-10 px-3 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/30';
 
-function TrainingScreen() {
-  const role = useAuthStore((state) => state.user?.role);
-  const isHr = role === 'ADMIN' || role === 'HR_MANAGER';
+function fmtDate(d?: string | null) {
+  if (!d) return '—';
+  try {
+    return new Date(d).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return String(d);
+  }
+}
+
+function TrainingPageInner() {
+  const { user } = useAuthStore();
+  const isHr = user?.role === 'ADMIN' || user?.role === 'HR_MANAGER';
+
+  // The one heading for this route, rendered by TopHeader.
+  usePageHeader('Training', 'Course catalogue, sessions, nominations and certificates');
 
   const [tab, setTab] = useState<Tab>('sessions');
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [sessions, setSessions] = useState<TrainingSession[]>([]);
+  const [nominations, setNominations] = useState<TrainingNomination[]>([]);
+  const [employees, setEmployees] = useState<
+    { id: string; fullName: string; employeeCode: string }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
   const [showCourseForm, setShowCourseForm] = useState(false);
-  const [courseForm, setCourseForm] = useState<CreateCourseData>(EMPTY_COURSE);
+  const [courseForm, setCourseForm] = useState<CreateCourseData>({
+    code: '',
+    title: '',
+  });
+
   const [showSessionForm, setShowSessionForm] = useState(false);
-  const [sessionForm, setSessionForm] = useState<CreateSessionData>(EMPTY_SESSION);
+  const [sessionForm, setSessionForm] = useState<CreateSessionData>({
+    courseId: '',
+    startDate: '',
+    endDate: '',
+  });
 
   const [nominateFor, setNominateFor] = useState<TrainingSession | null>(null);
-  const [nomineeId, setNomineeId] = useState('');
-  const [justification, setJustification] = useState('');
+  const [nominateEmployeeId, setNominateEmployeeId] = useState('');
 
   const [attendanceFor, setAttendanceFor] = useState<TrainingNomination | null>(null);
   const [score, setScore] = useState('');
   const [passed, setPassed] = useState(true);
 
-  const stats = useTrainingStats(isHr);
-  const courses = useCourses();
-  const sessions = useTrainingSessions();
-  const nominations = useNominations({});
-  const branches = useBranches();
-  const people = useEmployees({ status: 'ACTIVE', limit: 200, sortBy: 'firstName' });
-  const categories = useLibraryItems({ type: 'COURSE_CATEGORY', activeOnly: true });
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [c, s, n] = await Promise.all([
+        trainingService.listCourses(),
+        trainingService.listSessions(),
+        trainingService.listNominations(),
+      ]);
+      setCourses(Array.isArray(c.data) ? c.data : []);
+      setSessions(Array.isArray(s.data) ? s.data : []);
+      setNominations(Array.isArray(n.data) ? n.data : []);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to load training data');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const createCourse = useCreateCourse();
-  const createSession = useCreateSession();
-  const nominate = useNominate();
-  const decide = useDecideNomination();
-  const recordAttendance = useRecordAttendance();
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const courseRows = courses.data?.data ?? [];
-  const sessionRows = sessions.data?.data ?? [];
-  const nominationRows = nominations.data?.data ?? [];
-  const figures = stats.data?.data;
-  const activeCourses = courseRows.filter((course) => course.isActive);
-
-  usePageHeader(
-    'Training',
-    'The course catalogue, its sessions, and who is booked on them',
-  );
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await employeeService.getDirectory();
+        setEmployees(
+          (res.data || []).map((e: any) => ({
+            id: e.id,
+            fullName: e.fullName,
+            employeeCode: e.employeeCode,
+          })),
+        );
+      } catch {
+        // Non-fatal — the nominate picker is just empty.
+      }
+    })();
+  }, []);
 
   const submitCourse = async () => {
     if (!courseForm.code.trim() || !courseForm.title.trim()) {
-      toast.warning('A code and a title are both needed');
+      toast.warning('Code and title are required');
       return;
     }
+    setSaving(true);
     try {
-      await createCourse.mutateAsync({
-        ...courseForm,
-        code: courseForm.code.trim(),
-        title: courseForm.title.trim(),
-      });
+      await trainingService.createCourse(courseForm);
       toast.success('Course added');
       setShowCourseForm(false);
-      setCourseForm(EMPTY_COURSE);
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not add that course.'));
+      setCourseForm({ code: '', title: '' });
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to add course');
+    } finally {
+      setSaving(false);
     }
   };
 
   const submitSession = async () => {
     if (!sessionForm.courseId || !sessionForm.startDate || !sessionForm.endDate) {
-      toast.warning('A course and both dates are needed');
+      toast.warning('Course and dates are required');
       return;
     }
+    setSaving(true);
     try {
-      await createSession.mutateAsync(sessionForm);
+      await trainingService.createSession(sessionForm);
       toast.success('Session scheduled');
       setShowSessionForm(false);
-      setSessionForm(EMPTY_SESSION);
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not schedule that session.'));
+      setSessionForm({ courseId: '', startDate: '', endDate: '' });
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to schedule session');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const submitNomination = async () => {
-    if (!nominateFor || !nomineeId) {
-      toast.warning('Choose who is being nominated');
+  const submitNominate = async () => {
+    if (!nominateFor || !nominateEmployeeId) {
+      toast.warning('Pick an employee');
       return;
     }
+    setSaving(true);
     try {
-      await nominate.mutateAsync({
+      await trainingService.nominate({
         sessionId: nominateFor.id,
-        employeeId: nomineeId,
-        justification: justification.trim() || undefined,
+        employeeId: nominateEmployeeId,
       });
       toast.success('Nominated');
       setNominateFor(null);
-      setNomineeId('');
-      setJustification('');
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not nominate.'));
+      setNominateEmployeeId('');
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to nominate');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const submitDecision = async (
-    nomination: TrainingNomination,
-    decision: 'approve' | 'reject',
-  ) => {
+  const decide = async (n: TrainingNomination, approve: boolean) => {
+    setBusyId(n.id);
     try {
-      await decide.mutateAsync({ id: nomination.id, decision });
-      toast.success(decision === 'approve' ? 'Approved' : 'Rejected');
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not record that decision.'));
+      if (approve) await trainingService.approve(n.id);
+      else await trainingService.reject(n.id);
+      toast.success(approve ? 'Approved' : 'Rejected');
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed');
+    } finally {
+      setBusyId(null);
     }
   };
 
   const submitAttendance = async (attended: boolean) => {
     if (!attendanceFor) return;
+    setSaving(true);
     try {
-      await recordAttendance.mutateAsync({
-        id: attendanceFor.id,
-        payload: {
-          attended,
-          score: score ? Number(score) : undefined,
-          passed: attended ? passed : undefined,
-        },
+      await trainingService.recordAttendance(attendanceFor.id, {
+        attended,
+        score: score ? Number(score) : undefined,
+        passed: attended ? passed : undefined,
       });
-      toast.success('Attendance recorded');
+      toast.success(
+        attended
+          ? 'Attendance recorded — certificate expiry set from the course validity window'
+          : 'Recorded as no-show',
+      );
       setAttendanceFor(null);
       setScore('');
-      setPassed(true);
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Could not record attendance.'));
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to record attendance');
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
-    <div className="space-y-5">
-      {figures && (
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <StatCard
-            label="Active courses"
-            value={figures.activeCourses}
-            icon={<BookOpen className="h-5 w-5" aria-hidden />}
-          />
-          <StatCard
-            label="Starting in 30 days"
-            value={figures.upcomingSessions30Days}
-            icon={<CalendarDays className="h-5 w-5" aria-hidden />}
-          />
-          <StatCard
-            label="Awaiting a decision"
-            value={figures.nominationsByStatus.PENDING ?? 0}
-          />
-          <StatCard
-            label="Seats committed"
-            value={
-              (figures.nominationsByStatus.APPROVED ?? 0) +
-              (figures.nominationsByStatus.ATTENDED ?? 0)
-            }
-          />
-        </div>
-      )}
-
-      <div
-        role="tablist"
-        aria-label="Training views"
-        className="inline-flex gap-1 rounded-[var(--radius-input)] border border-surface-border bg-surface-page p-1"
-      >
-        {TABS.map((entry) => (
+    <div className="p-6 space-y-6">
+      <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
+        {(['sessions', 'nominations', 'courses'] as Tab[]).map((t) => (
           <button
-            key={entry.value}
-            type="button"
-            role="tab"
-            aria-selected={tab === entry.value}
-            onClick={() => setTab(entry.value)}
-            className={
-              tab === entry.value
-                ? 'rounded-[var(--radius-button)] bg-surface-card px-3 py-1.5 text-sm font-medium text-text-heading'
-                : 'rounded-[var(--radius-button)] px-3 py-1.5 text-sm font-medium text-text-muted hover:text-text-body'
-            }
+            key={t}
+            onClick={() => setTab(t)}
+            className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition ${
+              tab === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+            }`}
           >
-            {entry.label}
+            {t}
           </button>
         ))}
       </div>
 
-      {tab === 'sessions' && (
-        <div className="space-y-4">
-          {isHr && (
-            <div className="flex justify-end">
-              <Button
-                onClick={() => setShowSessionForm((open) => !open)}
-                disabled={activeCourses.length === 0}
-                data-testid="session-new"
-              >
-                <Plus className="h-4 w-4" aria-hidden />
-                Schedule a session
-              </Button>
-            </div>
-          )}
-
-          {isHr && activeCourses.length === 0 && (
-            <Card className="p-4">
-              <p className="text-sm text-text-muted">
-                A session is a sitting of a course, so the catalogue has to have
-                one first. Add a course on the Courses tab.
-              </p>
-            </Card>
-          )}
-
-          {showSessionForm && isHr && (
-            <Card className="p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-text-heading">
-                  New session
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => setShowSessionForm(false)}
-                  aria-label="Close the session form"
-                  className="text-text-muted hover:text-text-body"
-                >
-                  <X className="h-4 w-4" aria-hidden />
-                </button>
-              </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <Select
-                  label="Course"
-                  placeholder="Choose a course…"
-                  value={sessionForm.courseId}
-                  onChange={(event) =>
-                    setSessionForm({ ...sessionForm, courseId: event.target.value })
-                  }
-                  data-testid="session-form-course"
-                >
-                  {activeCourses.map((course) => (
-                    <option key={course.id} value={course.id}>
-                      {course.code} — {course.title}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  label="Starts"
-                  type="date"
-                  value={sessionForm.startDate}
-                  onChange={(event) =>
-                    setSessionForm({ ...sessionForm, startDate: event.target.value })
-                  }
-                  data-testid="session-form-start"
-                />
-                <Input
-                  label="Ends"
-                  type="date"
-                  value={sessionForm.endDate}
-                  onChange={(event) =>
-                    setSessionForm({ ...sessionForm, endDate: event.target.value })
-                  }
-                  data-testid="session-form-end"
-                />
-                <Select
-                  label="Branch"
-                  placeholder="Open to every branch"
-                  value={sessionForm.branchId ?? ''}
-                  onChange={(event) =>
-                    setSessionForm({
-                      ...sessionForm,
-                      branchId: event.target.value || undefined,
-                    })
-                  }
-                >
-                  {(branches.data?.data ?? []).map((branch) => (
-                    <option key={branch.id} value={branch.id}>
-                      {branch.name}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  label="Location"
-                  value={sessionForm.location ?? ''}
-                  onChange={(event) =>
-                    setSessionForm({ ...sessionForm, location: event.target.value })
-                  }
-                />
-                <Input
-                  label="Seats"
-                  type="number"
-                  min={1}
-                  value={sessionForm.seats ?? ''}
-                  onChange={(event) =>
-                    setSessionForm({
-                      ...sessionForm,
-                      seats: event.target.value ? Number(event.target.value) : undefined,
-                    })
-                  }
-                />
-              </div>
-              <div className="mt-4 flex justify-end">
-                <Button
-                  onClick={() => void submitSession()}
-                  isLoading={createSession.isPending}
-                  data-testid="session-form-submit"
-                >
-                  Schedule
-                </Button>
-              </div>
-            </Card>
-          )}
-
-          <Card>
-            {sessions.isLoading && (
-              <p className="p-6 text-sm text-text-muted">Loading sessions…</p>
-            )}
-            {!sessions.isLoading && sessionRows.length === 0 && (
-              <EmptyState
-                icon={<CalendarDays className="h-6 w-6" aria-hidden />}
-                title="No sessions scheduled"
-                description="Schedule a sitting of a course to start taking nominations."
-              />
-            )}
-            {sessionRows.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[820px] text-sm">
-                  <thead className="border-b border-surface-border-light text-xs uppercase tracking-wide text-text-muted">
-                    <tr>
-                      <th scope="col" className="px-5 py-3 text-start font-medium">Course</th>
-                      <th scope="col" className="px-5 py-3 text-start font-medium">Dates</th>
-                      <th scope="col" className="px-5 py-3 text-start font-medium">Location</th>
-                      <th scope="col" className="px-5 py-3 text-start font-medium">Seats</th>
-                      <th scope="col" className="px-5 py-3 text-start font-medium">Status</th>
-                      {isHr && (
-                        <th scope="col" className="px-5 py-3 text-end font-medium">Actions</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-surface-border-light">
-                    {sessionRows.map((session) => (
-                      <tr
-                        key={session.id}
-                        data-testid={`session-row-${session.id}`}
-                        className="hover:bg-surface-border-light/60"
-                      >
-                        <td className="px-5 py-3">
-                          <p className="font-medium text-text-heading">
-                            {session.course?.title}
-                          </p>
-                          <p className="text-xs text-text-muted">
-                            {session.course?.code}
-                          </p>
-                        </td>
-                        <td className="px-5 py-3 text-text-muted">
-                          {formatDateOnly(session.startDate)} →{' '}
-                          {formatDateOnly(session.endDate)}
-                        </td>
-                        <td className="px-5 py-3 text-text-muted">
-                          {session.location ?? '—'}
-                        </td>
-                        <td className="px-5 py-3 tabular-nums text-text-muted">
-                          {session._count?.nominations ?? 0}
-                          {session.seats ? ` / ${session.seats}` : ''}
-                        </td>
-                        <td className="px-5 py-3">
-                          <Badge
-                            tone={session.status === 'SCHEDULED' ? 'info' : 'neutral'}
-                          >
-                            {session.status}
-                          </Badge>
-                        </td>
-                        {isHr && (
-                          <td className="px-5 py-3 text-end">
-                            {session.status === 'SCHEDULED' && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setNominateFor(session)}
-                                data-testid={`session-nominate-${session.id}`}
-                              >
-                                <UserPlus className="h-4 w-4" aria-hidden />
-                                Nominate
-                              </Button>
-                            )}
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
+      {loading ? (
+        <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-8 text-slate-500 shadow-sm">
+          <Loader2 className="h-5 w-5 animate-spin" /> Loading…
         </div>
-      )}
-
-      {tab === 'nominations' && (
-        <Card>
-          {nominations.isLoading && (
-            <p className="p-6 text-sm text-text-muted">Loading nominations…</p>
-          )}
-          {!nominations.isLoading && nominationRows.length === 0 && (
-            <EmptyState
-              icon={<GraduationCap className="h-6 w-6" aria-hidden />}
-              title="Nobody nominated yet"
-              description="Nominate somebody from a scheduled session and their decision lands here."
-            />
-          )}
-          {nominationRows.length > 0 && (
-            <ul className="divide-y divide-surface-border-light">
-              {nominationRows.map((nomination) => (
-                <li
-                  key={nomination.id}
-                  data-testid={`nomination-row-${nomination.id}`}
-                  className="flex flex-wrap items-start justify-between gap-3 px-5 py-4"
-                >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-text-heading">
-                        {nomination.employee?.fullName}
-                      </p>
-                      <Badge tone={STATUS_TONE[nomination.status]}>
-                        {nomination.status}
-                      </Badge>
-                    </div>
-                    <p className="mt-0.5 text-xs text-text-muted">
-                      {nomination.session?.course?.title} ·{' '}
-                      {formatDateOnly(nomination.session?.startDate)}
-                      {nomination.employee?.department
-                        ? ` · ${nomination.employee.department.name}`
-                        : ''}
-                    </p>
-                    {nomination.justification && (
-                      <p className="mt-1 text-xs italic text-text-muted">
-                        “{nomination.justification}”
-                      </p>
-                    )}
-                  </div>
-
-                  {isHr && (
-                    <div className="flex items-center gap-2">
-                      {nomination.status === 'PENDING' && (
-                        <>
-                          <Button
-                            size="sm"
-                            onClick={() => void submitDecision(nomination, 'approve')}
-                            data-testid={`nomination-approve-${nomination.id}`}
-                          >
-                            <Check className="h-4 w-4" aria-hidden />
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => void submitDecision(nomination, 'reject')}
-                            data-testid={`nomination-reject-${nomination.id}`}
-                          >
-                            <X className="h-4 w-4" aria-hidden />
-                            Reject
-                          </Button>
-                        </>
-                      )}
-                      {nomination.status === 'APPROVED' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setAttendanceFor(nomination)}
-                          data-testid={`nomination-attendance-${nomination.id}`}
-                        >
-                          Record attendance
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      )}
-
-      {tab === 'courses' && (
-        <div className="space-y-4">
-          {isHr && (
-            <div className="flex justify-end">
-              <Button
-                onClick={() => setShowCourseForm((open) => !open)}
-                data-testid="course-new"
-              >
-                <Plus className="h-4 w-4" aria-hidden />
-                Add a course
-              </Button>
-            </div>
-          )}
-
-          {showCourseForm && isHr && (
-            <Card className="p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-text-heading">New course</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowCourseForm(false)}
-                  aria-label="Close the course form"
-                  className="text-text-muted hover:text-text-body"
-                >
-                  <X className="h-4 w-4" aria-hidden />
-                </button>
-              </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <Input
-                  label="Code"
-                  placeholder="SEC-101"
-                  value={courseForm.code}
-                  onChange={(event) =>
-                    setCourseForm({ ...courseForm, code: event.target.value })
-                  }
-                  data-testid="course-form-code"
-                />
-                <Input
-                  label="Title"
-                  placeholder="Information Security Awareness"
-                  value={courseForm.title}
-                  onChange={(event) =>
-                    setCourseForm({ ...courseForm, title: event.target.value })
-                  }
-                  data-testid="course-form-title"
-                />
-                <Select
-                  label="Category"
-                  placeholder="Uncategorised"
-                  value={courseForm.category ?? ''}
-                  onChange={(event) =>
-                    setCourseForm({
-                      ...courseForm,
-                      category: event.target.value || undefined,
-                    })
-                  }
-                >
-                  {(categories.data?.data ?? []).map((item) => (
-                    <option key={item.id} value={item.label}>
-                      {item.label}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  label="Provider"
-                  value={courseForm.provider ?? ''}
-                  onChange={(event) =>
-                    setCourseForm({ ...courseForm, provider: event.target.value })
-                  }
-                />
-                <Input
-                  label="Certificate valid for (months)"
-                  type="number"
-                  min={1}
-                  value={courseForm.certValidMonths ?? ''}
-                  onChange={(event) =>
-                    setCourseForm({
-                      ...courseForm,
-                      certValidMonths: event.target.value
-                        ? Number(event.target.value)
-                        : undefined,
-                    })
-                  }
-                />
-                <div className="md:col-span-3">
-                  <Textarea
-                    label="Description"
-                    rows={2}
-                    value={courseForm.description ?? ''}
-                    onChange={(event) =>
-                      setCourseForm({ ...courseForm, description: event.target.value })
-                    }
-                  />
+      ) : (
+        <>
+          {/* ── Sessions ─────────────────────────────────────────────────── */}
+          {tab === 'sessions' && (
+            <div className="space-y-3">
+              {isHr && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setShowSessionForm((v) => !v)}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand-primary px-4 text-sm font-medium text-white"
+                  >
+                    <Plus size={16} /> Schedule session
+                  </button>
                 </div>
-              </div>
-              <div className="mt-4 flex justify-end">
-                <Button
-                  onClick={() => void submitCourse()}
-                  isLoading={createCourse.isPending}
-                  data-testid="course-form-submit"
-                >
-                  Save
-                </Button>
-              </div>
-            </Card>
-          )}
+              )}
 
-          <Card>
-            {courses.isLoading && (
-              <p className="p-6 text-sm text-text-muted">Loading the catalogue…</p>
-            )}
-            {!courses.isLoading && courseRows.length === 0 && (
-              <EmptyState
-                icon={<BookOpen className="h-6 w-6" aria-hidden />}
-                title="The catalogue is empty"
-                description="Add the first course, then schedule a sitting of it."
-              />
-            )}
-            {courseRows.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
-                  <thead className="border-b border-surface-border-light text-xs uppercase tracking-wide text-text-muted">
-                    <tr>
-                      <th scope="col" className="px-5 py-3 text-start font-medium">Code</th>
-                      <th scope="col" className="px-5 py-3 text-start font-medium">Title</th>
-                      <th scope="col" className="px-5 py-3 text-start font-medium">Category</th>
-                      <th scope="col" className="px-5 py-3 text-start font-medium">Provider</th>
-                      <th scope="col" className="px-5 py-3 text-start font-medium">Certificate</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-surface-border-light">
-                    {courseRows.map((course) => (
-                      <tr key={course.id} data-testid={`course-row-${course.code}`}>
-                        <td className="px-5 py-3 font-mono text-xs text-text-muted">
-                          {course.code}
-                        </td>
-                        <td className="px-5 py-3">
-                          <span className="font-medium text-text-heading">
-                            {course.title}
+              {showSessionForm && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  {courses.filter((c) => c.isActive).length === 0 && (
+                    <MasterEmptyHint
+                      what="courses"
+                      href="/dashboard/training"
+                      linkLabel="add one on the Courses tab"
+                      className="mb-3"
+                    />
+                  )}
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <select
+                      className={inputCls}
+                      value={sessionForm.courseId}
+                      onChange={(e) =>
+                        setSessionForm({ ...sessionForm, courseId: e.target.value })
+                      }
+                      disabled={courses.filter((c) => c.isActive).length === 0}
+                    >
+                      <option value="">
+                        {courses.filter((c) => c.isActive).length === 0
+                          ? 'No courses in the catalogue'
+                          : 'Course…'}
+                      </option>
+                      {courses
+                        .filter((c) => c.isActive)
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.code} — {c.title}
+                          </option>
+                        ))}
+                    </select>
+                    <label className="flex flex-col gap-1 text-xs text-slate-500">
+                      Start
+                      <input
+                        type="date"
+                        className={inputCls}
+                        value={sessionForm.startDate}
+                        onChange={(e) =>
+                          setSessionForm({ ...sessionForm, startDate: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs text-slate-500">
+                      End
+                      <input
+                        type="date"
+                        className={inputCls}
+                        value={sessionForm.endDate}
+                        onChange={(e) =>
+                          setSessionForm({ ...sessionForm, endDate: e.target.value })
+                        }
+                      />
+                    </label>
+                    <input
+                      className={inputCls}
+                      placeholder="Location"
+                      value={sessionForm.location ?? ''}
+                      onChange={(e) =>
+                        setSessionForm({ ...sessionForm, location: e.target.value })
+                      }
+                    />
+                    <input
+                      className={inputCls}
+                      placeholder="Trainer"
+                      value={sessionForm.trainer ?? ''}
+                      onChange={(e) =>
+                        setSessionForm({ ...sessionForm, trainer: e.target.value })
+                      }
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      className={inputCls}
+                      placeholder="Seats (blank = unlimited)"
+                      value={sessionForm.seats ?? ''}
+                      onChange={(e) =>
+                        setSessionForm({
+                          ...sessionForm,
+                          seats: e.target.value ? Number(e.target.value) : undefined,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="mt-4 flex justify-end gap-2">
+                    <button
+                      onClick={() => setShowSessionForm(false)}
+                      className="h-10 rounded-lg border border-slate-200 px-3 text-sm text-slate-600"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={submitSession}
+                      disabled={saving}
+                      className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand-primary px-4 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      {saving && <Loader2 className="h-4 w-4 animate-spin" />} Schedule
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {sessions.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400 shadow-sm">
+                  No sessions scheduled.
+                </div>
+              ) : (
+                sessions.map((s) => (
+                  <div
+                    key={s.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <GraduationCap size={15} className="text-brand-primary" />
+                          <p className="text-sm font-semibold text-slate-800">
+                            {s.course?.title}
+                          </p>
+                          <span className="font-mono text-xs text-slate-400">
+                            {s.course?.code}
                           </span>
-                          {!course.isActive && (
-                            <span className="ms-2 align-middle">
-                              <Badge>Retired</Badge>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+                            {s.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                          <span className="inline-flex items-center gap-1">
+                            <CalendarDays size={11} /> {fmtDate(s.startDate)} →{' '}
+                            {fmtDate(s.endDate)}
+                          </span>
+                          {s.location && <span>{s.location}</span>}
+                          {s.trainer && <span>Trainer: {s.trainer}</span>}
+                          <span>
+                            {s._count?.nominations ?? 0}
+                            {s.seats ? ` / ${s.seats}` : ''} seat(s) taken
+                          </span>
+                          {s.course?.certValidMonths && (
+                            <span className="inline-flex items-center gap-1 text-emerald-700">
+                              <BadgeCheck size={11} /> Certificate valid{' '}
+                              {s.course.certValidMonths} months
                             </span>
                           )}
-                        </td>
-                        <td className="px-5 py-3 text-text-muted">
-                          {course.category ?? '—'}
-                        </td>
-                        <td className="px-5 py-3 text-text-muted">
-                          {course.provider ?? '—'}
-                        </td>
-                        <td className="px-5 py-3 text-text-muted">
-                          {course.certValidMonths
-                            ? `Valid ${course.certValidMonths} months`
-                            : 'Never expires'}
+                        </p>
+                      </div>
+                      {isHr && s.status === 'SCHEDULED' && (
+                        <button
+                          onClick={() => setNominateFor(s)}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          <UserPlus size={14} /> Nominate
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* ── Nominations ──────────────────────────────────────────────── */}
+          {tab === 'nominations' && (
+            <div className="space-y-3">
+              {nominations.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400 shadow-sm">
+                  No nominations.
+                </div>
+              ) : (
+                nominations.map((n) => (
+                  <div
+                    key={n.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold text-slate-800">
+                            {n.employee?.fullName}
+                          </p>
+                          <span className="text-xs text-slate-400">
+                            {n.employee?.employeeCode}
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${NOMINATION_STYLE[n.status]}`}
+                          >
+                            {n.status.replace('_', ' ')}
+                          </span>
+                          {n.source === 'APPRAISAL' && (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] text-violet-700"
+                              title="Derived from an AI appraisal result"
+                            >
+                              <Sparkles size={10} /> From appraisal
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-sm text-slate-700">
+                          {n.session?.course?.title}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {fmtDate(n.session?.startDate)} · cost{' '}
+                          {n.cost !== null && n.cost !== undefined
+                            ? Number(n.cost).toLocaleString()
+                            : '—'}
+                          {n.score !== null && n.score !== undefined
+                            ? ` · score ${n.score}`
+                            : ''}
+                          {n.certificateExpiry
+                            ? ` · certificate expires ${fmtDate(n.certificateExpiry)}`
+                            : ''}
+                        </p>
+                        {n.justification && (
+                          <p className="mt-1 text-xs italic text-slate-500">
+                            “{n.justification}”
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {n.status === 'PENDING' && isHr && (
+                          <>
+                            <button
+                              onClick={() => decide(n, true)}
+                              disabled={busyId === n.id}
+                              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white disabled:opacity-50"
+                            >
+                              <Check size={14} /> Approve
+                            </button>
+                            <button
+                              onClick={() => decide(n, false)}
+                              disabled={busyId === n.id}
+                              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-red-200 px-3 text-sm font-medium text-red-600 disabled:opacity-50"
+                            >
+                              <X size={14} /> Reject
+                            </button>
+                          </>
+                        )}
+                        {n.status === 'APPROVED' && isHr && (
+                          <button
+                            onClick={() => setAttendanceFor(n)}
+                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            <BadgeCheck size={14} /> Record attendance
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* ── Courses ──────────────────────────────────────────────────── */}
+          {tab === 'courses' && (
+            <div className="space-y-3">
+              {isHr && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setShowCourseForm((v) => !v)}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand-primary px-4 text-sm font-medium text-white"
+                  >
+                    <Plus size={16} /> Add course
+                  </button>
+                </div>
+              )}
+
+              {showCourseForm && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <input
+                      className={inputCls}
+                      placeholder="Code (e.g. SEC-101)"
+                      value={courseForm.code}
+                      onChange={(e) =>
+                        setCourseForm({ ...courseForm, code: e.target.value })
+                      }
+                    />
+                    <input
+                      className={`${inputCls} md:col-span-2`}
+                      placeholder="Title"
+                      value={courseForm.title}
+                      onChange={(e) =>
+                        setCourseForm({ ...courseForm, title: e.target.value })
+                      }
+                    />
+                    <input
+                      className={inputCls}
+                      placeholder="Provider"
+                      value={courseForm.provider ?? ''}
+                      onChange={(e) =>
+                        setCourseForm({ ...courseForm, provider: e.target.value })
+                      }
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      className={inputCls}
+                      placeholder="Default cost"
+                      value={courseForm.defaultCost ?? ''}
+                      onChange={(e) =>
+                        setCourseForm({
+                          ...courseForm,
+                          defaultCost: e.target.value
+                            ? Number(e.target.value)
+                            : undefined,
+                        })
+                      }
+                    />
+                    <label className="flex flex-col gap-1 text-xs text-slate-500">
+                      Certificate valid (months) — drives expiry reminders
+                      <input
+                        type="number"
+                        min={1}
+                        className={inputCls}
+                        value={courseForm.certValidMonths ?? ''}
+                        onChange={(e) =>
+                          setCourseForm({
+                            ...courseForm,
+                            certValidMonths: e.target.value
+                              ? Number(e.target.value)
+                              : undefined,
+                          })
+                        }
+                      />
+                    </label>
+                    <textarea
+                      className="md:col-span-3 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      rows={2}
+                      placeholder="Description — used when matching appraisal development areas to courses"
+                      value={courseForm.description ?? ''}
+                      onChange={(e) =>
+                        setCourseForm({ ...courseForm, description: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="mt-4 flex justify-end gap-2">
+                    <button
+                      onClick={() => setShowCourseForm(false)}
+                      className="h-10 rounded-lg border border-slate-200 px-3 text-sm text-slate-600"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={submitCourse}
+                      disabled={saving}
+                      className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand-primary px-4 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      {saving && <Loader2 className="h-4 w-4 animate-spin" />} Save
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Code</th>
+                      <th className="px-4 py-3">Title</th>
+                      <th className="px-4 py-3">Provider</th>
+                      <th className="px-4 py-3">Default cost</th>
+                      <th className="px-4 py-3">Certificate validity</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {courses.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
+                          No courses in the catalogue.
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      courses.map((c) => (
+                        <tr key={c.id}>
+                          <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                            {c.code}
+                          </td>
+                          <td className="px-4 py-3 text-slate-800">{c.title}</td>
+                          <td className="px-4 py-3 text-slate-600">
+                            {c.provider || '—'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600">
+                            {c.defaultCost
+                              ? Number(c.defaultCost).toLocaleString()
+                              : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600">
+                            {c.certValidMonths
+                              ? `${c.certValidMonths} months`
+                              : 'Never expires'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
-            )}
-          </Card>
-        </div>
+            </div>
+          )}
+        </>
       )}
 
+      {/* Nominate */}
       {nominateFor && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Nominate somebody for ${nominateFor.course?.title}`}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-        >
-          <Card className="w-full max-w-md p-5">
-            <h2 className="text-base font-semibold text-text-heading">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="mb-1 text-base font-semibold text-slate-900">
               Nominate for {nominateFor.course?.title}
-            </h2>
-            <p className="mb-4 mt-1 text-xs text-text-muted">
-              {formatDateOnly(nominateFor.startDate)} →{' '}
-              {formatDateOnly(nominateFor.endDate)}
+            </h3>
+            <p className="mb-4 text-xs text-slate-500">
+              {fmtDate(nominateFor.startDate)} ·{' '}
+              {nominateFor.seats
+                ? `${nominateFor._count?.nominations ?? 0} of ${nominateFor.seats} seats taken`
+                : 'unlimited seats'}
             </p>
-            <div className="space-y-3">
-              <Select
-                label="Employee"
-                placeholder="Choose an employee…"
-                value={nomineeId}
-                onChange={(event) => setNomineeId(event.target.value)}
-                data-testid="nominate-employee"
-              >
-                {(people.data?.data ?? []).map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {fullName(person)} ({person.employeeCode})
-                  </option>
-                ))}
-              </Select>
-              <Textarea
-                label="Why this person needs this course"
-                rows={3}
-                value={justification}
-                onChange={(event) => setJustification(event.target.value)}
-              />
-            </div>
+            <select
+              className={inputCls}
+              value={nominateEmployeeId}
+              onChange={(e) => setNominateEmployeeId(e.target.value)}
+            >
+              <option value="">Select employee…</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.fullName} ({e.employeeCode})
+                </option>
+              ))}
+            </select>
             <div className="mt-5 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setNominateFor(null)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => void submitNomination()}
-                isLoading={nominate.isPending}
-                data-testid="nominate-submit"
+              <button
+                onClick={() => setNominateFor(null)}
+                className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-600"
               >
-                Nominate
-              </Button>
+                Cancel
+              </button>
+              <button
+                onClick={submitNominate}
+                disabled={saving}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand-primary px-3 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />} Nominate
+              </button>
             </div>
-          </Card>
+          </div>
         </div>
       )}
 
+      {/* Attendance */}
       {attendanceFor && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Record attendance"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-        >
-          <Card className="w-full max-w-md p-5">
-            <h2 className="text-base font-semibold text-text-heading">
-              Attendance for {attendanceFor.employee?.fullName}
-            </h2>
-            <p className="mb-4 mt-1 text-xs text-text-muted">
-              {attendanceFor.session?.course?.title}. A certificate expiry is
-              derived from the course validity window.
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="mb-1 text-base font-semibold text-slate-900">
+              Record attendance
+            </h3>
+            <p className="mb-4 text-xs text-slate-500">
+              {attendanceFor.employee?.fullName} —{' '}
+              {attendanceFor.session?.course?.title}.
+              {attendanceFor.session?.course?.certValidMonths
+                ? ` The certificate will expire ${attendanceFor.session.course.certValidMonths} months after the session ends.`
+                : ''}
             </p>
             <div className="space-y-3">
-              <Input
-                label="Score"
-                type="number"
-                min={0}
-                max={100}
-                value={score}
-                onChange={(event) => setScore(event.target.value)}
-              />
-              <label className="flex items-center gap-2 text-sm text-text-body">
+              <label className="flex flex-col gap-1 text-xs text-slate-500">
+                Score (optional)
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  className={inputCls}
+                  value={score}
+                  onChange={(e) => setScore(e.target.value)}
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded-sm border-surface-border accent-brand-primary"
                   checked={passed}
-                  onChange={(event) => setPassed(event.target.checked)}
+                  onChange={(e) => setPassed(e.target.checked)}
                 />
                 Passed
               </label>
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setAttendanceFor(null)}>
+              <button
+                onClick={() => setAttendanceFor(null)}
+                className="h-9 rounded-lg border border-slate-200 px-3 text-sm text-slate-600"
+              >
                 Cancel
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => void submitAttendance(false)}
-                isLoading={recordAttendance.isPending}
+              </button>
+              <button
+                onClick={() => submitAttendance(false)}
+                disabled={saving}
+                className="h-9 rounded-lg border border-orange-200 px-3 text-sm font-medium text-orange-700 disabled:opacity-50"
               >
                 No-show
-              </Button>
-              <Button
-                onClick={() => void submitAttendance(true)}
-                isLoading={recordAttendance.isPending}
-                data-testid="attendance-submit"
+              </button>
+              <button
+                onClick={() => submitAttendance(true)}
+                disabled={saving}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand-primary px-3 text-sm font-medium text-white disabled:opacity-50"
               >
-                Attended
-              </Button>
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />} Attended
+              </button>
             </div>
-          </Card>
+          </div>
         </div>
       )}
     </div>
@@ -827,7 +780,7 @@ function TrainingScreen() {
 export default function TrainingPage() {
   return (
     <ProtectedRoute requiredRoles={['ADMIN', 'HR_MANAGER', 'MANAGER']}>
-      <TrainingScreen />
+      <TrainingPageInner />
     </ProtectedRoute>
   );
 }

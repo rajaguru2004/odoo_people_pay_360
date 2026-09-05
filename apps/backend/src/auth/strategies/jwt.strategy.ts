@@ -8,23 +8,25 @@ import { requireSecret } from '../../common/config/require-secret';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
-    private readonly config: ConfigService,
-    private readonly auth: AuthService,
+    private configService: ConfigService,
+    private auth: AuthService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: requireSecret(
         'JWT_SECRET',
-        config.get<string>('JWT_SECRET'),
+        configService.get('JWT_SECRET'),
       ),
     });
   }
 
-  validate(payload: { sub: string }) {
-    // The role in the token is NOT trusted for authorisation — the principal is
-    // rebuilt from the database, so a role change or a deactivation takes
-    // effect on the next request rather than when the token finally expires.
-    return this.auth.buildPrincipal(payload.sub);
+  /**
+   * The principal query lives in AuthService.buildPrincipal so non-HTTP entry
+   * points (the WhatsApp channel) get an identical `req.user` — a tool call must
+   * not have weaker scope because it arrived over a different transport.
+   */
+  async validate(payload: any) {
+    return this.auth.buildPrincipal(payload.sub, payload.departmentId);
   }
 }

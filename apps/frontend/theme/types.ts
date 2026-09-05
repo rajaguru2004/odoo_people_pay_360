@@ -106,7 +106,7 @@ export interface ThemeBrand {
 }
 
 export interface ThemeConfig {
-  /** Unique identifier for this preset (e.g. "default", "emerald") */
+  /** Unique identifier for this preset (e.g. "default", "client-a") */
   id: string;
   /** Human-readable name for this theme */
   name: string;

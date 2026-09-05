@@ -1,80 +1,62 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import userEvent from '@testing-library/user-event';
-import { renderWithProviders, screen } from '@/test/utils';
-import { navigationState } from '@/test/router-mock';
-import { useAuthStore } from '@/store/authStore';
-import { usePageHeaderStore } from '@/store/pageHeaderStore';
+import { describe, expect, it, vi } from 'vitest';
+import { renderWithProviders, screen } from '@/test/render';
 import ModuleLandingPage from './ModuleLandingPage';
 
-beforeEach(() => {
-  navigationState.pathname = '/dashboard/organization';
-  usePageHeaderStore.setState({ entry: null });
-  useAuthStore.setState({
-    user: { id: 'u1', email: 'hr@example.com', role: 'ADMIN', isActive: true },
-    isAuthenticated: true,
-    hasHydrated: true,
-  });
-});
+/**
+ * The shared hub shell.
+ *
+ * `showControls` used to default to TRUE, which drew a period filter on all ten
+ * hubs while only Time & Attendance passed `timeFilter`/`onTimeFilterChange`.
+ * On the other nine the tabs moved and the page did not — and a reader who
+ * clicks Week, sees the same numbers, and concludes nothing changed has been
+ * told something false. The default is now false and the Time hub opts in.
+ */
+vi.mock('@/hooks/useModuleNav', () => ({
+  useModuleNav: () => ({ group: null, children: [] }),
+  useNavLocation: () => ({ group: null, child: null }),
+}));
 
 describe('the module landing shell', () => {
-  it('declares its heading to the shell rather than painting one', () => {
+  it('draws no period filter unless a page asks for one', () => {
     renderWithProviders(
-      <ModuleLandingPage
-        moduleKey="organization"
-        title="Organisation"
-        subtitle="Branches and departments."
-      />,
+      <ModuleLandingPage moduleKey="organization" title="Organization" />,
+      { role: 'ADMIN' },
     );
-
-    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
-    expect(usePageHeaderStore.getState().entry).toMatchObject({
-      pathname: '/dashboard/organization',
-      title: 'Organisation',
-      subtitle: 'Branches and departments.',
-    });
-  });
-
-  it('draws no period filter unless the page asks for one', () => {
-    // A control wired to nothing is worse than no control: the reader clicks
-    // Week, the figures do not move, and they conclude the data did not change.
-    renderWithProviders(<ModuleLandingPage moduleKey="organization" title="Organisation" />);
 
     expect(screen.queryByRole('button', { name: 'Week' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Month' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Years' })).toBeNull();
   });
 
-  it('draws it when the page opts in, controlled by that page', async () => {
+  it('draws it when a page opts in, controlled by that page', async () => {
     const onChange = vi.fn();
-    const user = userEvent.setup();
-
-    renderWithProviders(
+    const { user } = renderWithProviders(
       <ModuleLandingPage
         moduleKey="timeAttendance"
-        title="Time & attendance"
+        title="Time & Attendance"
         showControls
         timeFilterOptions={['Today', 'Week', 'Month', 'Year']}
         timeFilter="Today"
         onTimeFilterChange={onChange}
       />,
+      { role: 'ADMIN' },
     );
 
-    await user.click(screen.getByRole('button', { name: 'Week' }));
+    const week = screen.getByRole('button', { name: 'Week' });
+    await user.click(week);
     expect(onChange).toHaveBeenCalledWith('Week');
   });
 
   it('hides the action buttons that have no handler', () => {
+    // A button wired to nothing is a defect in this codebase, not a
+    // placeholder: the reader clicks it, nothing happens, and they stop
+    // trusting the rest of the row.
     renderWithProviders(
-      <ModuleLandingPage moduleKey="organization" title="Organisation" showControls />,
+      <ModuleLandingPage moduleKey="organization" title="Organization" showControls />,
+      { role: 'ADMIN' },
     );
 
-    expect(screen.queryByRole('button', { name: /add new/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /export/i })).toBeNull();
-  });
-
-  it('renders the module tiles under the explore heading', () => {
-    renderWithProviders(<ModuleLandingPage moduleKey="organization" title="Organisation" />);
-
-    expect(screen.getByRole('heading', { name: 'Explore' })).toBeInTheDocument();
-    expect(screen.getAllByTestId('module-tile')).toHaveLength(4);
+    expect(screen.queryByRole('button', { name: /Add new/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Export/i })).toBeNull();
   });
 });

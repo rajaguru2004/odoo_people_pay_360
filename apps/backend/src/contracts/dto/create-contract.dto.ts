@@ -1,112 +1,104 @@
 import {
-  IsDateString,
-  IsEnum,
-  IsInt,
-  IsNumber,
-  IsOptional,
   IsString,
+  IsDateString,
+  IsOptional,
   IsUUID,
-  Length,
-  Max,
-  MaxLength,
+  IsNumber,
   Min,
+  IsEnum,
+  MaxLength,
+  ValidateIf,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ContractStatus, ContractType, WorkType } from '@prisma/client';
+import { ApiProperty } from '@nestjs/swagger';
+import { ContractType, WorkType } from '../contract.constants';
 
 export class CreateContractDto {
-  @ApiProperty()
+  @ApiProperty({
+    example: '11111111-1111-1111-1111-111111111111',
+    description: 'Employee ID',
+  })
   @IsUUID()
   employeeId: string;
 
-  @ApiPropertyOptional({
-    example: 'CTR-2026-0001',
-    description: 'Generated as CTR-<year>-<sequence> when left out',
+  @ApiProperty({
+    example: 'FIXED_TERM',
+    enum: ContractType,
+    description:
+      'Contract duration type: PROBATION (max 60 days), FIXED_TERM (12-36 months), INDEFINITE (no end date)',
+  })
+  @IsEnum(ContractType)
+  contractType: string;
+
+  @ApiProperty({
+    example: 'HD-2024-001',
+    required: false,
+    description: 'Contract number',
   })
   @IsOptional()
   @IsString()
-  @MaxLength(64)
+  @MaxLength(100)
   contractNumber?: string;
 
-  @ApiProperty({ enum: ContractType })
-  @IsEnum(ContractType)
-  contractType: ContractType;
-
-  @ApiPropertyOptional({ enum: WorkType, default: WorkType.FULL_TIME })
-  @IsOptional()
-  @IsEnum(WorkType)
-  workType?: WorkType;
-
-  @ApiPropertyOptional({ enum: ContractStatus, default: ContractStatus.DRAFT })
-  @IsOptional()
-  @IsEnum(ContractStatus)
-  status?: ContractStatus;
-
-  @ApiProperty({ example: '2026-01-01' })
+  @ApiProperty({
+    example: '2024-01-01',
+    description: 'Contract start date',
+  })
   @IsDateString()
   startDate: string;
 
-  @ApiPropertyOptional({
-    example: '2027-12-31',
-    description: 'Leave out for a permanent contract',
+  @ApiProperty({
+    example: '2025-01-01',
+    required: false,
+    description:
+      'Contract end date (required for PROBATION and FIXED_TERM, must be null for INDEFINITE)',
   })
-  @IsOptional()
+  @ValidateIf((o) => o.contractType !== 'INDEFINITE')
   @IsDateString()
   endDate?: string;
 
-  @ApiPropertyOptional({ example: '2026-04-01' })
-  @IsOptional()
-  @IsDateString()
-  probationEndDate?: string;
-
-  @ApiPropertyOptional({ default: 40 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(168)
-  workHoursPerWeek?: number;
-
-  @ApiProperty({ example: 1250.5, description: 'Three decimal places' })
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 3 })
+  @ApiProperty({
+    example: 15000000,
+    description: 'Base salary in VND',
+  })
+  @IsNumber()
   @Min(0)
   salary: number;
 
-  @ApiPropertyOptional({ example: 'OMR', default: 'OMR' })
+  @ApiProperty({
+    example: 'FULL_TIME',
+    enum: WorkType,
+    required: false,
+    description: 'Work mode',
+  })
   @IsOptional()
-  @IsString()
-  @Length(3, 3)
-  currency?: string;
+  @IsEnum(WorkType)
+  workType?: string;
 
-  @ApiPropertyOptional({ default: 30 })
+  @ApiProperty({
+    example: 40,
+    required: false,
+    description: 'Work hours per week',
+  })
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  noticePeriodDays?: number;
+  @IsNumber()
+  @Min(1)
+  workHoursPerWeek?: number;
 
-  @ApiPropertyOptional({ default: 30 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  annualLeaveDays?: number;
-
-  @ApiPropertyOptional()
+  @ApiProperty({
+    example: 'Contract terms...',
+    required: false,
+    description: 'Contract terms',
+  })
   @IsOptional()
   @IsString()
   terms?: string;
 
-  @ApiPropertyOptional()
+  @ApiProperty({
+    example: 'Internal notes',
+    required: false,
+    description: 'Internal notes',
+  })
   @IsOptional()
   @IsString()
   notes?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  @MaxLength(512)
-  documentUrl?: string;
 }

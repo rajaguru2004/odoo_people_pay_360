@@ -1,44 +1,52 @@
 import {
-  IsDateString,
+  IsUUID,
   IsEnum,
   IsInt,
-  IsOptional,
-  IsUUID,
-  Max,
   Min,
+  Max,
+  IsOptional,
+  IsDateString,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { TeamMemberRole } from '@prisma/client';
+
+export enum TeamMemberRole {
+  LEAD = 'LEAD',
+  SENIOR = 'SENIOR',
+  MEMBER = 'MEMBER',
+  CONTRIBUTOR = 'CONTRIBUTOR',
+}
 
 export class AddTeamMemberDto {
-  @ApiProperty()
+  @ApiProperty({ example: 'uuid', description: 'Employee ID' })
   @IsUUID()
   employeeId: string;
 
-  @ApiPropertyOptional({
-    enum: TeamMemberRole,
-    default: TeamMemberRole.MEMBER,
-  })
+  @ApiPropertyOptional({ enum: TeamMemberRole, default: TeamMemberRole.MEMBER })
   @IsOptional()
   @IsEnum(TeamMemberRole)
   role?: TeamMemberRole;
 
   @ApiPropertyOptional({
+    example: 100,
+    description: 'Allocation percentage (0-100)',
     default: 100,
-    minimum: 0,
-    maximum: 100,
-    description: 'Percentage of the person committed to this team',
   })
   @IsOptional()
-  @Type(() => Number)
   @IsInt()
   @Min(0)
   @Max(100)
-  allocation?: number;
+  allocationPercentage?: number;
 
-  @ApiPropertyOptional({ example: '2026-02-01' })
+  @ApiPropertyOptional({ example: '2026-01-01', description: 'Start date' })
   @IsOptional()
   @IsDateString()
   startDate?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-12-31',
+    description: 'End date (for temporary assignments)',
+  })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 }

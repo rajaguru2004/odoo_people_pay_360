@@ -1,55 +1,95 @@
 import axiosInstance from '@/lib/axios';
 import { ApiResponse } from '@/types/api';
-import type {
-  Payslip,
-  PayslipSummary,
-  SalaryStructure,
-  YtdSummary,
-} from '@/types/payroll';
+import { Payroll, CreatePayrollData, UpdatePayrollItemData, Payslip } from '@/types/payroll';
 
-/**
- * The read side of payroll.
- *
- * Everything here is a question somebody asks about their own pay. There is no
- * method that creates, calculates or approves a run: the payroll engine is not
- * part of this portal's surface, and adding a write here would put a button on
- * a screen the server would refuse.
- */
+interface QueryPayrollParams {
+  year?: number;
+  status?: string;
+}
+
 class PayrollService {
-  /** The caller's own payslips, newest first. */
-  myPayslips(year?: number): Promise<ApiResponse<PayslipSummary[]>> {
-    return axiosInstance.get('/payrolls/my-payslips/list', {
-      params: year ? { year } : undefined,
+  async getAll(params?: QueryPayrollParams): Promise<ApiResponse<Payroll[]>> {
+    return axiosInstance.get('/payrolls', { params });
+  }
+
+  async getById(id: string): Promise<ApiResponse<Payroll>> {
+    return axiosInstance.get(`/payrolls/${id}`);
+  }
+
+  async create(data: CreatePayrollData): Promise<ApiResponse<Payroll>> {
+    return axiosInstance.post('/payrolls', data, {
+      timeout: 180000 // 3 minutes for payroll creation
     });
   }
 
-  /** One of the caller's own payslips, with its breakdown. */
-  myPayslip(id: string): Promise<ApiResponse<Payslip>> {
-    return axiosInstance.get(`/payrolls/my-payslips/${id}`);
-  }
-
-  ytdSummary(year?: number): Promise<ApiResponse<YtdSummary>> {
-    return axiosInstance.get('/payrolls/my-ytd-summary', {
-      params: year ? { year } : undefined,
-    });
+  async updateItem(payrollId: string, itemId: string, data: UpdatePayrollItemData): Promise<ApiResponse<any>> {
+    return axiosInstance.patch(`/payrolls/${payrollId}/items/${itemId}`, data);
   }
 
   /**
-   * A payslip addressed by person and period.
-   *
-   * The employee comes from the URL rather than from the session, so the server
-   * answers it only for the caller themselves or for a payroll role.
+   * @deprecated Use `submit` -> (approve) -> `lock`. The backend now routes
+   * `/finalize` to the same code path as `/lock`, so it requires an APPROVED
+   * payroll and no longer locks a DRAFT one. Kept only so an older client build
+   * does not 404.
    */
-  forPeriod(
-    employeeId: string,
-    month: number,
-    year: number,
-  ): Promise<ApiResponse<Payslip>> {
+  async finalize(id: string): Promise<ApiResponse<Payroll>> {
+    return axiosInstance.post(`/payrolls/${id}/finalize`);
+  }
+
+  async getPayslip(employeeId: string, month: number, year: number): Promise<ApiResponse<Payslip>> {
     return axiosInstance.get(`/payrolls/payslip/${employeeId}/${month}/${year}`);
   }
 
-  salaryStructure(employeeId: string): Promise<ApiResponse<SalaryStructure>> {
-    return axiosInstance.get(`/payrolls/salary-structure/${employeeId}`);
+  // Employee Payslip Methods
+  async getMyPayslips(): Promise<ApiResponse<any[]>> {
+    return axiosInstance.get('/payrolls/my-payslips/list');
+  }
+
+  async getMyPayslipDetail(itemId: string): Promise<ApiResponse<any>> {
+    return axiosInstance.get(`/payrolls/my-payslips/${itemId}`);
+  }
+
+  async getYTDSummary(year?: number): Promise<ApiResponse<any>> {
+    return axiosInstance.get('/payrolls/my-ytd-summary', {
+      params: year ? { year } : {}
+    });
+  }
+
+  // Workflow methods
+  async submit(id: string): Promise<ApiResponse<Payroll>> {
+    return axiosInstance.post(`/payrolls/${id}/submit`);
+  }
+
+  async approve(id: string, data: { notes?: string }): Promise<ApiResponse<Payroll>> {
+    return axiosInstance.post(`/payrolls/${id}/approve`, data);
+  }
+
+  async reject(id: string, data: { reason: string }): Promise<ApiResponse<Payroll>> {
+    return axiosInstance.post(`/payrolls/${id}/reject`, data);
+  }
+
+  async lock(id: string): Promise<ApiResponse<Payroll>> {
+    return axiosInstance.post(`/payrolls/${id}/lock`);
+  }
+
+  /**
+   * New version of a LOCKED payroll: a fresh DRAFT at version+1 that copies the
+   * item amounts but no ledger rows, so it can never double-pay.
+   *
+   * This is the ONLY way forward for a run that reached LOCKED without approval —
+   * submit, approve and lock all reject a LOCKED payroll, so such a run is
+   * otherwise stuck and can never be paid out.
+   */
+  async createRevision(id: string, reason: string): Promise<ApiResponse<Payroll>> {
+    return axiosInstance.post(`/payrolls/${id}/create-revision`, { reason });
+  }
+
+  async getHistory(id: string): Promise<ApiResponse<any>> {
+    return axiosInstance.get(`/payrolls/${id}/history`);
+  }
+
+  async delete(id: string): Promise<ApiResponse<any>> {
+    return axiosInstance.delete(`/payrolls/${id}`);
   }
 }
 

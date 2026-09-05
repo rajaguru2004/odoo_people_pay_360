@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['eslint.config.mjs', 'dist/**', 'node_modules/**'],
+    ignores: ['eslint.config.mjs'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
@@ -29,26 +29,46 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-floating-promises': 'warn',
       '@typescript-eslint/no-unsafe-argument': 'warn',
-      'prettier/prettier': ['error', { endOfLine: 'auto' }],
+      "prettier/prettier": ["error", { endOfLine: "auto" }],
     },
   },
   {
-    // The supertest specs drive the API over HTTP, and `response.body` is
-    // `any` — there is no type for a JSON payload that has not been parsed
-    // against a schema. The `no-unsafe-*` family exists to stop `any` leaking
-    // through application code, and asserting on an HTTP response is precisely
-    // where it is expected. Casting every access would add noise and no safety:
-    // the assertion IS the check.
+    // The WhatsApp routing path must not be able to reach a language model.
     //
-    // Narrow on purpose. Everything under `src/` keeps the full rule set, and
-    // `no-floating-promises` stays on here so an un-awaited request still fails
-    // — a spec that forgets to await passes without having tested anything.
-    files: ['test/**/*.ts'],
+    // command-router.service.ts has claimed "by design and by an ESLint
+    // boundary" since it was written, and no such rule existed — so the claim
+    // was true only by accident of what nobody had imported yet.
+    //
+    // It matters because these files decide WHICH ACTION RUNS, and some of
+    // those actions write. A model that can pick an action is a model that can
+    // pick the wrong one, and "in"/"out" and "approve"/"reject" are each one
+    // token apart in meaning. Anything AI-shaped hands off through
+    // WHATSAPP_AI_PORT, which is reachable only from the no-match branch.
+    files: [
+      'src/whatsapp/router/**/*.ts',
+      'src/whatsapp/inbound/**/*.ts',
+      'src/whatsapp/session/**/*.ts',
+    ],
     rules: {
-      '@typescript-eslint/no-unsafe-member-access': 'off',
-      '@typescript-eslint/no-unsafe-assignment': 'off',
-      '@typescript-eslint/no-unsafe-call': 'off',
-      '@typescript-eslint/no-unsafe-return': 'off',
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '**/copilot/**',
+                '**/chatbot/**',
+                'openai',
+                '@openrouter/*',
+                '@anthropic-ai/*',
+                '@google/generative-ai',
+              ],
+              message:
+                'The WhatsApp router must not reach a language model. Hand off through WHATSAPP_AI_PORT instead.',
+            },
+          ],
+        },
+      ],
     },
   },
 );

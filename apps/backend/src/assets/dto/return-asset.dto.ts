@@ -1,22 +1,17 @@
-import {
-  IsDateString,
-  IsIn,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { AssetStatus } from '@prisma/client';
 
 /**
- * The status an asset takes on return.
+ * Status the asset takes on return. Defaults to AVAILABLE; a damaged or missing
+ * item must NOT silently re-enter the assignable pool.
  *
- * A deliberate SUBSET of `AssetStatus`, not the whole enum: ASSIGNED is derived
- * from custody and cannot be the outcome of closing that custody. `satisfies`
- * keeps the subset honest — a value that is not a real status stops compiling —
- * while still allowing it to be narrower than the enum.
+ * Deliberately a SUBSET of `AssetStatus`, not the whole enum: ASSIGNED is
+ * derived from custody and cannot be the outcome of closing that custody. The
+ * `satisfies` keeps the subset honest — a value that is not a real status stops
+ * compiling — while still allowing it to be narrower than the enum.
  */
-export const RETURN_STATUSES = [
+const RETURN_STATUSES = [
   'AVAILABLE',
   'IN_REPAIR',
   'LOST',
@@ -35,14 +30,9 @@ export class ReturnAssetDto {
   @MaxLength(50)
   conditionIn?: string;
 
-  @ApiPropertyOptional({
-    enum: RETURN_STATUSES,
-    default: 'AVAILABLE',
-    description:
-      'A damaged or missing item must not re-enter the assignable pool',
-  })
+  @ApiPropertyOptional({ enum: RETURN_STATUSES, default: 'AVAILABLE' })
   @IsOptional()
-  @IsIn(RETURN_STATUSES)
+  @IsIn(RETURN_STATUSES as unknown as string[])
   assetStatus?: (typeof RETURN_STATUSES)[number];
 
   @ApiPropertyOptional()

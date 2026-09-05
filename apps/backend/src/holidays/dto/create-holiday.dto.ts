@@ -1,43 +1,52 @@
 import {
+  IsString,
+  IsDateString,
+  IsInt,
+  Min,
   IsBoolean,
   IsOptional,
-  IsString,
   IsUUID,
-  Matches,
-  MaxLength,
 } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { DAY_KEY_PATTERN } from '../../attendances/attendance-calendar.util';
+import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateHolidayDto {
-  @ApiProperty({ example: 'National Day' })
+  @ApiProperty({ example: 'Lunar New Year', description: 'Holiday name' })
   @IsString()
-  @MaxLength(255)
   name: string;
 
-  @ApiProperty({ example: '2026-11-18' })
-  @Matches(DAY_KEY_PATTERN, { message: 'date must be YYYY-MM-DD' })
+  @ApiProperty({ example: '2026-02-17', description: 'Holiday date (YYYY-MM-DD)' })
+  @IsDateString()
   date: string;
 
-  @ApiPropertyOptional({
-    description: 'Leave unset for a company-wide holiday every branch observes',
+  @ApiProperty({
+    example: 2026,
+    required: false,
+    description: 'Year (derived from date when omitted)',
   })
   @IsOptional()
-  @IsUUID()
-  branchId?: string;
+  @IsInt()
+  @Min(2020)
+  year?: number;
 
-  @ApiPropertyOptional({
-    default: false,
-    description:
-      'Falls on the same date each year — the next calendar copies it',
+  @ApiProperty({
+    example: false,
+    required: false,
+    description: 'Rolls forward into each new year via copy-year',
   })
   @IsOptional()
   @IsBoolean()
   isRecurring?: boolean;
 
-  @ApiPropertyOptional()
+  @ApiProperty({
+    required: false,
+    description: 'Branch this holiday applies to. Omit/null = all branches (company-wide).',
+  })
+  @IsOptional()
+  @IsUUID()
+  branchId?: string | null;
+
+  @ApiProperty({ required: false, description: 'Optional notes' })
   @IsOptional()
   @IsString()
-  @MaxLength(1000)
   description?: string;
 }

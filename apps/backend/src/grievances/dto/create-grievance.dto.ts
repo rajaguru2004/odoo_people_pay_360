@@ -1,34 +1,25 @@
-import {
-  IsBoolean,
-  IsOptional,
-  IsString,
-  IsUUID,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { IsBoolean, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateGrievanceDto {
-  @ApiProperty({ description: 'A GRIEVANCE_CATEGORY library label' })
+  @ApiProperty({ description: 'GRIEVANCE_CATEGORY library label' })
   @IsString()
   @MaxLength(100)
   category: string;
 
   @ApiProperty()
   @IsString()
-  @MinLength(3)
   @MaxLength(200)
   subject: string;
 
   @ApiProperty()
   @IsString()
-  @MinLength(3)
   description: string;
 
   @ApiPropertyOptional({
     default: false,
     description:
-      'Narrows visibility to ADMIN, HR, the complainant and the assigned handler',
+      'Restricts visibility to ADMIN, HR_MANAGER, the complainant and the assigned handler',
   })
   @IsOptional()
   @IsBoolean()

@@ -1,76 +1,162 @@
 import {
-  Body,
   Controller,
   Get,
-  Param,
-  ParseUUIDPipe,
-  Patch,
   Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
   Query,
   UseGuards,
+  ParseIntPipe,
+  ForbiddenException,
+  ParseUUIDPipe,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { SalaryComponentsService } from './salary-components.service';
 import { CreateSalaryComponentDto } from './dto/create-salary-component.dto';
 import { UpdateSalaryComponentDto } from './dto/update-salary-component.dto';
-import { ListSalaryComponentsDto } from './dto/list-salary-components.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { isDeptInManagerScope } from '../common/services/manager-scope.util';
+import { PrismaService } from '../prisma/prisma.service';
+import { AuditResource } from '../audit/audit-resource.decorator';
 
-@ApiTags('Payroll')
-@ApiBearerAuth('JWT-auth')
+@ApiTags('Salary Components')
 @Controller('salary-components')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.PAYROLL_OFFICER)
+@ApiBearerAuth('JWT-auth')
+@AuditResource('SalaryComponent')
 export class SalaryComponentsController {
-  constructor(private readonly service: SalaryComponentsService) {}
+  constructor(
+    private readonly salaryComponentsService: SalaryComponentsService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  @Post()
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Create new salary component',
+    description:
+      'Create salary component for employee (basic salary, allowance, bonus)',
+  })
+  @ApiResponse({ status: 201, description: 'Created successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid data' })
+  create(@Body() createDto: CreateSalaryComponentDto) {
+    return this.salaryComponentsService.create(createDto);
+  }
 
   @Get()
-  @ApiOperation({ summary: 'List salary components' })
-  findAll(@Query() query: ListSalaryComponentsDto) {
-    return this.service.findAll(query);
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Get list of salary components',
+    description: 'Get list of all salary components with filters',
+  })
+  @ApiQuery({ name: 'employeeId', required: false, type: String })
+  @ApiQuery({ name: 'componentType', required: false, type: String })
+  @ApiQuery({ name: 'isActive', required: false, type: Boolean })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'List retrieved successfully' })
+  findAll(
+    @Query('employeeId') employeeId?: string,
+    @Query('componentType') componentType?: string,
+    @Query('isActive') isActive?: string,
+    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+  ) {
+    return this.salaryComponentsService.findAll(
+      employeeId,
+      componentType,
+      isActive !== undefined ? isActive === 'true' : undefined,
+      page,
+      limit,
+    );
+  }
+
+  @Get('employee/:employeeId')
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER')
+  @ApiOperation({
+    summary: 'Get salary components by employee',
+    description: 'Get all active salary components for an employee',
+  })
+  @ApiResponse({ status: 200, description: 'Retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Employee not found' })
+  async findByEmployee(
+    @CurrentUser() user: any,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+  ) {
+    // MANAGER: can only view salary components for own dept employees
+    if (user?.role === 'MANAGER') {
+      const emp = await this.prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { departmentId: true },
+      });
+      if (!emp || !isDeptInManagerScope(user, emp.departmentId)) {
+        throw new ForbiddenException(
+          'You do not have permission to view employees outside your department.',
+        );
+      }
+    }
+    return this.salaryComponentsService.findByEmployee(employeeId);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get one salary component' })
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Get salary component details',
+    description: 'Get detailed information for a salary component',
+  })
+  @ApiResponse({ status: 200, description: 'Retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Not found' })
   findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.findOne(id);
-  }
-
-  @Post()
-  @Roles(UserRole.ADMIN, UserRole.PAYROLL_OFFICER)
-  @ApiOperation({ summary: 'Create a salary component' })
-  create(@Body() dto: CreateSalaryComponentDto) {
-    return this.service.create(dto);
+    return this.salaryComponentsService.findOne(id);
   }
 
   @Patch(':id')
-  @Roles(UserRole.ADMIN, UserRole.PAYROLL_OFFICER)
-  @ApiOperation({ summary: 'Update a salary component' })
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Update salary component',
+    description: 'Update salary component information',
+  })
+  @ApiResponse({ status: 200, description: 'Updated successfully' })
+  @ApiResponse({ status: 404, description: 'Not found' })
   update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateSalaryComponentDto,
+    @Body() updateDto: UpdateSalaryComponentDto,
   ) {
-    return this.service.update(id, dto);
+    return this.salaryComponentsService.update(id, updateDto);
   }
 
-  // No DELETE. A component behind a payslip line must keep resolving, so it is
-  // retired rather than removed.
   @Post(':id/deactivate')
-  @Roles(UserRole.ADMIN, UserRole.PAYROLL_OFFICER)
-  @ApiOperation({ summary: 'Retire a salary component' })
+  @Roles('ADMIN', 'HR_MANAGER')
+  @ApiOperation({
+    summary: 'Deactivate salary component',
+    description: 'Mark salary component as no longer active',
+  })
+  @ApiResponse({ status: 200, description: 'Deactivated successfully' })
+  @ApiResponse({ status: 404, description: 'Not found' })
   deactivate(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.deactivate(id);
+    return this.salaryComponentsService.deactivate(id);
   }
 
-  @Post(':id/activate')
-  @Roles(UserRole.ADMIN, UserRole.PAYROLL_OFFICER)
+  @Delete(':id')
+  @Roles('ADMIN')
   @ApiOperation({
-    summary: 'Put a retired salary component back in the catalogue',
+    summary: 'Delete salary component',
+    description: 'Permanently delete salary component (Admin only)',
   })
-  activate(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.activate(id);
+  @ApiResponse({ status: 200, description: 'Deleted successfully' })
+  @ApiResponse({ status: 404, description: 'Not found' })
+  remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.salaryComponentsService.remove(id);
   }
 }

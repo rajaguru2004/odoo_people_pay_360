@@ -1,7 +1,7 @@
 'use client';
 
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import BranchForm from '@/components/branches/BranchForm';
+import ProtectedRoute from '@/components/auth/ProtectedRoute';
 
 export default function NewBranchPage() {
   return (

@@ -2,15 +2,15 @@ import type { ThemeConfig } from '../types';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- * DEFAULT PRESET — People Pay 360 brand
+ * DEFAULT PRESET — Current HRM Brand (The Company)
  * ─────────────────────────────────────────────────────────────────────────────
  * Primary:  #00358F  (brand blue)
- * Accent:   #f66600  (brand orange)
+ * Accent:   #f66600  (brand orange — TRS signature color)
  * ─────────────────────────────────────────────────────────────────────────────
  */
 export const defaultTheme: ThemeConfig = {
   id: 'default',
-  name: 'People Pay 360 Default',
+  name: 'HRM Default',
 
   colors: {
     // ── Brand ───────────────────────────────────────────────────────────────
@@ -77,7 +77,7 @@ export const defaultTheme: ThemeConfig = {
   },
 
   brand: {
-    appName: 'People Pay 360',
+    appName: 'ESS Portal',
     faviconUrl: null,   // Uses /favicon.ico from public/
   },
 };

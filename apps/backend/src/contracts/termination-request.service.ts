@@ -1,182 +1,566 @@
 import {
-  BadRequestException,
-  ConflictException,
   Injectable,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
-import {
-  ContractStatus,
-  EmployeeStatus,
-  Prisma,
-  RequestStatus,
-} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { paginated, resolvePagination } from '../common/utils/pagination.util';
-import { CreateTerminationDto } from './dto/create-termination.dto';
-import { ListTerminationsDto } from './dto/list-terminations.dto';
+import { DeductionCarryForwardService } from '../payrolls/deduction-carry-forward.service';
+import { assertInBranch } from '../common/branch/branch-scope.util';
+import { ContractValidationService } from './contract-validation.service';
+import { MailService } from '../mail/mail.service';
 import {
-  ReviewTerminationDto,
-  TerminationReviewAction,
-} from './dto/review-termination.dto';
-
-const TERMINATION_INCLUDE = {
-  contract: {
-    select: {
-      id: true,
-      contractNumber: true,
-      contractType: true,
-      status: true,
-      startDate: true,
-      endDate: true,
-      employee: {
-        select: {
-          id: true,
-          employeeCode: true,
-          firstName: true,
-          lastName: true,
-          position: true,
-          department: { select: { id: true, name: true } },
-        },
-      },
-    },
-  },
-  requestedBy: { select: { id: true, email: true } },
-  reviewedBy: { select: { id: true, email: true } },
-} satisfies Prisma.TerminationRequestInclude;
+  CreateTerminationRequestDto,
+  TerminationCategory,
+} from './dto/create-termination-request.dto';
+import { ApproveTerminationDto } from './dto/approve-termination.dto';
+import { RejectTerminationDto } from './dto/reject-termination.dto';
+import { ClearanceService } from '../assets/clearance.service';
 
 @Injectable()
 export class TerminationRequestService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private validationService: ContractValidationService,
+    private mailService: MailService,
+    private clearance: ClearanceService,
+    private readonly carryForward: DeductionCarryForwardService,
+  ) {}
 
-  async findAll(query: ListTerminationsDto) {
-    const { page, limit, skip, take } = resolvePagination(query);
-
-    const where: Prisma.TerminationRequestWhereInput = {
-      ...(query.status ? { status: query.status } : {}),
-      ...(query.contractId ? { contractId: query.contractId } : {}),
-    };
-
-    const [data, total] = await this.prisma.$transaction([
-      this.prisma.terminationRequest.findMany({
-        where,
-        include: TERMINATION_INCLUDE,
-        skip,
-        take,
-        orderBy: { createdAt: 'desc' },
-      }),
-      this.prisma.terminationRequest.count({ where }),
-    ]);
-
-    return paginated(data, total, page, limit);
-  }
-
-  async create(dto: CreateTerminationDto, requestedById: string) {
+  /**
+   * Create a new termination request
+   * Property 11: Termination Workflow Creation
+   */
+  async createTerminationRequest(
+    dto: CreateTerminationRequestDto,
+  ): Promise<any> {
+    // Validate contract exists and is active
     const contract = await this.prisma.contract.findUnique({
       where: { id: dto.contractId },
-      select: { id: true, status: true },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            fullName: true,
+            email: true,
+          },
+        },
+      },
     });
-    if (!contract) throw new NotFoundException('Contract not found');
-    if (contract.status === ContractStatus.TERMINATED) {
-      throw new BadRequestException(
-        'This contract has already been terminated',
-      );
+
+    if (!contract) {
+      throw new NotFoundException('Contract not found');
     }
 
-    // One live request per contract. Two pending requests would race each
-    // other through the review step and the second approval would rewrite an
-    // exit date that has already been acted on by payroll.
-    const pending = await this.prisma.terminationRequest.findFirst({
-      where: { contractId: dto.contractId, status: RequestStatus.PENDING },
-      select: { id: true },
+    if (contract.status !== 'ACTIVE') {
+      throw new BadRequestException('Contract is not active');
+    }
+
+    // Check for existing pending termination request
+    const existingRequest = await this.prisma.terminationRequest.findFirst({
+      where: {
+        contractId: dto.contractId,
+        status: 'PENDING_APPROVAL',
+      },
     });
-    if (pending) {
-      throw new ConflictException(
-        'A termination request for this contract is already awaiting review',
-      );
-    }
 
-    const noticeDate = new Date(dto.noticeDate);
-    const terminationDate = new Date(dto.terminationDate);
-    if (terminationDate < noticeDate) {
+    if (existingRequest) {
       throw new BadRequestException(
-        'The termination date cannot fall before the notice date',
+        'A termination request is already pending approval for this contract.',
       );
     }
 
-    return this.prisma.terminationRequest.create({
+    // Labor-law-citation notice-period validation — neutralized per business
+    // decision: will become a customizable settings-panel toggle instead of a
+    // hardcoded blocker. Left commented so the rule/message is easy to restore.
+    //
+    // const validation = this.validationService.validateTerminationNotice(
+    //   {
+    //     contractType: contract.contractType,
+    //     startDate: contract.startDate,
+    //     endDate: contract.endDate,
+    //   },
+    //   dto.noticeDate,
+    //   dto.terminationDate,
+    // );
+    //
+    // if (!validation.isValid) {
+    //   throw new BadRequestException({
+    //     message: validation.errorMessage,
+    //     code: validation.errorCode,
+    //     details: validation.details,
+    //   });
+    // }
+
+    // Create termination request
+    const terminationRequest = await this.prisma.terminationRequest.create({
       data: {
         contractId: dto.contractId,
-        category: dto.category,
+        requestedBy: dto.requestedBy,
+        terminationCategory: dto.terminationCategory,
+        noticeDate: dto.noticeDate,
+        terminationDate: dto.terminationDate,
         reason: dto.reason,
-        noticeServed: dto.noticeServed,
-        noticeDate,
-        terminationDate,
-        requestedById,
+        status: 'PENDING_APPROVAL',
       },
-      include: TERMINATION_INCLUDE,
+      include: {
+        contract: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                employeeCode: true,
+                fullName: true,
+                email: true,
+                branchId: true,
+              },
+            },
+          },
+        },
+        requester: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
     });
+
+    // TODO: Send notification email to approvers
+    // await this.mailService.sendTerminationRequestNotification(terminationRequest);
+
+    return {
+      success: true,
+      message: 'Termination request created successfully',
+      data: terminationRequest,
+    };
   }
 
   /**
-   * The only place employment actually ends.
-   *
-   * While a request is merely PENDING the employee record is deliberately left
-   * alone: the person is still employed, still on the payroll run, still
-   * counted in headcount, and a request that gets rejected must leave no trace
-   * on them at all. Writing the exit date at request time and reversing it on
-   * rejection would mean any report taken in between reads an exit that never
-   * happened.
-   *
-   * On approval the three writes go together — the request, the contract and
-   * the employee. Any one of them landing alone leaves the workforce reports
-   * disagreeing with the contract register about who still works here.
+   * Approve a termination request
+   * Property 12: Termination Approval Workflow
    */
-  async review(id: string, dto: ReviewTerminationDto, reviewedById: string) {
+  async approveTermination(
+    requestId: string,
+    dto: ApproveTerminationDto,
+    /** Caller principal — needed to authorize a clearance override. */
+    actor?: { id?: string; role?: string },
+  ): Promise<any> {
     const request = await this.prisma.terminationRequest.findUnique({
-      where: { id },
-      include: { contract: { select: { id: true, employeeId: true } } },
+      where: { id: requestId },
+      include: {
+        contract: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                employeeCode: true,
+                fullName: true,
+                email: true,
+                branchId: true,
+              },
+            },
+          },
+        },
+        requester: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
     });
-    if (!request) throw new NotFoundException('Termination request not found');
 
-    if (request.status !== RequestStatus.PENDING) {
+    if (!request) {
+      throw new NotFoundException('Termination request not found');
+    }
+
+    // Object-level branch guard (findUnique bypasses auto-scoping).
+    assertInBranch(request.contract.employee.branchId);
+
+    if (request.status !== 'PENDING_APPROVAL') {
       throw new BadRequestException(
-        `This request was already ${request.status.toLowerCase()}`,
+        'Termination request is not pending approval',
       );
     }
 
-    const stamp = {
-      reviewedById,
-      reviewedAt: new Date(),
-      reviewNote: dto.reviewNote ?? null,
-    };
+    // Asset clearance gate. Must run BEFORE any mutation — a leaver cannot be
+    // completed while they still hold company property.
+    await this.clearance.assertCleared(request.contract.employeeId, {
+      actorUserId: actor?.id ?? dto.approverId,
+      actorRole: actor?.role,
+      reason: dto.clearanceOverrideReason,
+    });
 
-    if (dto.action === TerminationReviewAction.REJECT) {
-      return this.prisma.terminationRequest.update({
-        where: { id },
-        data: { ...stamp, status: RequestStatus.REJECTED },
-        include: TERMINATION_INCLUDE,
+    // The three writes below used to run unwrapped: a failure between them left
+    // the request APPROVED with the contract still ACTIVE, or an employee
+    // deactivated against a request that never closed.
+    const updatedRequest = await this.prisma.$transaction(async (tx) => {
+      // The status check above is a READ, and two approvals arriving together
+      // both passed it before either wrote — so both ran the whole approval,
+      // including the audited clearance override. The end state happened to be
+      // coherent only because both wrote the same values; any step with a side
+      // effect (a settlement, a notification, a ledger entry) would have run
+      // twice. Locking the row and re-reading inside the transaction makes the
+      // pair serialize, so the loser sees APPROVED and is refused.
+      //
+      // Same shape as the "one pending request per department" fix in
+      // department-change-requests.service.ts.
+      await tx.$queryRaw`SELECT id FROM termination_requests WHERE id = ${requestId}::uuid FOR UPDATE`;
+
+      const current = await tx.terminationRequest.findUnique({
+        where: { id: requestId },
+        select: { status: true },
       });
-    }
+      if (current?.status !== 'PENDING_APPROVAL') {
+        throw new BadRequestException(
+          'Termination request is not pending approval',
+        );
+      }
 
-    const [reviewed] = await this.prisma.$transaction([
-      this.prisma.terminationRequest.update({
-        where: { id },
-        data: { ...stamp, status: RequestStatus.APPROVED },
-        include: TERMINATION_INCLUDE,
-      }),
-      this.prisma.contract.update({
+      const updated = await tx.terminationRequest.update({
+        where: { id: requestId },
+        data: {
+          status: 'APPROVED',
+          approverId: dto.approverId,
+          approvedAt: new Date(),
+          approverComments: dto.comments,
+        },
+      });
+
+      await tx.contract.update({
         where: { id: request.contractId },
-        data: { status: ContractStatus.TERMINATED },
-      }),
-      this.prisma.employee.update({
+        data: {
+          status: 'TERMINATED',
+          endDate: request.terminationDate,
+          terminatedReason: request.reason,
+        },
+      });
+
+      // R72: `INACTIVE` is the ONE value every offboarding path writes for
+      // "this person has left" — this one, `ContractsService.terminate` and
+      // `EmployeesService.delete`, which used to write `TERMINATED` and split
+      // the leaver population in two. The CONTRACT above is `TERMINATED`;
+      // that is the contract's status, not the person's.
+      await tx.employee.update({
         where: { id: request.contract.employeeId },
         data: {
-          status: EmployeeStatus.TERMINATED,
-          exitDate: request.terminationDate,
+          status: 'INACTIVE',
+          endDate: request.terminationDate,
         },
-      }),
-    ]);
+      });
+      // G29: leaving does NOT clear what is owed. An unrecovered carry-forward
+      // balance becomes a RECEIVABLE — a debt on record — rather than being
+      // written off silently. `GarnishmentsService.waive`waiving one stays a deliberate act
+      // that erases one, and it demands a reason.
+      await this.carryForward.markOutstandingAsReceivable(request.contract.employeeId, tx);
 
-    return reviewed;
+
+      return updated;
+    });
+
+    // TODO: Send approval notification email
+    // await this.mailService.sendTerminationApprovedNotification(request);
+
+    return {
+      success: true,
+      message: 'Termination request approved successfully',
+      data: updatedRequest,
+    };
+  }
+
+  /**
+   * Reject a termination request
+   * Property 13: Termination Rejection Workflow
+   */
+  async rejectTermination(
+    requestId: string,
+    dto: RejectTerminationDto,
+  ): Promise<any> {
+    const request = await this.prisma.terminationRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        contract: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                employeeCode: true,
+                fullName: true,
+                email: true,
+                branchId: true,
+              },
+            },
+          },
+        },
+        requester: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Termination request not found');
+    }
+
+    // Object-level branch guard (findUnique bypasses auto-scoping).
+    assertInBranch(request.contract.employee.branchId);
+
+    if (request.status !== 'PENDING_APPROVAL') {
+      throw new BadRequestException(
+        'Termination request is not pending approval',
+      );
+    }
+
+    // Update termination request status
+    const updatedRequest = await this.prisma.terminationRequest.update({
+      where: { id: requestId },
+      data: {
+        status: 'REJECTED',
+        approverId: dto.approverId,
+        approvedAt: new Date(),
+        rejectionReason: dto.reason,
+      },
+    });
+
+    // Contract remains ACTIVE - no changes needed
+
+    // TODO: Send rejection notification email
+    // await this.mailService.sendTerminationRejectedNotification(request);
+
+    return {
+      success: true,
+      message: 'Termination request rejected successfully',
+      data: updatedRequest,
+    };
+  }
+
+  /**
+   * Get pending termination requests for an approver
+   */
+  async getPendingTerminations(approverId?: string): Promise<any> {
+    const requests = await this.prisma.terminationRequest.findMany({
+      where: {
+        status: 'PENDING_APPROVAL',
+      },
+      include: {
+        contract: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                employeeCode: true,
+                fullName: true,
+                email: true,
+                position: true,
+                branchId: true,
+                department: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        requester: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+    });
+
+    return {
+      success: true,
+      data: requests,
+      meta: {
+        total: requests.length,
+      },
+    };
+  }
+
+  /**
+   * Get a specific termination request
+   * Property 14: Pending Termination Visibility
+   */
+  async getTerminationRequest(requestId: string): Promise<any> {
+    const request = await this.prisma.terminationRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        contract: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                employeeCode: true,
+                fullName: true,
+                email: true,
+                position: true,
+                branchId: true,
+                department: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        requester: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+        approver: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Termination request not found');
+    }
+
+    // Object-level branch guard (findUnique bypasses auto-scoping).
+    assertInBranch(request.contract.employee.branchId);
+
+    return {
+      success: true,
+      data: request,
+    };
+  }
+
+  /**
+   * Get resolved (approved/rejected) termination requests for the History tab
+   */
+  async getTerminationHistory(): Promise<any> {
+    const requests = await this.prisma.terminationRequest.findMany({
+      where: {
+        status: { in: ['APPROVED', 'REJECTED'] },
+      },
+      include: {
+        contract: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                employeeCode: true,
+                fullName: true,
+                email: true,
+                position: true,
+                branchId: true,
+                department: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        requester: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+        approver: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+      orderBy: {
+        approvedAt: 'desc',
+      },
+    });
+
+    return {
+      success: true,
+      data: requests,
+      meta: {
+        total: requests.length,
+      },
+    };
+  }
+
+  /**
+   * Get termination requests by contract
+   */
+  async getTerminationRequestsByContract(contractId: string): Promise<any> {
+    const requests = await this.prisma.terminationRequest.findMany({
+      where: { contractId },
+      include: {
+        requester: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+        approver: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return {
+      success: true,
+      data: requests,
+      meta: {
+        total: requests.length,
+      },
+    };
+  }
+
+  /**
+   * Get termination category label in Indian
+   */
+  getTerminationCategoryLabel(category: TerminationCategory): string {
+    switch (category) {
+      case TerminationCategory.RESIGNATION:
+        return 'Employee Resignation';
+      case TerminationCategory.MUTUAL_AGREEMENT:
+        return 'Mutual Agreement';
+      case TerminationCategory.COMPANY_TERMINATION:
+        return 'Company Termination';
+      case TerminationCategory.CONTRACT_EXPIRATION:
+        return 'Contract Expiration';
+      case TerminationCategory.DISCIPLINARY:
+        return 'Disciplinary';
+      default:
+        return 'Unknown';
+    }
   }
 }

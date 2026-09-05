@@ -1,51 +1,76 @@
 import axiosInstance from '@/lib/axios';
 import { ApiResponse } from '@/types/api';
-import type {
-  CreateSalaryComponentPayload,
-  SalaryComponent,
-  SalaryComponentListQuery,
-  UpdateSalaryComponentPayload,
-} from '@/types/salaryStructure';
+
+export type ComponentType = string;
+
+export interface SalaryComponent {
+  id: string;
+  employeeId: string;
+  componentType: ComponentType;
+  amount: number;
+  effectiveDate: string;
+  note?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  employee: {
+    id: string;
+    employeeCode: string;
+    fullName: string;
+    department?: {
+      name: string;
+    };
+  };
+}
+
+export interface CreateSalaryComponentData {
+  employeeId: string;
+  componentType: ComponentType;
+  amount: number;
+  effectiveDate?: string;
+  note?: string;
+}
+
+export interface UpdateSalaryComponentData {
+  amount?: number;
+  effectiveDate?: string;
+  note?: string;
+  isActive?: boolean;
+}
 
 class SalaryComponentService {
-  list(
-    query: SalaryComponentListQuery = {},
-  ): Promise<ApiResponse<SalaryComponent[]>> {
-    return axiosInstance.get('/salary-components', { params: query });
+  async getAll(params?: {
+    employeeId?: string;
+    componentType?: string;
+    isActive?: boolean;
+    page?: number;
+    limit?: number;
+  }): Promise<ApiResponse<SalaryComponent[]>> {
+    return axiosInstance.get('/salary-components', { params });
   }
 
-  get(id: string): Promise<ApiResponse<SalaryComponent>> {
+  async getById(id: string): Promise<ApiResponse<SalaryComponent>> {
     return axiosInstance.get(`/salary-components/${id}`);
   }
 
-  create(
-    payload: CreateSalaryComponentPayload,
-  ): Promise<ApiResponse<SalaryComponent>> {
-    return axiosInstance.post('/salary-components', payload);
+  async getByEmployee(employeeId: string): Promise<ApiResponse<{ employee: any; components: SalaryComponent[]; totalSalary: number }>> {
+    return axiosInstance.get(`/salary-components/employee/${employeeId}`);
   }
 
-  /** `code` and `type` are not editable — payslip lines already join on them. */
-  update(
-    id: string,
-    payload: UpdateSalaryComponentPayload,
-  ): Promise<ApiResponse<SalaryComponent>> {
-    return axiosInstance.patch(`/salary-components/${id}`, payload);
+  async create(data: CreateSalaryComponentData): Promise<ApiResponse<SalaryComponent>> {
+    return axiosInstance.post('/salary-components', data);
   }
 
-  /**
-   * Retirement, not deletion — there is no DELETE on this resource.
-   *
-   * A component behind a payslip line must keep resolving: the line carries the
-   * code and label it printed, but a report that walks back to the catalogue
-   * still has to find a row there.
-   */
-  deactivate(id: string): Promise<ApiResponse<SalaryComponent>> {
-    return axiosInstance.post(`/salary-components/${id}/deactivate`);
+  async update(id: string, data: UpdateSalaryComponentData): Promise<ApiResponse<SalaryComponent>> {
+    return axiosInstance.patch(`/salary-components/${id}`, data);
   }
 
-  /** Put a retired component back in the catalogue. */
-  activate(id: string): Promise<ApiResponse<SalaryComponent>> {
-    return axiosInstance.post(`/salary-components/${id}/activate`);
+  async deactivate(id: string): Promise<ApiResponse<SalaryComponent>> {
+    return axiosInstance.patch(`/salary-components/${id}/deactivate`);
+  }
+
+  async delete(id: string): Promise<ApiResponse<void>> {
+    return axiosInstance.delete(`/salary-components/${id}`);
   }
 }
 

@@ -1,31 +1,29 @@
 import {
-  Body,
   Controller,
-  Delete,
   Get,
-  Param,
-  ParseUUIDPipe,
   Post,
+  Delete,
+  Param,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiParam,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
+import { LeaveAttachmentsService } from './leave-attachments.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { Principal } from '../auth/auth.service';
-import { LeaveAttachmentsService } from './leave-attachments.service';
-import { CreateLeaveAttachmentDto } from './dto/create-leave-attachment.dto';
 
-/**
- * Registered under the leave request that owns the files.
- *
- * This controller is listed BEFORE `LeaveRequestsController` in the module's
- * `controllers` array so `/leave-requests/:id/attachments` is matched before
- * `/leave-requests/:id` can claim the prefix.
- */
-@ApiTags('Leave attachments')
+@ApiTags('Leave Attachments')
 @ApiBearerAuth('JWT-auth')
 @Controller('leave-requests/:leaveRequestId/attachments')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -33,53 +31,42 @@ export class LeaveAttachmentsController {
   constructor(private readonly service: LeaveAttachmentsService) {}
 
   @Get()
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.HR_MANAGER,
-    UserRole.MANAGER,
-    UserRole.EMPLOYEE,
-  )
-  @ApiOperation({ summary: 'Files attached to a leave request' })
-  findAll(
-    @Param('leaveRequestId', ParseUUIDPipe) leaveRequestId: string,
-    @CurrentUser() user: Principal,
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Get all attachments for a leave request' })
+  @ApiParam({ name: 'leaveRequestId', description: 'Leave Request UUID' })
+  findByLeaveRequest(
+    @Param('leaveRequestId') leaveRequestId: string,
+    @CurrentUser() user: any,
   ) {
     return this.service.findByLeaveRequest(leaveRequestId, user);
   }
 
   @Post()
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.HR_MANAGER,
-    UserRole.MANAGER,
-    UserRole.EMPLOYEE,
-  )
-  @ApiOperation({
-    summary: 'Register a file against a leave request',
-    description:
-      'Metadata only. The binary upload is deferred until the platform has a ' +
-      'storage module — see docs/interconnections-leave-overtime.md.',
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Upload a file attachment to a leave request' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
   })
-  create(
-    @Param('leaveRequestId', ParseUUIDPipe) leaveRequestId: string,
-    @Body() dto: CreateLeaveAttachmentDto,
-    @CurrentUser() user: Principal,
+  @ApiParam({ name: 'leaveRequestId', description: 'Leave Request UUID' })
+  upload(
+    @Param('leaveRequestId') leaveRequestId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: any,
   ) {
-    return this.service.create(leaveRequestId, dto, user);
+    return this.service.uploadAndCreate(leaveRequestId, file, user);
   }
 
   @Delete(':id')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.HR_MANAGER,
-    UserRole.MANAGER,
-    UserRole.EMPLOYEE,
-  )
-  @ApiOperation({ summary: 'Remove an attachment (soft)' })
-  remove(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: Principal,
-  ) {
+  @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
+  @ApiOperation({ summary: 'Delete a leave request attachment' })
+  @ApiParam({ name: 'leaveRequestId', description: 'Leave Request UUID' })
+  @ApiParam({ name: 'id', description: 'Attachment UUID' })
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.service.remove(id, user);
   }
 }
