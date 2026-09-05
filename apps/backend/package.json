@@ -42,6 +42,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:seed:e2e": "ts-node --transpile-only prisma/seed-e2e-baseline.ts",
     "prisma:seed:sample": "ts-node --transpile-only prisma/seed-sample.ts",
     "prisma:seed:demo-ot": "TZ=UTC ts-node --transpile-only prisma/seed-demo-overtime.ts",
     "prisma:seed:overtime-policy": "ts-node --transpile-only prisma/seed-overtime-policy.ts",

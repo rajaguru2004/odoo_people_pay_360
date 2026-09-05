@@ -24,8 +24,12 @@ import { LETTER_TEMPLATE_DEFAULTS } from '../src/letters/letter-defaults';
 
 const prisma = new PrismaClient();
 
-/** Only the throwaway test Postgres. Anything else is refused. */
-const ALLOWED_DB_HOSTS = ['localhost:8069', '127.0.0.1:8069'];
+/**
+ * Only the throwaway test Postgres — 8174, the port `docker-compose.test.yml`
+ * publishes and `.env.test` points at. NOT 8074: that is the demo database this
+ * guard exists to keep the seeder out of.
+ */
+const ALLOWED_DB_HOSTS = ['localhost:8174', '127.0.0.1:8174'];
 
 function assertTestDatabase(): void {
   const url = process.env.DATABASE_URL ?? '';
