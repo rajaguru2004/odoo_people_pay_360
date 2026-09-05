@@ -10,6 +10,8 @@ import { getDefaultRouteForRole } from '@/utils/permissions';
 import { apiErrorMessage } from '@/utils/apiError';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import DemoCredentials from '@/components/auth/DemoCredentials';
+import { DEMO_LOGINS_ENABLED } from '@/utils/demoAccounts';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -21,6 +23,14 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const fillDemoAccount = (demoEmail: string, demoPassword: string) => {
+    setEmail(demoEmail);
+    setPassword(demoPassword);
+    // Any error on screen belongs to the previous attempt, and leaving it above
+    // freshly-filled fields reads as a complaint about them.
+    setError('');
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -107,6 +117,13 @@ export default function LoginPage() {
             {loading ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
+
+        {/* A build-time constant, not a call: when it folds to false the
+            component and the credentials it carries are removed from the
+            bundle rather than merely left undrawn. */}
+        {DEMO_LOGINS_ENABLED && (
+          <DemoCredentials onFill={fillDemoAccount} disabled={loading} />
+        )}
       </motion.div>
     </main>
   );

@@ -196,6 +196,16 @@ suite with it, since Playwright deliberately tests a production build rather
 than `next dev`. Now opt-in via `NEXT_OUTPUT_STANDALONE`, which the Dockerfile
 sets and nothing else needs to.
 
+**The demo-account panel shipped its credentials even when switched off.**
+The panel added to the sign-in screen is gated to non-production builds, but the
+first implementation only stopped it RENDERING: `next build` substitutes a
+`NEXT_PUBLIC_*` value only when it is set and leaves an unset one as a runtime
+lookup, so the guard was never a constant, nothing was folded, and the four
+account emails and the password sat in the production bundle in plain text.
+The rule now resolves in `next.config.ts` and is inlined, so the guard folds and
+the component — with its credentials — is dropped. Verified by grepping a built
+bundle both ways.
+
 **`npm run test:api` pointed at the dev database.**
 The backend's Jest config reads `.env`, and these specs create, approve and
 delete real rows. Now behind `scripts/test-api.sh`, which loads `.env.test` and

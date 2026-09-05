@@ -94,6 +94,11 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8075}
         NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-People Pay 360}
         NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-}
+        # Empty by default: the sign-in screen's demo-account panel prints an
+        # administrator email and inlines its password. Opt in per build, and
+        # only where the data is throwaway.
+        NEXT_PUBLIC_DEMO_LOGINS: ${NEXT_PUBLIC_DEMO_LOGINS:-}
+        NEXT_PUBLIC_DEMO_PASSWORD: ${NEXT_PUBLIC_DEMO_PASSWORD:-}
     container_name: ppx_frontend
     restart: always
     depends_on:

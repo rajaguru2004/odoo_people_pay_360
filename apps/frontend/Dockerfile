@@ -36,6 +36,15 @@ ENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME
 ARG NEXT_PUBLIC_GA_MEASUREMENT_ID=
 ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=$NEXT_PUBLIC_GA_MEASUREMENT_ID
 
+# The demo-account panel on the sign-in screen. Absent means OFF in this image,
+# because NODE_ENV is production below — which is the safe default: the panel
+# prints an administrator email and inlines its password into the bundle.
+# Pass --build-arg NEXT_PUBLIC_DEMO_LOGINS=true only for a throwaway dataset.
+ARG NEXT_PUBLIC_DEMO_LOGINS=
+ENV NEXT_PUBLIC_DEMO_LOGINS=$NEXT_PUBLIC_DEMO_LOGINS
+ARG NEXT_PUBLIC_DEMO_PASSWORD=
+ENV NEXT_PUBLIC_DEMO_PASSWORD=$NEXT_PUBLIC_DEMO_PASSWORD
+
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 

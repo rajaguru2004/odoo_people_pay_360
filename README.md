@@ -85,6 +85,12 @@ npm run dev
 - API: http://localhost:3011
 - Swagger: http://localhost:3011/api/docs
 
+The sign-in screen offers the seeded accounts under **Demo accounts** — one
+click fills the form. The panel is on outside production and off in a production
+build unless `NEXT_PUBLIC_DEMO_LOGINS=true` is passed at build time; it prints
+an administrator email and inlines its password, so it belongs only where the
+data is throwaway.
+
 ## Commands
 
 | Command | What it does |

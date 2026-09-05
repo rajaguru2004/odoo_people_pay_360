@@ -32,6 +32,16 @@ back to 3000/3001.
   `err.response.data.message` silently falls through to the generic fallback.
 - **`NEXT_PUBLIC_*` is build-time.** Inlined by `next build`. Setting one on a
   running container does nothing; pass it as `--build-arg`.
+- **The sign-in screen's demo-account panel is gated, and the gate REMOVES the
+  credentials rather than hiding them.** On outside production, off in a
+  production build unless `NEXT_PUBLIC_DEMO_LOGINS=true` is passed at build
+  time. The rule is resolved in `next.config.ts` (`resolveDemoLogins`) and
+  inlined, because Next substitutes a `NEXT_PUBLIC_*` value only when it is SET
+  and leaves an unset one as a runtime lookup — which is not a constant, so
+  nothing guarded by it folds and the account list shipped inside every bundle,
+  unrendered but readable. Keep the decision alone in `utils/demoAccounts.ts`
+  and the accounts in the panel component: the sign-in page imports the former
+  unconditionally.
 - **`hasHydrated` before any session decision.** See `store/authStore.ts`.
 - **Money.** `Decimal(18, 3)` in Prisma, never `Float`. `formatCurrency` takes
   its decimal count from the currency (OMR/KWD/BHD are thousandths).

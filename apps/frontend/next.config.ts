@@ -1,5 +1,6 @@
 import path from "path";
 import type { NextConfig } from "next";
+import { resolveDemoLogins } from "./utils/demoLoginsGate";
 
 const nextConfig: NextConfig = {
   /**
@@ -41,6 +42,23 @@ const nextConfig: NextConfig = {
    * else needs to.
    */
   output: process.env.NEXT_OUTPUT_STANDALONE === "true" ? "standalone" : undefined,
+
+  /**
+   * Resolved HERE rather than read straight from the environment in the
+   * browser. Next substitutes a NEXT_PUBLIC_ value only when it is SET, and
+   * leaves an unset one as a runtime lookup — which is not a constant, so the
+   * demo-account panel could not be folded away and its credentials shipped
+   * inside every production bundle. Collapsing the decision to a literal here
+   * is what lets the bundler remove them.
+   */
+  env: {
+    NEXT_PUBLIC_DEMO_LOGINS: String(
+      resolveDemoLogins(
+        process.env.NEXT_PUBLIC_DEMO_LOGINS,
+        process.env.NODE_ENV,
+      ),
+    ),
+  },
 
   images: {
     remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com" }],

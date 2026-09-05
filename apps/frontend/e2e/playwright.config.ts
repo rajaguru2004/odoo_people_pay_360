@@ -96,6 +96,11 @@ export default defineConfig({
     env: {
       NEXT_PUBLIC_API_URL: API_URL,
       NEXT_DIST_DIR: '.next-e2e',
+      // This is a PRODUCTION build, where the demo-account panel is off by
+      // default. Switched on here so the suite exercises it — and so the
+      // opt-in itself is covered, since a flag nothing ever sets is a flag
+      // nobody notices has stopped working.
+      NEXT_PUBLIC_DEMO_LOGINS: 'true',
     },
   },
 });
