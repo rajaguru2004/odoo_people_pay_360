@@ -1,6 +1,12 @@
 # Build the Payroll module in People Pay 360
 
-**Status:** plan, not yet implemented.
+**Status:** implemented. Phases 0–6 landed; see
+[`PAYROLL-TASK-TRACKER.md`](../PAYROLL-TASK-TRACKER.md) for the per-task state and
+[`payroll-walkthrough.md`](payroll-walkthrough.md) for what was actually built.
+Two decisions here were changed during implementation and are recorded in the
+walkthrough: no `payroll` i18n namespace was registered, and `seedAttendance`
+was extended from 30 days to 100 so the seeded runs have a processed period
+behind them.
 **Rules in force:** `D:\Odoo-Final\AGENT_INSTRUCTIONS.md` (rules 1–7).
 **Source:** `D:\Odoo-Final\human-resource-management` · **Target:** `D:\Odoo-Final\odoo_people_pay_360`
 

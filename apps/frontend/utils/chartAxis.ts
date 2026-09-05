@@ -29,8 +29,12 @@ export function axisFor(
     // so a 0.5 gridline does not render as two identical "0" labels.
     ticks.push(step >= 1 ? String(Math.round(value)) : value.toFixed(1));
   }
-  // Highest label first: the axis is drawn top-down.
-  return { max, ticks: ticks.reverse() };
+  // ASCENDING, lowest first. `BarOverviewChart` reverses the array itself to
+  // draw the axis top-down (see its `yAxisTicks` default, `['0' … '60']`), so
+  // returning display order here reverses it twice: the labels came out
+  // 0 at the top and the peak at the bottom, with the bars appearing to hang
+  // downwards. Both the Payroll and Schedules hubs drew that way.
+  return { max, ticks };
 }
 
 /** A CSV cell, quoted only when it has to be. */

@@ -26,6 +26,7 @@ import {
   DepartmentChangeType,
   EmployeeStatus,
   LegalDocumentCategory,
+  PayrollRunStatus,
   PrismaClient,
   RequestStatus,
   SalaryComponentType,
@@ -37,6 +38,12 @@ import {
   WorkType,
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import {
+  calculatePayslip,
+  isPayable,
+} from '../src/payroll/payroll-calc.util';
+import { eachDayKey, periodFor } from '../src/payroll/payroll-period.util';
+import { resolvePaidDays } from '../src/payroll/payroll-attendance.util';
 
 const prisma = new PrismaClient();
 
@@ -617,6 +624,9 @@ async function seedHolidays(branches: Record<string, string>) {
  * index and the day's ordinal, which is enough to give every status a
  * population without ever giving two runs different data.
  */
+/** Three months, so the seeded payroll runs have a processed period behind them. */
+const ATTENDANCE_DAYS_BACK = 100;
+
 async function seedAttendance(
   employees: Record<string, string>,
   branches: Record<string, string>,
@@ -634,7 +644,11 @@ async function seedAttendance(
     workHours: number | null;
   }> = [];
 
-  for (let back = 30; back >= 1; back -= 1) {
+  // Reaches back three months rather than one. Payroll runs are seeded for the
+  // two previous periods, and a period with no attendance behind it is exactly
+  // the case the pre-flight calls a BLOCKER — a seeded run built on one would
+  // pay a full month against a month nobody recorded.
+  for (let back = ATTENDANCE_DAYS_BACK; back >= 1; back -= 1) {
     const date = daysFromToday(-back);
     const weekday = date.getUTCDay(); // 0 = Sunday
     // Friday and Saturday are the weekly rest in the seeded calendar.
@@ -706,7 +720,7 @@ async function seedAttendance(
     });
   }
 
-  console.log(`  ✔ ${rows.length} attendance records over 30 days`);
+  console.log(`  ✔ ${rows.length} attendance records over ${ATTENDANCE_DAYS_BACK} days`);
 }
 
 async function seedCorrections(employees: Record<string, string>) {
@@ -962,6 +976,266 @@ async function seedTerminationRequest(
   console.log('  ✔ 1 termination awaiting approval');
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. PAYROLL
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The employee left deliberately without a salary structure.
+ *
+ * The pre-flight and the hub's attention strip both exist to name somebody the
+ * run cannot safely pay, and a demo where every card reads zero cannot show the
+ * reader that the card works. EMP-0021 is the newest hire, which is also the
+ * realistic case — a structure nobody has got round to creating yet.
+ */
+const EMPLOYEE_WITHOUT_STRUCTURE = 'EMP-0021';
+
+/**
+ * How a contract salary is split into structure lines.
+ *
+ * The percentages are how the seed DERIVES the amounts, once, at seed time.
+ * They are not a runtime rule: every `SalaryStructureLine.amount` is an
+ * absolute figure, which is what the calculator reads and what HRM's live
+ * engine does too.
+ */
+const STRUCTURE_SPLIT: Array<{
+  code: string;
+  /** Share of the contract salary, or of BASIC where `ofBasic` is set. */
+  share: number;
+  ofBasic?: boolean;
+}> = [
+  { code: 'BASIC', share: 0.6 },
+  { code: 'HRA', share: 0.25 },
+  { code: 'TRANSPORT', share: 0.1 },
+  { code: 'OTHER_ALLOW', share: 0.05 },
+  { code: 'SOCIAL_SEC_EE', share: 0.07, ofBasic: true },
+  { code: 'SOCIAL_SEC_ER', share: 0.105, ofBasic: true },
+];
+
+const money = (value: number) => Math.round(value * 1000) / 1000;
+
+async function seedSalaryStructures(employees: Record<string, string>) {
+  const components = await prisma.salaryComponent.findMany({
+    where: { code: { in: STRUCTURE_SPLIT.map((l) => l.code) } },
+    select: { id: true, code: true, type: true, sequence: true },
+  });
+  const byCode = new Map(components.map((c) => [c.code, c]));
+
+  const workforce = PEOPLE.filter(
+    (p) => p.status !== EmployeeStatus.TERMINATED && p.code !== EMPLOYEE_WITHOUT_STRUCTURE,
+  );
+  let created = 0;
+
+  for (const p of workforce) {
+    const employeeId = employees[p.code];
+    const basic = money(p.salary * 0.6);
+    const lines = STRUCTURE_SPLIT.map((line) => {
+      const component = byCode.get(line.code);
+      if (!component) return null;
+      return {
+        componentId: component.id,
+        amount: money((line.ofBasic ? basic : p.salary) * line.share),
+      };
+    }).filter((l): l is { componentId: string; amount: number } => l !== null);
+
+    // Upserted on the employee, the natural unique key: SalaryStructure.employeeId
+    // is @unique, so a re-run updates the one structure rather than inserting a
+    // second the constraint would then refuse.
+    const structure = await prisma.salaryStructure.upsert({
+      where: { employeeId },
+      update: { currency: 'OMR', effectiveFrom: hireDateOf(p) },
+      create: { employeeId, currency: 'OMR', effectiveFrom: hireDateOf(p) },
+    });
+
+    // The whole line set is replaced, exactly as PATCH does, so a changed split
+    // in this file does not leave a stale line behind.
+    await prisma.salaryStructureLine.deleteMany({
+      where: { structureId: structure.id },
+    });
+    await prisma.salaryStructureLine.createMany({
+      data: lines.map((l) => ({ structureId: structure.id, ...l })),
+    });
+    created += 1;
+  }
+
+  console.log(
+    `  ✔ ${created} salary structures (${EMPLOYEE_WITHOUT_STRUCTURE} left without one on purpose)`,
+  );
+}
+
+/** The first day of the month `back` months before this one, in UTC. */
+function monthStart(back: number): { month: number; year: number } {
+  const now = new Date();
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
+  return { month: d.getUTCMonth() + 1, year: d.getUTCFullYear() };
+}
+
+/**
+ * Three runs, so every screen has a population: one PAID, one APPROVED and one
+ * CALCULATED still waiting for a decision.
+ *
+ * The amounts come from the REAL calculator, run against the seeded attendance
+ * and the seeded structures. Hand-written figures here would drift from what
+ * the app computes the first time the calculator changed, and the demo would
+ * start disagreeing with the thing it is demonstrating.
+ */
+async function seedPayrollRuns(employees: Record<string, string>) {
+  const RUNS = [
+    { back: 2, status: PayrollRunStatus.PAID },
+    { back: 1, status: PayrollRunStatus.APPROVED },
+    { back: 0, status: PayrollRunStatus.CALCULATED },
+  ];
+
+  const structures = await prisma.salaryStructure.findMany({
+    include: { lines: { include: { component: true } } },
+  });
+  const structureByEmployee = new Map(structures.map((s) => [s.employeeId, s]));
+
+  // The seeded calendar rests on Friday and Saturday, matching seedAttendance.
+  const isWorkingDay = (dayKey: string) => {
+    const weekday = new Date(`${dayKey}T00:00:00Z`).getUTCDay();
+    return weekday !== 5 && weekday !== 6;
+  };
+
+  let runCount = 0;
+  let slipCount = 0;
+
+  for (const spec of RUNS) {
+    const { month, year } = monthStart(spec.back);
+    const period = periodFor(month, year);
+    const from = new Date(`${period.periodStart}T00:00:00.000Z`);
+    const to = new Date(`${period.periodEnd}T00:00:00.000Z`);
+    const workingDays = eachDayKey(period.periodStart, period.periodEnd).filter(
+      isWorkingDay,
+    );
+
+    const attendance = await prisma.attendance.findMany({
+      where: { date: { gte: from, lte: to } },
+      select: { employeeId: true, date: true, status: true },
+    });
+    const byEmployee = new Map<string, Array<{ dayKey: string; status: AttendanceStatus }>>();
+    for (const row of attendance) {
+      const key = row.date.toISOString().slice(0, 10);
+      const bucket = byEmployee.get(row.employeeId) ?? [];
+      bucket.push({ dayKey: key, status: row.status });
+      byEmployee.set(row.employeeId, bucket);
+    }
+
+    const run = await prisma.payrollRun.upsert({
+      where: { periodStart_periodEnd: { periodStart: from, periodEnd: to } },
+      update: { status: spec.status },
+      create: {
+        periodStart: from,
+        periodEnd: to,
+        status: spec.status,
+        currency: 'OMR',
+      },
+    });
+
+    const payslips: Array<{
+      employeeId: string;
+      result: ReturnType<typeof calculatePayslip>;
+    }> = [];
+
+    for (const p of PEOPLE) {
+      if (p.status === EmployeeStatus.TERMINATED) continue;
+      const employeeId = employees[p.code];
+      const structure = structureByEmployee.get(employeeId);
+      if (!structure) continue;
+
+      const lines = structure.lines.map((l) => ({
+        code: l.component.code,
+        label: l.component.name,
+        type: l.component.type as 'EARNING' | 'DEDUCTION' | 'EMPLOYER_CONTRIBUTION',
+        amount: Number(l.amount),
+        sequence: l.component.sequence,
+        componentId: l.component.id,
+      }));
+      if (!isPayable(lines)) continue;
+
+      const { workDays, paidDays } = resolvePaidDays(
+        workingDays,
+        byEmployee.get(employeeId) ?? [],
+      );
+      payslips.push({
+        employeeId,
+        result: calculatePayslip({ lines, workDays, paidDays }),
+      });
+    }
+
+    const sequenceBase = `PS-${period.periodStart.slice(0, 7)}`;
+    for (const [index, slip] of payslips.entries()) {
+      const payslipNumber = `${sequenceBase}-${String(index + 1).padStart(4, '0')}`;
+      const row = await prisma.payslip.upsert({
+        where: {
+          payrollRunId_employeeId: { payrollRunId: run.id, employeeId: slip.employeeId },
+        },
+        update: {
+          payslipNumber,
+          workDays: slip.result.workDays,
+          paidDays: slip.result.paidDays,
+          lopDays: slip.result.lopDays,
+          grossPay: slip.result.grossPay,
+          totalDeductions: slip.result.totalDeductions,
+          netPay: slip.result.netPay,
+          totalEmployerCost: slip.result.totalEmployerCost,
+        },
+        create: {
+          payrollRunId: run.id,
+          employeeId: slip.employeeId,
+          payslipNumber,
+          workDays: slip.result.workDays,
+          paidDays: slip.result.paidDays,
+          lopDays: slip.result.lopDays,
+          grossPay: slip.result.grossPay,
+          totalDeductions: slip.result.totalDeductions,
+          netPay: slip.result.netPay,
+          totalEmployerCost: slip.result.totalEmployerCost,
+        },
+      });
+
+      // The lines are replaced rather than upserted one by one: a payslip's
+      // lines are one snapshot, and a half-updated set would not sum to the
+      // totals beside it.
+      await prisma.payslipLine.deleteMany({ where: { payslipId: row.id } });
+      await prisma.payslipLine.createMany({
+        data: slip.result.lines.map((l) => ({
+          payslipId: row.id,
+          componentId: l.componentId,
+          code: l.code,
+          label: l.label,
+          type: l.type as SalaryComponentType,
+          amount: l.amount,
+          sequence: l.sequence,
+        })),
+      });
+      slipCount += 1;
+    }
+
+    const totalGross = money(payslips.reduce((a, p) => a + p.result.grossPay, 0));
+    const totalNet = money(payslips.reduce((a, p) => a + p.result.netPay, 0));
+
+    await prisma.payrollRun.update({
+      where: { id: run.id },
+      data: {
+        totalGross,
+        totalNet,
+        employeeCount: payslips.length,
+        calculatedAt: daysFromToday(-(spec.back * 30 + 1)),
+        approvedAt:
+          spec.status === PayrollRunStatus.APPROVED || spec.status === PayrollRunStatus.PAID
+            ? daysFromToday(-(spec.back * 30))
+            : null,
+        paidAt: spec.status === PayrollRunStatus.PAID ? daysFromToday(-(spec.back * 30 - 2)) : null,
+      },
+    });
+    runCount += 1;
+  }
+
+  console.log(`  ✔ ${runCount} payroll runs, ${slipCount} payslips (real calculator)`);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -985,6 +1259,10 @@ async function main() {
   await seedAttendance(employees, branches);
   await seedCorrections(employees);
   await seedChangeRequests(departments, employees, adminEmail);
+
+  // A structure follows a contract, and a run follows both.
+  await seedSalaryStructures(employees);
+  await seedPayrollRuns(employees);
 
   console.log('✅ Seed complete.');
 }

@@ -7,7 +7,7 @@ describe('axisFor', () => {
     // in steps of 9.4.
     const axis = axisFor(47);
     expect(axis.max).toBe(50);
-    expect(axis.ticks).toEqual(['50', '40', '30', '20', '10', '0']);
+    expect(axis.ticks).toEqual(['0', '10', '20', '30', '40', '50']);
   });
 
   it('keeps the tallest bar inside the plot', () => {
@@ -18,7 +18,7 @@ describe('axisFor', () => {
 
   it('only ever puts gridlines on 1, 2 or 5 and their powers of ten', () => {
     const stepOf = (peak: number) => {
-      const ticks = axisFor(peak).ticks.map(Number).reverse();
+      const ticks = axisFor(peak).ticks.map(Number);
       return ticks[1] - ticks[0];
     };
     for (const peak of [4, 9, 23, 47, 120, 780]) {
@@ -28,10 +28,13 @@ describe('axisFor', () => {
     }
   });
 
-  it('labels the axis top-down, because that is how it is drawn', () => {
+  it('returns ticks ascending, which is what BarOverviewChart consumes', () => {
+    // The chart reverses the array itself to draw top-down — its own default is
+    // ['0' … '60'], lowest first. Returning display order here reversed it
+    // twice and put 0 at the top of the plot on two hubs.
     const ticks = axisFor(20).ticks.map(Number);
-    expect(ticks[0]).toBeGreaterThan(ticks[ticks.length - 1]);
-    expect(ticks[ticks.length - 1]).toBe(0);
+    expect(ticks[0]).toBe(0);
+    expect(ticks[ticks.length - 1]).toBeGreaterThan(ticks[0]);
   });
 
   it('survives a peak of zero, which is an empty window not a broken one', () => {
