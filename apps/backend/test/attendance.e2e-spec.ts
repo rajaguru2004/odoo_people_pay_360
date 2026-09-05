@@ -304,7 +304,9 @@ describe('Time and attendance (e2e)', () => {
         // Every derivable absence is counted, and nothing outside the working
         // calendar is: a weekend is not an absence.
         expect(entry.summary.absent).toBeGreaterThanOrEqual(0);
-        expect(entry.summary.absent).toBeLessThanOrEqual(derivable + entry.days.length);
+        expect(entry.summary.absent).toBeLessThanOrEqual(
+          derivable + entry.days.length,
+        );
       }
     });
 
