@@ -43,9 +43,9 @@ export function apiErrorStatus(err: unknown): number | undefined {
 }
 
 /**
- * The untouched response body, for endpoints that attach structured extras — the
- * WPS generate route returns its full pre-flight report so the screen can refresh
- * without a second round trip.
+ * The untouched response body, for endpoints that attach structured extras —
+ * some routes return a full pre-flight report alongside their message so the
+ * screen can refresh without a second round trip.
  */
 export function apiErrorBody<T = any>(err: unknown): T | null {
   const e = err as Record<string, any> | null;

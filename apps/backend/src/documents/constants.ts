@@ -1,10 +1,9 @@
 /**
  * Letterhead and document-asset limits.
  *
- * Styled on `src/task-attachments/task-attachment.constants.ts`, and for the
- * same reason: the multer interceptor, the service validation and the error
- * message all have to agree, and three copies of a number is how they stop
- * agreeing.
+ * One place per limit: the multer interceptor, the service validation and the
+ * error message all have to agree, and three copies of a number is how they
+ * stop agreeing.
  */
 
 /**
@@ -21,7 +20,7 @@
 export const LETTERHEAD_ALLOWED_MIMES = ['image/png', 'image/jpeg', 'image/jpg'] as const;
 
 /**
- * 5 MB, matching the avatar and task-attachment ceilings.
+ * 5 MB, matching the avatar ceiling.
  *
  * Multer holds the whole body in memory, so this is a heap budget per
  * concurrent upload rather than a policy preference. It is also the ceiling on

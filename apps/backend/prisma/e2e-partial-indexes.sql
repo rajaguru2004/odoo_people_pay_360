@@ -76,15 +76,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS "asset_assignments_one_open_per_asset"
   ON "asset_assignments" ("asset_id")
   WHERE "returned_at" IS NULL;
 
--- ── Loans ───────────────────────────────────────────────────────────────────
-CREATE UNIQUE INDEX IF NOT EXISTS "advance_loan_deductions_schedule_live_uq"
-  ON "advance_loan_deductions" ("schedule_id")
-  WHERE "schedule_id" IS NOT NULL AND "status" IN ('PENDING', 'PAID');
-
-CREATE UNIQUE INDEX IF NOT EXISTS "advance_loan_deductions_request_period_uq"
-  ON "advance_loan_deductions" ("request_id", "year", "month")
-  WHERE "schedule_id" IS NULL AND "status" IN ('PENDING', 'PAID');
-
 -- ── Profile templates ───────────────────────────────────────────────────────
 CREATE UNIQUE INDEX IF NOT EXISTS "uniq_profile_template_company"
   ON "profile_templates" ((true))
@@ -102,11 +93,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS "budget_lines_budget_dept_category_key"
 CREATE UNIQUE INDEX IF NOT EXISTS "budget_lines_budget_category_companywide_key"
   ON "budget_lines" ("budget_id", "category")
   WHERE "department_id" IS NULL;
-
--- ── WPS ─────────────────────────────────────────────────────────────────────
-CREATE UNIQUE INDEX IF NOT EXISTS "uniq_wps_generating_per_payroll"
-  ON "wps_files" ("payroll_id")
-  WHERE "status" = 'GENERATING';
 
 -- ── Payroll period uniqueness ───────────────────────────────────────────────
 -- Not a PARTIAL index but an EXPRESSION one, which `db push` cannot express
@@ -214,23 +200,6 @@ BEGIN
   END IF;
 END
 $$;
-
--- ── Accounting ──────────────────────────────────────────────────────────────
--- Exactly one mapping per (event, component) at each level: one per branch, and
--- one company-wide. `branch_id` is nullable, so the plain @@unique in
--- schema.prisma cannot enforce the company-wide half — two NULLs are never
--- equal in Postgres.
-CREATE UNIQUE INDEX IF NOT EXISTS "ledger_mappings_event_component_branch_key"
-  ON "ledger_mappings" ("event", "component", "branch_id")
-  WHERE "branch_id" IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS "ledger_mappings_event_component_global_key"
-  ON "ledger_mappings" ("event", "component")
-  WHERE "branch_id" IS NULL;
-
--- ── Loans: the reference sequence ───────────────────────────────────────────
--- `prisma db push` cannot create a bare SEQUENCE, and loan references are
--- minted with `nextval` — without this, every native loan creation fails.
-CREATE SEQUENCE IF NOT EXISTS "loan_reference_seq" START WITH 1 INCREMENT BY 1;
 
 -- ── Payroll: leave encashment ───────────────────────────────────────────────
 -- One live request per employee, leave type and year. Two competing requests

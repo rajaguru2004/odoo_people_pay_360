@@ -32,8 +32,8 @@ describe('periodKey', () => {
     expect(periodKey(P(12, 2044))).toBeLessThan(periodKey(P(1, 2045)));
   });
 
-  it('is the same formula the server uses for dueCycleKey', () => {
-    // LoanSchedule.dueCycleKey is `dueYear * 12 + dueMonth`. If this drifts, a
+  it('is the same formula the server uses to order periods', () => {
+    // The server orders a period as `year * 12 + month`. If this drifts, a
     // teardown sorted by it stops being "newest period first" and unlock 409s.
     expect(periodKey(P(7, 2044))).toBe(2044 * 12 + 7);
   });

@@ -161,7 +161,7 @@ describe('Letters, grievance & document vault (e2e)', () => {
         .send({
           templateKey: 'SALARY_CERTIFICATE',
           locale: 'en',
-          purpose: 'a bank loan application',
+          purpose: 'a tenancy application',
           addressedTo: 'Bank Muscat',
         })
         .expect(201);

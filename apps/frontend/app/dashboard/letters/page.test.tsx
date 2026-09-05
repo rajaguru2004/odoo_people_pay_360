@@ -79,7 +79,7 @@ function row(id: string, employeeStatus: string): LetterRequest {
     employeeId: `e-${id}`,
     templateKey: 'SALARY_CERTIFICATE',
     locale: 'en',
-    purpose: 'Bank loan',
+    purpose: 'Visa application',
     addressedTo: 'Bank Muscat',
     status: 'PENDING',
     serialNumber: null,

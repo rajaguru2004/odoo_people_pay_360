@@ -62,9 +62,9 @@ const PASSWORD = 'Passw0rd!';
  *
  * February 2019 is chosen deliberately: it is before every fixture `startDate`
  * below, it has 28 days, it contains no DST transition in any zone this suite
- * uses, and no other suite writes there (`attendance-integrations` uses
- * 2026-05-12; People uses relative dates). A relative window would move under a
- * long-lived database and collide with whatever the previous run left.
+ * uses, and no other suite writes there (People uses relative dates). A
+ * relative window would move under a long-lived database and collide with
+ * whatever the previous run left.
  */
 export const HIST_YEAR = 2019;
 export const HIST_MONTH = 2;

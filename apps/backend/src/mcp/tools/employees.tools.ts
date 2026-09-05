@@ -33,8 +33,8 @@ export class EmployeeTools implements DomainToolProvider {
       },
       {
         // READ-ONLY on purpose. Template CONFIGURATION is deliberately not
-        // exposed to MCP — same call as loan-type config: an admin changing
-        // which fields exist should not be reachable from a chat prompt. This
+        // exposed to MCP: an admin changing which fields exist should not be
+        // reachable from a chat prompt. This
         // tool only answers "what fields does an employee have here", which the
         // assistant needs before it can sensibly fill any of them in.
         name: 'employee_field_schema',
