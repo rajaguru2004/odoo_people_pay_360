@@ -5,7 +5,6 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Search, Bell, Settings, LogOut, User, ChevronDown, LayoutGrid, RefreshCw, Menu, Languages, Building2, Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
-import { useLocaleStore } from '@/store/localeStore';
 import { useGlobalSearchStore } from '@/store/globalSearchStore';
 import { useBranchStore } from '@/store/branchStore';
 import { usePageHeaderStore } from '@/store/pageHeaderStore';
@@ -179,9 +178,6 @@ export default function TopHeader({ onMenuClick }: { onMenuClick?: () => void })
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const t = useTranslations('topHeader');
-  const tLang = useTranslations('languageSwitcher');
-  const locale = useLocaleStore((s) => s.locale);
-  const setLocale = useLocaleStore((s) => s.setLocale);
   const searchQuery = useGlobalSearchStore((s) => s.query);
   const setSearchQuery = useGlobalSearchStore((s) => s.setQuery);
 
@@ -403,15 +399,6 @@ export default function TopHeader({ onMenuClick }: { onMenuClick?: () => void })
         {/* Multi-branch switcher — single point that re-scopes the whole app.
             Renders only for ADMIN / HR_MANAGER (usePermission.canSwitchBranch). */}
         <BranchPicker />
-
-        {/* Language Switcher — Dashboard-module Arabic PoC */}
-        <button
-          onClick={() => setLocale(locale === 'en' ? 'ar' : 'en')}
-          className="flex items-center justify-center min-w-9 h-9 px-2 hover:bg-surface-page rounded-lg transition-colors text-xs font-bold text-text-muted"
-          title={locale === 'en' ? tLang('switchToArabic') : tLang('switchToEnglish')}
-        >
-          {locale === 'en' ? 'AR' : 'EN'}
-        </button>
 
         {/* Refresh Button (only on dashboard) */}
         {pathname === '/dashboard' && (
