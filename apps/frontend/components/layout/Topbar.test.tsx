@@ -49,39 +49,14 @@ describe('Topbar', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Attendance reports');
   });
 
-  it('derives the trail from the module down', () => {
+  it('leaves the breadcrumb trail to the content area', () => {
     navigationState.pathname = '/dashboard/departments/tree';
     renderWithProviders(<Topbar />);
 
-    const trail = screen.getByRole('navigation', { name: 'Breadcrumb' });
-    expect(trail).toHaveTextContent('Organisation');
-    expect(trail).toHaveTextContent('Organisational chart');
-    expect(screen.getByRole('link', { name: 'Organisation' })).toHaveAttribute(
-      'href',
-      '/dashboard/organization',
-    );
-  });
-
-  it('adds the page title as the last crumb on a record page the nav cannot name', () => {
-    navigationState.pathname = '/dashboard/departments/abc-123';
-    usePageHeaderStore.setState({
-      entry: { pathname: '/dashboard/departments/abc-123', title: 'Finance' },
-    });
-
-    renderWithProviders(<Topbar />);
-
-    const trail = screen.getByRole('navigation', { name: 'Breadcrumb' });
-    expect(trail).toHaveTextContent('All departments');
-    expect(trail).toHaveTextContent('Finance');
-  });
-
-  it('draws no trail where there is nothing above the page', () => {
-    // A trail of one crumb only repeats the heading beside it.
-    navigationState.pathname = '/dashboard';
-    renderWithProviders(<Topbar />);
-
+    // The bar is fixed chrome shared by every screen; the trail describes the
+    // page under it and is drawn there instead.
     expect(screen.queryByRole('navigation', { name: 'Breadcrumb' })).toBeNull();
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Dashboard');
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
   });
 
   it('keeps the sign-out control', () => {

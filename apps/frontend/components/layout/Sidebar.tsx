@@ -44,8 +44,14 @@ export default function Sidebar() {
   const expandedKey = override?.pathname === pathname ? override.key : (activeKey ?? null);
 
   return (
-    <aside className="hidden w-64 shrink-0 border-e border-sidebar-border bg-sidebar-bg md:flex md:flex-col">
-      <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-5">
+    // `h-full` against the pinned shell, with the nav below scrolling on its
+    // own: a fully-expanded accordion can be taller than the window, and a rail
+    // that cannot reach its own last entry is no better than one that scrolled
+    // off the page.
+    <aside className="hidden h-full w-64 shrink-0 overflow-hidden border-e border-sidebar-border bg-sidebar-bg md:flex md:flex-col">
+      {/* Fixed beside the header bar, so the brand row and the page heading sit
+          on the same line however far the nav below is scrolled. */}
+      <div className="flex h-16 shrink-0 items-center gap-2 border-b border-sidebar-border px-5">
         <span className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-button)] bg-brand-primary text-sm font-bold text-text-on-brand">
           PP
         </span>
