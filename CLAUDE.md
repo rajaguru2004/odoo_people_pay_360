@@ -11,6 +11,7 @@ npm run lint           # eslint, both apps
 npm run typecheck      # tsc --noEmit, both apps
 npm test               # vitest (unit + component) + jest
 npm run test:e2e       # playwright — needs `npm run e2e:up` first
+npm run test:api       # jest supertest specs against the e2e database
 npm run db:push        # prisma db push
 npm run db:seed        # idempotent bootstrap seed
 ```
@@ -49,12 +50,74 @@ back to 3000/3001.
   boundary. Every one has a `RolesGuard` counterpart server-side; never let a
   hidden button be the only thing stopping an action.
 
+## Modules
+
+Three HR modules sit on top of the base platform, each with a landing hub that
+aggregates in ONE request rather than fanning out to list endpoints and counting
+rows off them:
+
+| Module | Hub | Owns |
+| --- | --- | --- |
+| Organisation | `/dashboard/organization` | branches, departments, the org chart, department change requests |
+| People | `/dashboard/people` | the directory, teams, contracts, terminations, work permits |
+| Time & attendance | `/dashboard/time` | attendance, corrections, logs, reports, the roster, biometric enrolment |
+
+Their aggregates are `GET /organization/hub-summary`, `GET /employees/hub-summary`
+and `GET /attendances/hub-summary`.
+
+### Rules the hubs share
+
+- **A rate is `null`, never `0`, when there was nothing to divide by.** An empty
+  branch and an unreachable endpoint are different claims, and a card printing
+  0.0% for both has told the reader something false about one of them. The
+  frontend renders `null` as an em dash.
+- **Attendance rates divide by `expected`** — the working calendar minus
+  approved leave — never by headcount.
+- **A count is counted in the database**, not taken from the length of a page.
+  A queue longer than one page would otherwise be under-reported on the one card
+  whose job is to say how much work is waiting.
+- **The server owns every bucket label.** `Aug 2026` arrives formatted, so the
+  browser does no calendar maths.
+- **A named sample is not a count.** `attention.*.names` is capped; `count` is
+  the true total.
+- **An unoffered window is a 400, not a silent default.** `months=7` or
+  `anchor=2026-13-45` is refused, because a page that answers for a period
+  nobody asked about cannot show the reader that it did.
+
+### Module-specific rules
+
+- **A snapshot is the point of a change request.** `DepartmentChangeRequest`
+  stores the old value as a column at raise time, so the queue keeps showing what
+  it looked like when somebody objected, even if the department is edited since.
+- **Approving a termination is the only place employment ends.** The contract and
+  the employee record change together, in one transaction; neither moves while
+  the request is merely pending.
+- **A renewal never overwrites.** `EmployeeLegalDocument` demotes the old row to
+  `RENEWED`/`isCurrent: false` and creates a successor pointing back at it — an
+  auditor asks when a permit actually lapsed, about a date already past.
+- **An approved correction stamps the attendance row `source: MANUAL`**, so a
+  later import cannot silently undo a human decision.
+- **A face descriptor travels one way.** It goes up at enrolment and never comes
+  back: responses carry existence, quality and date, nothing matchable offline.
+- **Per-branch settings are nullable and mean "inherit".** An explicit null, not
+  a copied default, so changing the company value moves every branch that never
+  overrode it.
+- **`managerId` and `supervisorId` are different graphs.** One is where a person
+  sits in the structure, the other is who signs their leave. Each has its own
+  cycle guard.
+
 ## Adding a backend feature module
 
 `src/<feature>/` with `<feature>.module.ts`, `.controller.ts`, `.service.ts` and
 `dto/`. Register it in `app.module.ts` explicitly — never rely on a transitive
 import. Guards go on the controller class (`@UseGuards(JwtAuthGuard, RolesGuard)`)
 with `@Roles(...)` per route.
+
+**Declare a literal route before its `:id` sibling.** `GET /departments/tree`
+after `GET /departments/:id` is parsed as a uuid and answers 400. Where a
+literal path belongs to a second controller (`/contracts/terminations`,
+`/departments/change-requests`), list that controller FIRST in the module's
+`controllers` array.
 
 ## Adding a frontend screen
 

@@ -9,6 +9,16 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { EmployeesModule } from './employees/employees.module';
 import { DepartmentsModule } from './departments/departments.module';
+import { BranchesModule } from './branches/branches.module';
+import { OrganizationModule } from './organization/organization.module';
+import { TeamsModule } from './teams/teams.module';
+import { ContractsModule } from './contracts/contracts.module';
+import { LegalDocumentsModule } from './legal-documents/legal-documents.module';
+import { AttendancesModule } from './attendances/attendances.module';
+import { AttendanceCorrectionsModule } from './attendance-corrections/attendance-corrections.module';
+import { WorkSchedulesModule } from './work-schedules/work-schedules.module';
+import { HolidaysModule } from './holidays/holidays.module';
+import { FaceEnrollmentsModule } from './face-enrollments/face-enrollments.module';
 import { SystemSettingsModule } from './system-settings/system-settings.module';
 
 @Module({
@@ -21,6 +31,16 @@ import { SystemSettingsModule } from './system-settings/system-settings.module';
     UsersModule,
     EmployeesModule,
     DepartmentsModule,
+    BranchesModule,
+    OrganizationModule,
+    TeamsModule,
+    ContractsModule,
+    LegalDocumentsModule,
+    AttendancesModule,
+    AttendanceCorrectionsModule,
+    WorkSchedulesModule,
+    HolidaysModule,
+    FaceEnrollmentsModule,
     SystemSettingsModule,
   ],
   controllers: [AppController],

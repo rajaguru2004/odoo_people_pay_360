@@ -1,21 +1,43 @@
 import axiosInstance from '@/lib/axios';
 import { ApiResponse } from '@/types/api';
-import { Department } from '@/types/department';
+import type {
+  CreateDepartmentPayload,
+  Department,
+  DepartmentNode,
+  DepartmentStatistics,
+  UpdateDepartmentPayload,
+} from '@/types/department';
 
 class DepartmentService {
-  list(branchId?: string): Promise<ApiResponse<Department[]>> {
-    return axiosInstance.get('/departments', { params: branchId ? { branchId } : undefined });
+  list(
+    params: { branchId?: string; includeInactive?: boolean } = {},
+  ): Promise<ApiResponse<Department[]>> {
+    return axiosInstance.get('/departments', { params });
   }
 
   get(id: string): Promise<ApiResponse<Department>> {
     return axiosInstance.get(`/departments/${id}`);
   }
 
-  create(payload: { code: string; name: string; branchId?: string; managerId?: string }): Promise<ApiResponse<Department>> {
+  /** The whole hierarchy, already linked — the org chart does no assembly. */
+  tree(branchId?: string): Promise<ApiResponse<DepartmentNode[]>> {
+    return axiosInstance.get('/departments/tree', {
+      params: branchId ? { branchId } : undefined,
+    });
+  }
+
+  statistics(): Promise<ApiResponse<DepartmentStatistics>> {
+    return axiosInstance.get('/departments/statistics');
+  }
+
+  create(payload: CreateDepartmentPayload): Promise<ApiResponse<Department>> {
     return axiosInstance.post('/departments', payload);
   }
 
-  update(id: string, payload: Partial<{ code: string; name: string; branchId: string; managerId: string }>): Promise<ApiResponse<Department>> {
+  update(
+    id: string,
+    payload: UpdateDepartmentPayload,
+  ): Promise<ApiResponse<Department>> {
     return axiosInstance.patch(`/departments/${id}`, payload);
   }
 

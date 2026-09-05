@@ -55,23 +55,146 @@ enum SalaryComponentType {
   EMPLOYER_CONTRIBUTION
 }
 
+/// Where a day's attendance row ended up. Stored, not derived, because the
+/// rules that produce it (grace period, half-day threshold, the branch calendar)
+/// change over time and a historical row must keep the verdict it was given.
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  HALF_DAY
+  ON_LEAVE
+  HOLIDAY
+  WEEKEND
+}
+
+/// How a row got there. Load-bearing for the correction flow: a MANUAL row was
+/// entered by a human and must never be silently overwritten by a later import.
+enum AttendanceSource {
+  ESS
+  MANUAL
+  BIOMETRIC
+  IMPORT
+  SYSTEM
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ShiftType {
+  MORNING
+  AFTERNOON
+  FULL_DAY
+  NIGHT
+  FLEXIBLE
+}
+
+enum ContractType {
+  PERMANENT
+  FIXED_TERM
+  PROBATION
+  PART_TIME
+  INTERNSHIP
+  CONSULTANT
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  EXPIRED
+  TERMINATED
+  RENEWED
+}
+
+enum WorkType {
+  FULL_TIME
+  PART_TIME
+  REMOTE
+  HYBRID
+}
+
+/// Why the employment ended. Drives the settlement calculation downstream, so
+/// it is an enum rather than free text.
+enum TerminationCategory {
+  RESIGNATION
+  DISMISSAL
+  END_OF_CONTRACT
+  RETIREMENT
+  REDUNDANCY
+  MUTUAL_AGREEMENT
+  DEATH
+}
+
+/// What a department change request is asking for. The reviewer's screen
+/// branches on this, and so does the apply step.
+enum DepartmentChangeType {
+  MANAGER
+  PARENT
+  RENAME
+  DEACTIVATE
+}
+
+enum TeamType {
+  PERMANENT
+  PROJECT
+  CROSS_FUNCTIONAL
+}
+
+enum TeamMemberRole {
+  LEAD
+  MEMBER
+  CONTRIBUTOR
+}
+
+/// Government identifier categories. `VISA` is the one the visa-report screen
+/// filters on; the rest share the same expiry-tracking machinery.
+enum LegalDocumentCategory {
+  VISA
+  LABOUR_CARD
+  CIVIL_ID
+  NATIONAL_ID
+  WORK_PERMIT
+  PASSPORT
+  RESIDENCE_PERMIT
+}
+
+enum LegalDocumentStatus {
+  ACTIVE
+  EXPIRED
+  RENEWED
+  CANCELLED
+}
+
 // =====================================================
 // IDENTITY
 // =====================================================
 
 model User {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email        String   @unique @db.VarChar(255)
-  passwordHash String   @map("password_hash") @db.VarChar(255)
-  role         UserRole @default(EMPLOYEE)
-  employeeId   String?  @unique @map("employee_id") @db.Uuid
-  isActive     Boolean  @default(true) @map("is_active")
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @unique @db.VarChar(255)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  role         UserRole  @default(EMPLOYEE)
+  employeeId   String?   @unique @map("employee_id") @db.Uuid
+  isActive     Boolean   @default(true) @map("is_active")
   lastLoginAt  DateTime? @map("last_login_at") @db.Timestamp(6)
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
   employee  Employee?  @relation(fields: [employeeId], references: [id], onDelete: SetNull)
   auditLogs AuditLog[]
+
+  // Review trails. Every one is SetNull on the reviewer side and Restrict on the
+  // requester side: deactivating a reviewer must not erase the request they
+  // approved, and a request with no requester at all is a record nobody owns.
+  changeRequestsRaised   DepartmentChangeRequest[] @relation("ChangeRequestRequester")
+  changeRequestsReviewed DepartmentChangeRequest[] @relation("ChangeRequestReviewer")
+  terminationsRaised     TerminationRequest[]      @relation("TerminationRequester")
+  terminationsReviewed   TerminationRequest[]      @relation("TerminationReviewer")
+  correctionsReviewed    AttendanceCorrection[]    @relation("CorrectionReviewer")
 
   @@index([role])
   @@map("users")
@@ -98,40 +221,143 @@ model Company {
   @@map("companies")
 }
 
+/// A physical place of work.
+///
+/// Orthogonal to Department: an employee has a branch (where they are) and a
+/// department (what they do), and neither implies the other. Every per-branch
+/// setting below is NULLABLE and means "inherit the company value" when unset —
+/// an explicit null rather than a copied default, so changing the company
+/// setting moves every branch that never overrode it.
 model Branch {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  companyId String   @map("company_id") @db.Uuid
-  code      String   @unique @db.VarChar(32)
-  name      String   @db.VarChar(255)
-  timezone  String?  @db.VarChar(64)
-  isActive  Boolean  @default(true) @map("is_active")
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId   String  @map("company_id") @db.Uuid
+  code        String  @unique @db.VarChar(32)
+  name        String  @db.VarChar(255)
+  description String? @db.Text
+  isActive    Boolean @default(true) @map("is_active")
+
+  // Where it is.
+  addressLine String? @map("address_line") @db.Text
+  city        String? @db.VarChar(120)
+  state       String? @db.VarChar(120)
+  /// ISO-3166 alpha-2.
+  country     String? @db.VarChar(2)
+  postalCode  String? @map("postal_code") @db.VarChar(20)
+
+  // Identity printed on documents this branch issues. A salary certificate from
+  // the Sohar office naming the Muscat CR number is wrong in a way a bank acts on.
+  phone     String? @db.VarChar(32)
+  email     String? @db.VarChar(255)
+  crNumber  String? @map("cr_number") @db.VarChar(64)
+  vatNumber String? @map("vat_number") @db.VarChar(64)
+
+  // The working calendar. `officeStartTime`/`officeEndTime` are WALL CLOCK in
+  // `timezone` — "08:00", not an instant — because a shift starts at eight in
+  // the morning wherever the reader happens to be.
+  timezone        String? @db.VarChar(64)
+  officeStartTime String? @map("office_start_time") @db.VarChar(5)
+  officeEndTime   String? @map("office_end_time") @db.VarChar(5)
+  /// Minutes after `officeStartTime` before an arrival counts as LATE.
+  graceMinutes    Int?    @map("grace_minutes")
+  /// Weekly rest days as ISO weekday numbers (1 = Monday … 7 = Sunday). Empty
+  /// means "inherit the company calendar", which is why it is not defaulted to
+  /// a Fri/Sat pair that would be wrong for half the region.
+  weeklyOffDays   Int[]   @default([]) @map("weekly_off_days")
+
+  // Geofence for ESS check-in. All four are needed for a fence to apply.
+  geofencingEnabled Boolean? @map("geofencing_enabled")
+  latitude          Decimal? @db.Decimal(10, 7)
+  longitude         Decimal? @db.Decimal(10, 7)
+  geofenceRadiusM   Int?     @map("geofence_radius_meters")
+
+  managerId String? @map("manager_id") @db.Uuid
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
   company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  manager     Employee?    @relation("BranchManager", fields: [managerId], references: [id], onDelete: SetNull)
   departments Department[]
   employees   Employee[]
+  attendances Attendance[]
+  holidays    Holiday[]
 
   @@index([companyId])
+  @@index([isActive])
   @@map("branches")
 }
 
+/// A functional unit, optionally nested inside another.
+///
+/// `parentId` is what the org chart walks. A cycle in it would make that walk
+/// non-terminating, so the service refuses to create one — the database cannot
+/// express that constraint.
 model Department {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  branchId  String?  @map("branch_id") @db.Uuid
-  code      String   @unique @db.VarChar(32)
-  name      String   @db.VarChar(255)
-  managerId String?  @map("manager_id") @db.Uuid
-  isActive  Boolean  @default(true) @map("is_active")
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId    String?  @map("branch_id") @db.Uuid
+  parentId    String?  @map("parent_id") @db.Uuid
+  code        String   @unique @db.VarChar(32)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  managerId   String?  @map("manager_id") @db.Uuid
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  branch         Branch?                   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  parent         Department?               @relation("DepartmentHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children       Department[]              @relation("DepartmentHierarchy")
+  manager        Employee?                 @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
+  employees      Employee[]
+  teams          Team[]
+  changeRequests DepartmentChangeRequest[]
+  oldParentOf    DepartmentChangeRequest[] @relation("ChangeRequestOldParent")
+  newParentOf    DepartmentChangeRequest[] @relation("ChangeRequestNewParent")
+
+  @@index([branchId])
+  @@index([parentId])
+  @@map("departments")
+}
+
+/// A proposed change to a department that somebody else has to approve.
+///
+/// The old and new values are captured as COLUMNS, not only inside `payload`,
+/// so the queue screen can render "Finance → Operations" without resolving two
+/// json blobs, and so the apply step has a typed value to write back.
+model DepartmentChangeRequest {
+  id           String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  departmentId String               @map("department_id") @db.Uuid
+  changeType   DepartmentChangeType @map("change_type")
+  status       RequestStatus        @default(PENDING)
+
+  oldManagerId String? @map("old_manager_id") @db.Uuid
+  newManagerId String? @map("new_manager_id") @db.Uuid
+  oldParentId  String? @map("old_parent_id") @db.Uuid
+  newParentId  String? @map("new_parent_id") @db.Uuid
+  oldName      String? @map("old_name") @db.VarChar(255)
+  newName      String? @map("new_name") @db.VarChar(255)
+
+  reason        String    @db.Text
+  effectiveDate DateTime  @map("effective_date") @db.Date
+  requestedById String    @map("requested_by_id") @db.Uuid
+  reviewedById  String?   @map("reviewed_by_id") @db.Uuid
+  reviewedAt    DateTime? @map("reviewed_at") @db.Timestamp(6)
+  reviewNote    String?   @map("review_note") @db.Text
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
-  branch    Branch?    @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  manager   Employee?  @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
-  employees Employee[]
+  department  Department  @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  requestedBy User        @relation("ChangeRequestRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  reviewedBy  User?       @relation("ChangeRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  oldManager  Employee?   @relation("ChangeRequestOldManager", fields: [oldManagerId], references: [id], onDelete: SetNull)
+  newManager  Employee?   @relation("ChangeRequestNewManager", fields: [newManagerId], references: [id], onDelete: SetNull)
+  oldParent   Department? @relation("ChangeRequestOldParent", fields: [oldParentId], references: [id], onDelete: SetNull)
+  newParent   Department? @relation("ChangeRequestNewParent", fields: [newParentId], references: [id], onDelete: SetNull)
 
-  @@index([branchId])
-  @@map("departments")
+  @@index([departmentId])
+  @@index([status])
+  @@map("department_change_requests")
 }
 
 // =====================================================
@@ -139,40 +365,399 @@ model Department {
 // =====================================================
 
 model Employee {
-  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  employeeCode String         @unique @map("employee_code") @db.VarChar(32)
-  firstName    String         @map("first_name") @db.VarChar(120)
-  lastName     String         @map("last_name") @db.VarChar(120)
-  workEmail    String?        @unique @map("work_email") @db.VarChar(255)
-  phone        String?        @db.VarChar(32)
-  position     String?        @db.VarChar(160)
-  status       EmployeeStatus @default(ACTIVE)
-  hireDate     DateTime?      @map("hire_date") @db.Date
-  exitDate     DateTime?      @map("exit_date") @db.Date
-  branchId     String?        @map("branch_id") @db.Uuid
-  departmentId String?        @map("department_id") @db.Uuid
-  managerId    String?        @map("manager_id") @db.Uuid
-  /// Personal IANA zone. NULL means "use the company zone" — an explicit null
-  /// rather than a copied default, so changing the company zone moves everyone
-  /// who never set one.
-  timezone     String?        @db.VarChar(64)
-  avatarUrl    String?        @map("avatar_url") @db.VarChar(512)
-  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt    DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeCode  String         @unique @map("employee_code") @db.VarChar(32)
+  firstName     String         @map("first_name") @db.VarChar(120)
+  lastName      String         @map("last_name") @db.VarChar(120)
+  workEmail     String?        @unique @map("work_email") @db.VarChar(255)
+  personalEmail String?        @map("personal_email") @db.VarChar(255)
+  phone         String?        @db.VarChar(32)
+  position      String?        @db.VarChar(160)
+  status        EmployeeStatus @default(ACTIVE)
+  hireDate      DateTime?      @map("hire_date") @db.Date
+  exitDate      DateTime?      @map("exit_date") @db.Date
 
-  branch             Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  department         Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  manager            Employee?         @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
-  reports            Employee[]        @relation("EmployeeManager")
-  managedDepartments Department[]      @relation("DepartmentManager")
+  // Personal details. `dateOfBirth` is a DATE, never an instant — see the note
+  // on formatDateOnly in the frontend: a birthday put through a zone conversion
+  // lands on the previous day for anyone west of Greenwich.
+  dateOfBirth DateTime? @map("date_of_birth") @db.Date
+  gender      String?   @db.VarChar(20)
+  /// ISO-3166 alpha-2.
+  nationality String?   @db.VarChar(2)
+  /// Government identifier — civil ID, national ID, whatever the jurisdiction
+  /// issues. Unique because two employees sharing one is a duplicate record.
+  nationalId  String?   @unique @map("national_id") @db.VarChar(64)
+  address     String?   @db.Text
+
+  branchId     String? @map("branch_id") @db.Uuid
+  departmentId String? @map("department_id") @db.Uuid
+  managerId    String? @map("manager_id") @db.Uuid
+  /// The approval link, which is NOT the org hierarchy.
+  ///
+  /// `managerId` says where a person sits in the structure; `supervisorId` says
+  /// who signs their leave and their timesheet. They are usually the same
+  /// person and sometimes deliberately are not — a matrixed engineer reports to
+  /// a functional head and is supervised by a project lead. Keeping one column
+  /// for both is how a reorganisation silently reroutes every pending approval.
+  supervisorId String? @map("supervisor_id") @db.Uuid
+
+  /// Personal IANA zone. NULL means "use the branch zone, then the company
+  /// zone" — an explicit null rather than a copied default, so changing the
+  /// company zone moves everyone who never set one.
+  timezone  String? @db.VarChar(64)
+  avatarUrl String? @map("avatar_url") @db.VarChar(512)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  branch             Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  department         Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  manager            Employee?        @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
+  reports            Employee[]       @relation("EmployeeManager")
+  supervisor         Employee?        @relation("EmployeeSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
+  supervisees        Employee[]       @relation("EmployeeSupervisor")
+  managedDepartments Department[]     @relation("DepartmentManager")
+  managedBranches    Branch[]         @relation("BranchManager")
   user               User?
   salaryStructure    SalaryStructure?
   payslips           Payslip[]
 
+  contracts             Contract[]
+  attendances           Attendance[]
+  attendanceCorrections AttendanceCorrection[]
+  workSchedules         WorkSchedule[]
+  faceEnrollments       FaceEnrollment[]
+  legalDocuments        EmployeeLegalDocument[]
+  teamMemberships       TeamMember[]
+  ledTeams              Team[]                  @relation("TeamLead")
+
+  oldManagerOf DepartmentChangeRequest[] @relation("ChangeRequestOldManager")
+  newManagerOf DepartmentChangeRequest[] @relation("ChangeRequestNewManager")
+
   @@index([departmentId])
   @@index([branchId])
   @@index([status])
+  @@index([supervisorId])
+  @@index([managerId])
   @@map("employees")
+}
+
+// =====================================================
+// PEOPLE — TEAMS
+// =====================================================
+
+/// A working group inside a department, with its own lead.
+///
+/// Distinct from Department: a department is permanent structure, a team is who
+/// is actually working together this quarter. A person may be in several.
+model Team {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String   @unique @db.VarChar(32)
+  name         String   @db.VarChar(255)
+  description  String?  @db.Text
+  departmentId String   @map("department_id") @db.Uuid
+  teamLeadId   String?  @map("team_lead_id") @db.Uuid
+  type         TeamType @default(PERMANENT)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  department Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  teamLead   Employee?    @relation("TeamLead", fields: [teamLeadId], references: [id], onDelete: SetNull)
+  members    TeamMember[]
+
+  @@index([departmentId])
+  @@map("teams")
+}
+
+model TeamMember {
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teamId     String         @map("team_id") @db.Uuid
+  employeeId String         @map("employee_id") @db.Uuid
+  role       TeamMemberRole @default(MEMBER)
+  /// 0–100. A person split across three teams at 100% each is a staffing
+  /// problem the roster should be able to show, so this is stored rather than
+  /// assumed.
+  allocation Int            @default(100)
+  startDate  DateTime       @default(now()) @map("start_date") @db.Date
+  endDate    DateTime?      @map("end_date") @db.Date
+  isActive   Boolean        @default(true) @map("is_active")
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt  DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  /// One membership per person per team. A second stint is the same row
+  /// reactivated, not a duplicate — otherwise every roster count double-counts.
+  @@unique([teamId, employeeId])
+  @@index([employeeId])
+  @@map("team_members")
+}
+
+// =====================================================
+// PEOPLE — CONTRACTS
+// =====================================================
+
+model Contract {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId       String         @map("employee_id") @db.Uuid
+  contractNumber   String         @unique @map("contract_number") @db.VarChar(64)
+  contractType     ContractType   @map("contract_type")
+  workType         WorkType       @default(FULL_TIME) @map("work_type")
+  status           ContractStatus @default(DRAFT)
+  startDate        DateTime       @map("start_date") @db.Date
+  /// NULL for a permanent contract. Anything else is a date the expiry report
+  /// counts down to.
+  endDate          DateTime?      @map("end_date") @db.Date
+  /// End of the probation window, when there is one. Its own column rather than
+  /// a derived "startDate + 3 months": probation lengths differ per contract
+  /// and per jurisdiction, and the People hub counts down to this exact date.
+  probationEndDate DateTime?      @map("probation_end_date") @db.Date
+  workHoursPerWeek Int            @default(40) @map("work_hours_per_week")
+  /// The contracted rate for the period implied by `contractType`. Decimal(18,3)
+  /// for the same reason as every other money column — see the header note.
+  salary           Decimal        @db.Decimal(18, 3)
+  currency         String         @default("OMR") @db.VarChar(3)
+  noticePeriodDays Int            @default(30) @map("notice_period_days")
+  annualLeaveDays  Int            @default(30) @map("annual_leave_days")
+  terms            String?        @db.Text
+  notes            String?        @db.Text
+  documentUrl      String?        @map("document_url") @db.VarChar(512)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee     Employee             @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  terminations TerminationRequest[]
+
+  @@index([employeeId])
+  @@index([status, endDate])
+  @@map("contracts")
+}
+
+/// The offboarding request, and its approval.
+///
+/// Separate from `Employee.exitDate` on purpose: a termination is PROPOSED,
+/// reviewed and only then applied, and the employee record must not change
+/// while the request is still pending.
+model TerminationRequest {
+  id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  contractId      String              @map("contract_id") @db.Uuid
+  category        TerminationCategory
+  status          RequestStatus       @default(PENDING)
+  noticeDate      DateTime            @map("notice_date") @db.Date
+  terminationDate DateTime            @map("termination_date") @db.Date
+  reason          String              @db.Text
+  /// Whether the notice period is being served or paid out. Reaches the final
+  /// settlement, so it is recorded at request time rather than inferred later.
+  noticeServed    Boolean             @default(true) @map("notice_served")
+  requestedById   String              @map("requested_by_id") @db.Uuid
+  reviewedById    String?             @map("reviewed_by_id") @db.Uuid
+  reviewedAt      DateTime?           @map("reviewed_at") @db.Timestamp(6)
+  reviewNote      String?             @map("review_note") @db.Text
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  contract    Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  requestedBy User     @relation("TerminationRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  reviewedBy  User?    @relation("TerminationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([contractId])
+  @@index([status])
+  @@index([terminationDate])
+  @@map("termination_requests")
+}
+
+/// A government document with an expiry date — visa, labour card, passport.
+///
+/// One `isCurrent` record per (employee, category); a renewal creates a NEW row
+/// pointing back at the one it replaced and marks the old one RENEWED. History
+/// is never overwritten, because "when did this visa actually lapse" is a
+/// question an auditor asks about a date that has already passed.
+model EmployeeLegalDocument {
+  id               String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId       String                @map("employee_id") @db.Uuid
+  category         LegalDocumentCategory @default(VISA)
+  status           LegalDocumentStatus   @default(ACTIVE)
+  documentNumber   String                @map("document_number") @db.VarChar(100)
+  documentType     String?               @map("document_type") @db.VarChar(100)
+  country          String                @db.VarChar(100)
+  nationality      String?               @db.VarChar(2)
+  issueDate        DateTime              @map("issue_date") @db.Date
+  expiryDate       DateTime              @map("expiry_date") @db.Date
+  issuingAuthority String?               @map("issuing_authority") @db.VarChar(200)
+  placeOfIssue     String?               @map("place_of_issue") @db.VarChar(200)
+  sponsor          String?               @db.VarChar(200)
+  remarks          String?               @db.Text
+  isCurrent        Boolean               @default(true) @map("is_current")
+  renewedFromId    String?               @map("renewed_from_id") @db.Uuid
+  documentUrl      String?               @map("document_url") @db.VarChar(512)
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt        DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee    Employee                @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  renewedFrom EmployeeLegalDocument?  @relation("LegalDocumentRenewal", fields: [renewedFromId], references: [id], onDelete: SetNull)
+  renewals    EmployeeLegalDocument[] @relation("LegalDocumentRenewal")
+
+  @@index([employeeId, category])
+  @@index([category, status])
+  @@index([expiryDate])
+  @@map("employee_legal_documents")
+}
+
+// =====================================================
+// TIME AND ATTENDANCE
+// =====================================================
+
+/// One row per employee per day.
+///
+/// `date` is a DATE, not an instant: it is the day the work is ATTRIBUTED to,
+/// which for a night shift is not the calendar day the check-out falls on. The
+/// check-in and check-out beside it are instants, stored UTC, because those are
+/// moments in time and the report renders them in the branch's zone.
+model Attendance {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId    String           @map("employee_id") @db.Uuid
+  branchId      String?          @map("branch_id") @db.Uuid
+  date          DateTime         @db.Date
+  checkIn       DateTime?        @map("check_in") @db.Timestamp(6)
+  checkOut      DateTime?        @map("check_out") @db.Timestamp(6)
+  /// Hours actually worked, computed at check-out. Stored rather than derived
+  /// on read so a month's report is one query and not one subtraction per row.
+  workHours     Decimal?         @map("work_hours") @db.Decimal(6, 2)
+  /// Hours the roster asked for that day — what `workHours` is short OF.
+  expectedHours Decimal?         @map("expected_hours") @db.Decimal(6, 2)
+  status        AttendanceStatus @default(PRESENT)
+  source        AttendanceSource @default(ESS)
+  isLate        Boolean          @default(false) @map("is_late")
+  isEarlyLeave  Boolean          @default(false) @map("is_early_leave")
+  /// Minutes past the grace window. Zero for an on-time arrival, so a report can
+  /// sum it without a null check.
+  lateMinutes   Int              @default(0) @map("late_minutes")
+  notes         String?          @db.Text
+
+  // Where the punch happened, when the branch runs a geofence.
+  checkInLatitude   Decimal? @map("check_in_latitude") @db.Decimal(10, 7)
+  checkInLongitude  Decimal? @map("check_in_longitude") @db.Decimal(10, 7)
+  checkOutLatitude  Decimal? @map("check_out_latitude") @db.Decimal(10, 7)
+  checkOutLongitude Decimal? @map("check_out_longitude") @db.Decimal(10, 7)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee    Employee               @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  branch      Branch?                @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  corrections AttendanceCorrection[]
+
+  @@unique([employeeId, date])
+  @@index([date, status])
+  @@index([branchId, date])
+  @@map("attendances")
+}
+
+/// "The clock has me at 09:40, I was here at 08:55" — and somebody has to agree.
+///
+/// Approving one WRITES the requested times onto the Attendance row and stamps
+/// it MANUAL, which is why `Attendance.source` exists: a later import must not
+/// silently undo a human decision.
+model AttendanceCorrection {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId        String        @map("employee_id") @db.Uuid
+  /// Null when the day has no attendance row at all — a missed punch. Approving
+  /// such a request CREATES the row.
+  attendanceId      String?       @map("attendance_id") @db.Uuid
+  date              DateTime      @db.Date
+  originalCheckIn   DateTime?     @map("original_check_in") @db.Timestamp(6)
+  originalCheckOut  DateTime?     @map("original_check_out") @db.Timestamp(6)
+  requestedCheckIn  DateTime?     @map("requested_check_in") @db.Timestamp(6)
+  requestedCheckOut DateTime?     @map("requested_check_out") @db.Timestamp(6)
+  reason            String        @db.Text
+  status            RequestStatus @default(PENDING)
+  reviewedById      String?       @map("reviewed_by_id") @db.Uuid
+  reviewedAt        DateTime?     @map("reviewed_at") @db.Timestamp(6)
+  reviewNote        String?       @map("review_note") @db.Text
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt         DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee   Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  attendance Attendance? @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+  reviewedBy User?       @relation("CorrectionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, date])
+  @@index([status])
+  @@map("attendance_corrections")
+}
+
+/// The roster: what a given person was asked to work on a given day.
+///
+/// Absent means "the branch calendar applies". Present means this one person
+/// deviates from it, which is the only reason to store a row at all — a table
+/// with one row per employee per day would be headcount × 365 rows a year
+/// saying nothing the branch calendar does not already say.
+model WorkSchedule {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId    String    @map("employee_id") @db.Uuid
+  date          DateTime  @db.Date
+  shiftType     ShiftType @default(FULL_DAY) @map("shift_type")
+  /// Wall clock in the employee's effective zone — "08:00", not an instant.
+  startTime     String?   @map("start_time") @db.VarChar(5)
+  endTime       String?   @map("end_time") @db.VarChar(5)
+  requiredHours Decimal?  @map("required_hours") @db.Decimal(5, 2)
+  isWorkDay     Boolean   @default(true) @map("is_work_day")
+  notes         String?   @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@map("work_schedules")
+}
+
+/// A non-working day.
+///
+/// `branchId` null means company-wide. A branch-specific row on the same date
+/// is allowed and wins, which is how a national holiday observed in one country
+/// and not another is expressed without a second calendar.
+model Holiday {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId    String?  @map("branch_id") @db.Uuid
+  name        String   @db.VarChar(255)
+  date        DateTime @db.Date
+  year        Int
+  isRecurring Boolean  @default(false) @map("is_recurring")
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([year])
+  @@index([date])
+  @@map("holidays")
+}
+
+/// A face template registered for one employee.
+///
+/// The descriptor is a 128-float embedding, NOT an image: it cannot be turned
+/// back into a photograph, which is what makes storing it at all defensible.
+/// `quality` is the detector's confidence at enrolment — a low-quality template
+/// matches badly, so the screen surfaces it rather than hiding it.
+model FaceEnrollment {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId String   @map("employee_id") @db.Uuid
+  descriptor Float[]
+  quality    Float
+  imageUrl   String?  @map("image_url") @db.VarChar(512)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("face_enrollments")
 }
 
 // =====================================================
@@ -180,17 +765,17 @@ model Employee {
 // =====================================================
 
 model SalaryComponent {
-  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  code        String              @unique @db.VarChar(32)
-  name        String              @db.VarChar(160)
-  type        SalaryComponentType
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code           String              @unique @db.VarChar(32)
+  name           String              @db.VarChar(160)
+  type           SalaryComponentType
   /// Whether this component counts toward gratuity / end-of-service accrual.
-  isGratuityBase Boolean          @default(false) @map("is_gratuity_base")
-  isTaxable   Boolean             @default(true) @map("is_taxable")
-  sequence    Int                 @default(100)
-  isActive    Boolean             @default(true) @map("is_active")
-  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt   DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  isGratuityBase Boolean             @default(false) @map("is_gratuity_base")
+  isTaxable      Boolean             @default(true) @map("is_taxable")
+  sequence       Int                 @default(100)
+  isActive       Boolean             @default(true) @map("is_active")
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt      DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
   structureLines SalaryStructureLine[]
   payslipLines   PayslipLine[]
@@ -199,12 +784,12 @@ model SalaryComponent {
 }
 
 model SalaryStructure {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  employeeId String   @unique @map("employee_id") @db.Uuid
-  currency   String   @default("OMR") @db.VarChar(3)
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId    String   @unique @map("employee_id") @db.Uuid
+  currency      String   @default("OMR") @db.VarChar(3)
   effectiveFrom DateTime @map("effective_from") @db.Date
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
   employee Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   lines    SalaryStructureLine[]
@@ -247,14 +832,14 @@ model PayrollRun {
 }
 
 model Payslip {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  payrollRunId String   @map("payroll_run_id") @db.Uuid
-  employeeId   String   @map("employee_id") @db.Uuid
-  grossPay     Decimal  @default(0) @map("gross_pay") @db.Decimal(18, 3)
-  totalDeductions Decimal @default(0) @map("total_deductions") @db.Decimal(18, 3)
-  netPay       Decimal  @default(0) @map("net_pay") @db.Decimal(18, 3)
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payrollRunId    String   @map("payroll_run_id") @db.Uuid
+  employeeId      String   @map("employee_id") @db.Uuid
+  grossPay        Decimal  @default(0) @map("gross_pay") @db.Decimal(18, 3)
+  totalDeductions Decimal  @default(0) @map("total_deductions") @db.Decimal(18, 3)
+  netPay          Decimal  @default(0) @map("net_pay") @db.Decimal(18, 3)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
   payrollRun PayrollRun    @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
   employee   Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)

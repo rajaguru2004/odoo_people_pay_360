@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Users } from 'lucide-react';
 import { useEmployees } from '@/hooks/useEmployees';
 import { useDebounce } from '@/hooks/useDebounce';
+import { usePageHeader } from '@/hooks/usePageHeader';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
@@ -27,15 +28,12 @@ export default function EmployeesPage() {
   const { data, isLoading, isError } = useEmployees({ search: debouncedSearch || undefined, limit: 20 });
   const employees = data?.data ?? [];
 
+  // The heading lives in Topbar; a second one here would give the screen two.
+  usePageHeader('Employees', data?.meta ? `${data.meta.total} record(s)` : 'Loading…');
+
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-text-heading">Employees</h1>
-          <p className="mt-1 text-sm text-text-muted">
-            {data?.meta ? `${data.meta.total} record(s)` : 'Loading…'}
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <div className="w-full sm:w-72">
           <Input
             placeholder="Search by name, code or email"

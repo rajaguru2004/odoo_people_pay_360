@@ -3,6 +3,7 @@
 import { Building2, Users, Wallet } from 'lucide-react';
 import { useEmployees } from '@/hooks/useEmployees';
 import { useDepartments } from '@/hooks/useDepartments';
+import { usePageHeader } from '@/hooks/usePageHeader';
 import { useAuthStore } from '@/store/authStore';
 import { useBrandingStore } from '@/store/brandingStore';
 import { StatCard } from '@/components/common/StatCard';
@@ -25,15 +26,14 @@ export default function DashboardPage() {
   const headcount = employees.data?.meta?.total ?? 0;
   const departmentCount = departments.data?.data?.length ?? 0;
 
+  // The heading lives in Topbar; a second one here would give the screen two.
+  usePageHeader(
+    `Welcome${user?.employee ? `, ${fullName(user.employee)}` : ''}`,
+    'Here is where your organisation stands today.',
+  );
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-text-heading">
-          Welcome{user?.employee ? `, ${fullName(user.employee)}` : ''}
-        </h1>
-        <p className="mt-1 text-sm text-text-muted">Here is where your organisation stands today.</p>
-      </div>
-
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard
           label="Headcount"

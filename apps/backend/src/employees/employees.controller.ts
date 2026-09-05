@@ -15,6 +15,7 @@ import { EmployeesService } from './employees.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { ListEmployeesDto } from './dto/list-employees.dto';
+import { PeopleHubQueryDto } from './dto/people-hub-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -32,10 +33,30 @@ export class EmployeesController {
     return this.employeesService.findAll(query);
   }
 
+  // Declared before `:id`. Express matches in declaration order, so with `:id`
+  // first the literal `hub-summary` segment would be handed to ParseUUIDPipe
+  // and the People hub would answer 400 on every load.
+  @Get('hub-summary')
+  @Roles(UserRole.ADMIN, UserRole.HR_MANAGER)
+  @ApiOperation({
+    summary: 'People hub aggregate',
+    description:
+      'Headcount, lifecycle, contracts, terminations and the movement trend.',
+  })
+  hubSummary(@Query() query: PeopleHubQueryDto) {
+    return this.employeesService.getPeopleHubSummary(query.months ?? 12);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get one employee' })
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.employeesService.findOne(id);
+  }
+
+  @Get(':id/team')
+  @ApiOperation({ summary: 'Everyone this employee supervises' })
+  findTeam(@Param('id', ParseUUIDPipe) id: string) {
+    return this.employeesService.findTeam(id);
   }
 
   @Post()

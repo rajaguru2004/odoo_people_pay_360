@@ -20,15 +20,25 @@ apps/
     src/
       auth/         JWT login, guards, role decorator
       common/       filters, interceptors, decorators, config, utils
-      employees/    people records
-      departments/  org units
+      branches/     physical locations and their working calendars
+      departments/  org units, the hierarchy, and the change-request queue
+      organization/ the Organisation hub aggregate
+      employees/    people records and the People hub aggregate
+      teams/        working groups inside a department
+      contracts/    terms of employment and the termination queue
+      legal-documents/  visas and other expiring identifiers
+      attendances/  daily records, the calendar, the Time hub aggregate
+      attendance-corrections/  disputed punches and their review
+      work-schedules/   the roster, where it deviates from the branch calendar
+      holidays/     non-working days, company-wide or per branch
+      face-enrollments/ biometric templates (write-only)
       users/        account administration
-      system-settings/  branding served to the portal
+      system-settings/  branding and per-module defaults
       health/       liveness + readiness
-    test/           jest e2e specs
+    test/           supertest specs against the e2e database
   frontend/         Next.js portal
     app/            App Router: (auth)/login, dashboard/*
-    components/     ui primitives, layout shell, shared pieces
+    components/     ui primitives, layout shell, module-landing kit
     hooks/          TanStack Query hooks, auth guard, media query
     lib/            axios instance, api base resolver, query provider
     services/       one class per API surface
@@ -85,6 +95,7 @@ npm run dev
 | `npm run typecheck` | `tsc --noEmit` across both apps |
 | `npm test` | Vitest (unit + component) and Jest |
 | `npm run test:e2e` | Playwright, against the e2e stack |
+| `npm run test:api` | Backend supertest specs, against the e2e database |
 | `npm run e2e:up` / `e2e:down` | e2e Postgres up (schema + seed) / down |
 | `npm run db:push` / `db:seed` / `db:studio` | Prisma schema, seed, studio |
 
@@ -96,5 +107,19 @@ npm run dev
 - **Money is `Decimal(18, 3)`.** OMR/KWD/BHD are thousandths, and `formatCurrency` picks its decimal count from the currency, never from a hardcoded 2.
 - **Rebranding is one import.** `apps/frontend/theme/index.ts` chooses the active preset; every page, component and chart follows.
 - **Logical CSS properties only** (`ps-*`, `me-*`, `start-*`), so `dir="rtl"` flips the layout without a second stylesheet.
+- **A rate is `null`, never `0`, when there was nothing to divide by.** An empty branch and an unreachable endpoint are different claims; the portal renders `null` as an em dash rather than asserting a zero the data does not support.
+
+## Modules
+
+| Module | Hub | Screens |
+| --- | --- | --- |
+| Organisation | `/dashboard/organization` | Branches · Departments · Organisational chart · Change requests |
+| People | `/dashboard/people` | Employee directory · Teams · Contracts · Terminations · Visa reports |
+| Time & attendance | `/dashboard/time` | Overview · Requests · Logs · Reports · Manager · Biometric enrolment |
+
+Each hub answers in ONE aggregate request rather than fanning out to list
+endpoints and counting rows off them — a queue longer than a page would
+otherwise be under-reported on the card whose job is to say how much work is
+waiting. See [CLAUDE.md](CLAUDE.md) for the rules they share.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the longer version.

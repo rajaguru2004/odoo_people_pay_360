@@ -56,11 +56,47 @@ what was paid, so it must still read correctly after the component behind it is
 renamed or retired — resolving the label through the component at display time
 would silently rewrite history.
 
+### Module aggregates
+
+Each of the three HR modules answers its landing page with ONE endpoint —
+`/organization/hub-summary`, `/employees/hub-summary`, `/attendances/hub-summary`
+— rather than letting the page fan out to half a dozen list endpoints and count
+rows off them. Two things follow from that, and both are load-bearing:
+
+A count is counted in the database. Reading the length of a list response
+under-reports every queue longer than one page, on precisely the card whose job
+is to say how much work is waiting.
+
+A rate is `number | null`, and `null` is not `0`. An empty branch, a role-gated
+endpoint and a failed request all produce "no number"; a card that renders 0.0%
+for any of them has made a claim the data does not support. The portal renders
+`null` as an em dash, and the hub hooks expose a `failed` flag so a page can tell
+"nothing happened" from "we do not know".
+
+Attendance goes one step further: every rate there divides by `expected` — the
+branch's working calendar, minus holidays and weekly rest, minus approved leave,
+adjusted by any roster override — never by headcount. Dividing by headcount
+reports a weekend as a catastrophe.
+
+The window is validated rather than defaulted. `months=7` and
+`anchor=2026-13-45` are refused with a 400, because a page that quietly answers
+for a period nobody asked about cannot show the reader that it did so.
+
 ### Deletion
 
 There is almost none. Users deactivate; employees terminate; departments refuse
-to delete while anyone is assigned. Audit logs and payslips reference these rows
+to delete while anyone is assigned; a branch with attendance history behind it
+deactivates instead of deleting, because those rows record where a punch
+happened and must keep resolving. Audit logs and payslips reference these rows
 and have to keep naming who acted and who was paid.
+
+The same instinct shapes the request records. A department change request
+snapshots the old value into its own columns when it is raised, so the queue
+keeps showing what somebody objected to even after the department moves on. A
+permit renewal demotes the superseded row to `RENEWED` and creates a successor
+pointing back at it, rather than editing the dates in place — an auditor asks
+when a visa actually lapsed, which is a question about a date that has already
+passed.
 
 ## Frontend
 
@@ -101,9 +137,17 @@ and runs in node in milliseconds; `*.test.tsx` renders in jsdom and costs an
 order of magnitude more. `npm run test:unit` stays fast for the tight loop.
 
 Playwright projects are per role, and a spec declares its roles in its
-**filename** (`employees.hr-admin.spec.ts`). A project whose role the name does
-not list never loads the file — which matters because `test.skip()` in a body
-still schedules the test and still opens a browser window before skipping it.
+**filename** (`people.hr-admin.spec.ts`). A project whose role the name does not
+list never loads the file — which matters because `test.skip()` in a body still
+schedules the test and still opens a browser window before skipping it.
+
+There is a third layer between the two: `apps/backend/test/*.e2e-spec.ts` drives
+the real application over HTTP against the e2e database, so the response
+envelope, the guards and the `forbidNonWhitelisted` behaviour are asserted
+against the app as assembled rather than against a service in isolation. Run
+them with `npm run test:api`, which loads `.env.test` itself and refuses to
+start if that file does not point at port 8174 — these specs create and approve
+real rows, and running them against the dev database would rewrite it.
 
 ## Configuration
 

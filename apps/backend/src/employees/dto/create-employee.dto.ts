@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Length,
   MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -31,6 +32,14 @@ export class CreateEmployeeDto {
   @IsEmail()
   workEmail?: string;
 
+  @ApiPropertyOptional({
+    example: 'aisha@example.com',
+    description: 'Reachable after the work account is closed',
+  })
+  @IsOptional()
+  @IsEmail()
+  personalEmail?: string;
+
   @ApiPropertyOptional({ example: '+96890000000' })
   @IsOptional()
   @IsString()
@@ -53,6 +62,45 @@ export class CreateEmployeeDto {
   @IsDateString()
   hireDate?: string;
 
+  @ApiPropertyOptional({
+    example: '2027-03-31',
+    description: 'Last working day. Set by the termination flow, not by hand.',
+  })
+  @IsOptional()
+  @IsDateString()
+  exitDate?: string;
+
+  @ApiPropertyOptional({ example: '1994-07-02' })
+  @IsOptional()
+  @IsDateString()
+  dateOfBirth?: string;
+
+  @ApiPropertyOptional({ example: 'Female' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  gender?: string;
+
+  @ApiPropertyOptional({ example: 'OM', description: 'ISO-3166 alpha-2' })
+  @IsOptional()
+  @IsString()
+  @Length(2, 2)
+  nationality?: string;
+
+  @ApiPropertyOptional({
+    example: '12345678',
+    description: 'Civil or national id. Unique across the workforce.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  nationalId?: string;
+
+  @ApiPropertyOptional({ example: 'Way 3021, Al Khuwair, Muscat' })
+  @IsOptional()
+  @IsString()
+  address?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
@@ -67,6 +115,14 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsUUID()
   managerId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Who signs this person off. Often the line manager, deliberately not always.',
+  })
+  @IsOptional()
+  @IsUUID()
+  supervisorId?: string;
 
   @ApiPropertyOptional({
     example: 'Asia/Muscat',

@@ -2,6 +2,7 @@
 
 import { Building2 } from 'lucide-react';
 import { useDepartments } from '@/hooks/useDepartments';
+import { usePageHeader } from '@/hooks/usePageHeader';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/common/EmptyState';
 import { fullName } from '@/utils/formatters';
@@ -10,13 +11,11 @@ export default function DepartmentsPage() {
   const { data, isLoading, isError } = useDepartments();
   const departments = data?.data ?? [];
 
+  // The heading lives in Topbar; a second one here would give the screen two.
+  usePageHeader('Departments', 'Organisational units and who heads them.');
+
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold text-text-heading">Departments</h1>
-        <p className="mt-1 text-sm text-text-muted">Organisational units and who heads them.</p>
-      </div>
-
       {isLoading && <Card className="p-6 text-sm text-text-muted">Loading departments…</Card>}
 
       {isError && (

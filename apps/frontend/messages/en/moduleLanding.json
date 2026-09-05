@@ -1,0 +1,37 @@
+{
+  "exploreModule": "Explore",
+  "attnExpand": "Show what needs attention",
+  "attnCollapse": "Hide what needs attention",
+  "organization": {
+    "title": "Organisation",
+    "subtitle": "Branches, departments and the shape of the company."
+  },
+  "people": {
+    "title": "People",
+    "subtitle": "Employees, teams and the contracts they work under."
+  },
+  "timeAttendance": {
+    "title": "Time & attendance",
+    "subtitle": "Who is in, what was corrected and how the period is trending."
+  },
+  "desc": {
+    "branches": "Every location the company operates from.",
+    "allDepartments": "The full department list, with heads and headcount.",
+    "organizationalChart": "The reporting structure, drawn as a tree.",
+    "changeRequests": "Moves between departments waiting on a decision.",
+    "employeeDirectory": "Every employee record, searchable.",
+    "addEmployee": "Create a record for a new joiner.",
+    "teams": "Working groups and who belongs to them.",
+    "allContracts": "Terms, salaries and end dates for every contract.",
+    "newContract": "Draft a contract for an existing employee.",
+    "terminations": "Leavers, their notice periods and their final dates.",
+    "visaReports": "Residency and permit documents nearing expiry.",
+    "attendanceOverview": "Who is in today, and who is not.",
+    "attendanceRequests": "Corrections raised against a recorded day.",
+    "attendanceLogs": "The raw record, day by day.",
+    "attendanceReports": "Hours, lateness and absence across a period.",
+    "attendanceManager": "Schedules, shifts and the rules behind the numbers.",
+    "biometricEnrollment": "Faces enrolled for the attendance terminals.",
+    "settings": "Company details, branding and the defaults every screen reads."
+  }
+}

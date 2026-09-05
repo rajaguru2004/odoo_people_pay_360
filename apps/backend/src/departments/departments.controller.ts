@@ -4,13 +4,19 @@ import {
   Delete,
   Get,
   Param,
+  ParseBoolPipe,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { DepartmentsService } from './departments.service';
 import { CreateDepartmentDto } from './dto/create-department.dto';
@@ -28,8 +34,34 @@ export class DepartmentsController {
 
   @Get()
   @ApiOperation({ summary: 'List departments' })
-  findAll(@Query('branchId') branchId?: string) {
-    return this.departmentsService.findAll(branchId);
+  @ApiQuery({ name: 'branchId', required: false })
+  @ApiQuery({ name: 'includeInactive', required: false, type: Boolean })
+  findAll(
+    @Query('branchId') branchId?: string,
+    @Query('includeInactive', new ParseBoolPipe({ optional: true }))
+    includeInactive?: boolean,
+  ) {
+    return this.departmentsService.findAll(branchId, includeInactive ?? false);
+  }
+
+  // `tree` and `statistics` are declared BEFORE `:id`. Express matches in
+  // declaration order, so with `:id` first the literal segment would be handed
+  // to ParseUUIDPipe and every request to them would 400.
+  @Get('tree')
+  @ApiOperation({ summary: 'Department hierarchy as a nested tree' })
+  @ApiQuery({ name: 'branchId', required: false })
+  tree(@Query('branchId') branchId?: string) {
+    return this.departmentsService.tree(branchId);
+  }
+
+  @Get('statistics')
+  @ApiOperation({
+    summary: 'Structure statistics',
+    description:
+      'Depth, headless departments and span of control across the hierarchy.',
+  })
+  statistics() {
+    return this.departmentsService.structureStats();
   }
 
   @Get(':id')

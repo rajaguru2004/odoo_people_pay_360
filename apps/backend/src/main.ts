@@ -66,6 +66,16 @@ async function bootstrap() {
     .addTag('Users', 'User management')
     .addTag('Employees', 'Employee management')
     .addTag('Departments', 'Department management')
+    .addTag('Branches', 'Branch, working calendar and geofence setup')
+    .addTag('Organization', 'Organisation hub aggregates')
+    .addTag('Teams', 'Working teams and their rosters')
+    .addTag('Contracts', 'Employment contracts and terminations')
+    .addTag('Legal Documents', 'Visas, labour cards and their expiry')
+    .addTag('Attendance', 'Punches, records and the Time & Attendance hub')
+    .addTag('Attendance Corrections', 'Requests to amend a recorded punch')
+    .addTag('Work Schedules', 'Rostered shifts that deviate from the branch calendar')
+    .addTag('Holidays', 'Company-wide and branch-specific non-working days')
+    .addTag('Face Enrolments', 'Face templates registered for recognition')
     .addTag('System Settings', 'Branding and platform configuration')
     .build();
 

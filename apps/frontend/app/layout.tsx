@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import { Toaster } from 'sonner';
 import { ReactQueryProvider } from '@/lib/react-query';
 import { ThemeProvider } from '@/theme/provider';
+import { LocaleProvider } from '@/i18n/LocaleProvider';
 import TitleManager from '@/components/common/TitleManager';
 import PermissionDeniedModal from '@/components/ui/PermissionDeniedModal';
 import './globals.css';
@@ -60,12 +61,19 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
          * export in theme/index.ts. Nothing else needs to move.
          */}
         <ThemeProvider>
-          <ReactQueryProvider>
-            <TitleManager />
-            {children}
-            <Toaster position="top-right" richColors closeButton />
-            <PermissionDeniedModal />
-          </ReactQueryProvider>
+          {/*
+           * LocaleProvider sits above everything, not just the dashboard: the
+           * language is chosen per browser (store/localeStore.ts), so the login
+           * screen has to read it too — before there is a user to ask.
+           */}
+          <LocaleProvider>
+            <ReactQueryProvider>
+              <TitleManager />
+              {children}
+              <Toaster position="top-right" richColors closeButton />
+              <PermissionDeniedModal />
+            </ReactQueryProvider>
+          </LocaleProvider>
         </ThemeProvider>
       </body>
     </html>
