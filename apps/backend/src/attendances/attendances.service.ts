@@ -49,12 +49,12 @@ export class AttendancesService {
    * through?
    *
    * Face-only exists to answer one question: "is this really that employee?"
-   * A linked WhatsApp or Discord identity answers the same question by a
-   * different route — the account was proved by a one-time code that had to
-   * cross an authenticated web session AND the account itself, so neither side
-   * alone could have produced it. Treating that as equivalent is a policy
-   * choice, so it is a per-channel setting rather than a hardcoded exemption,
-   * and it fails closed when the setting is absent.
+   * A channel that already proved the identity by another route — a verified
+   * link whose one-time code had to cross an authenticated web session AND the
+   * channel account itself, so neither side alone could have produced it —
+   * answers the same question. Treating that as equivalent is a policy choice,
+   * so it is a per-channel setting rather than a hardcoded exemption, and it
+   * fails closed when the setting is absent.
    *
    * Unchanged in the one way that matters: the CHANNEL comes from
    * AsyncLocalStorage, which the runtime sets. There is still no parameter for
@@ -139,7 +139,7 @@ export class AttendancesService {
    * applied (a boundary before 12:00 closes the day the NEXT morning).
    *
    * Single source of truth for "how far can this day be worked", shared by the
-   * auto-checkout cron, manual entry, provider sync and the ESS check-out.
+   * auto-checkout cron, manual entry and the ESS check-out.
    */
   private async getAttendanceDayEnd(
     dateKey: Date,
@@ -876,8 +876,8 @@ export class AttendancesService {
       )) === 'true';
 
     // Reported to the client so it knows whether to open the camera. Must agree
-    // with the write-side guard, or a WhatsApp reply would tell the employee
-    // face verification is required when it is not.
+    // with the write-side guard, or the client would tell the employee face
+    // verification is required when it is not.
     const attendanceFaceOnly =
       (await this.settingsService.getSetting('attendance_face_only', 'false')) === 'true' &&
       !(await this.faceCheckSatisfiedByChannel('CHECKIN'));
@@ -2183,50 +2183,6 @@ export class AttendancesService {
         ...provenance,
       },
     });
-  }
-
-  /**
-   * Write one day of attendance mirrored from an external provider.
-   *
-   * Deliberately routed through this service rather than letting the sync module
-   * touch `prisma.attendance` directly: work hours, lunch deduction and the
-   * late/early flags are business rules that belong here, and a synced row must
-   * be numerically indistinguishable from a manually entered one.
-   *
-   * The caller (AttendanceSyncService) owns employee resolution, the date key
-   * and the conflict guard. This method just writes.
-   */
-  async applySyncedAttendance(input: {
-    employeeId: string;
-    branchId: string | null;
-    dateKey: Date;
-    checkIn: Date | null;
-    checkOut: Date | null;
-    status: string;
-    notes: string;
-    externalRef?: string | null;
-    sessions?: { checkIn: Date; checkOut: Date | null }[] | null;
-    timezone?: string | null;
-  }) {
-    return this.buildAndUpsertAttendance({
-      ...input,
-      source: 'SYNC',
-      externalRef: input.externalRef ?? null,
-      syncedAt: new Date(),
-    });
-  }
-
-  /**
-   * Resolve an absolute instant to the attendance date key this employee's day
-   * boundary puts it in. Exposed for the external-provider sync, which must not
-   * trust a vendor's own notion of "day" (fusion-analytics, for instance, dates
-   * every record in Asia/Kolkata regardless of the branch's real location).
-   */
-  async resolveAttendanceDateKey(
-    instant: Date,
-    employeeTimezone?: string | null,
-  ): Promise<Date> {
-    return this.toAttendanceDateKey(instant, employeeTimezone);
   }
 
   /**

@@ -162,7 +162,6 @@ describe('HR suite edge cases (e2e)', () => {
         where: { travel: { employee: { branchId } } },
       });
       await prisma.travelRequest.deleteMany({ where: { employee: { branchId } } });
-      await prisma.reimbursement.deleteMany({ where: { employee: { branchId } } });
       await prisma.assetAssignment.deleteMany({ where: { asset: { branchId } } });
       await prisma.assetItem.deleteMany({ where: { branchId } });
     }
@@ -406,29 +405,6 @@ describe('HR suite edge cases (e2e)', () => {
       });
       // Inclusive day count — a day trip still earns a day's allowance.
       expect(trip?.perDiemDays).toBe(1);
-    });
-
-    it('spawns no claim for a destination with a zero rate', async () => {
-      const res = await ctx
-        .http()
-        .post('/travel-requests')
-        .set(bearer(adminToken))
-        .query({ employeeId: empAId })
-        .send({
-          purpose: 'Local errand',
-          travelType: 'DOMESTIC',
-          destination: 'Local / Same City', // seeded at rate 0
-          departureDate: iso(31),
-          returnDate: iso(31),
-          estimatedCost: 20,
-        })
-        .expect(201);
-
-      const claims = await ctx.prisma.reimbursement.findMany({
-        where: { sourceType: 'TRAVEL', sourceId: res.body.data.id },
-      });
-      // A zero allowance must not produce a zero-value claim cluttering payroll.
-      expect(claims).toHaveLength(0);
     });
 
     it('accepts a destination with no configured rate without failing the trip', async () => {

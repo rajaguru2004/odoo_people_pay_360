@@ -52,23 +52,19 @@ model User {
   companyKnowledges     CompanyKnowledge[]   @relation("UserKnowledge")
   notifications         Notification[]       @relation("UserNotifications")
 
-  approvedTimesheets       Timesheet[]               @relation("ApprovedTimesheets")
-  leaveApprovals           LeaveApproval[]           @relation("LeaveApprovalDecider")
-  leaveAttachments         LeaveAttachment[]         @relation("LeaveAttachmentUploader")
-  approvedReimbursements   Reimbursement[]           @relation("ReimbursementApprover")
-  reimbursementAttachments ReimbursementAttachment[] @relation("ReimbursementAttachmentUploader")
-  approvedAdvanceLoans     AdvanceLoanRequest[]      @relation("AdvanceLoanApprover")
-  approvedTravelRequests   TravelRequest[]           @relation("TravelApprover")
-  trainingNominationsMade  TrainingNomination[]      @relation("TrainingNominatedBy")
-  approvedTrainings        TrainingNomination[]      @relation("TrainingApprover")
-  budgetsCreated           Budget[]                  @relation("BudgetCreatedBy")
-  lettersIssued            LetterRequest[]           @relation("LetterIssuedBy")
-  grievancesHandled        Grievance[]               @relation("GrievanceHandler")
-  grievanceEvents          GrievanceEvent[]          @relation("GrievanceEventActor")
-  assetAssignmentsMade     AssetAssignment[]         @relation("AssetAssignedBy")
-  assetReturnsReceived     AssetAssignment[]         @relation("AssetReturnReceivedBy")
-  advanceLoanAttachments   AdvanceLoanAttachment[]   @relation("AdvanceLoanAttachmentUploader")
-  overtimeRequestsEdited   OvertimeRequest[]         @relation("OvertimeRequestEditor")
+  approvedTimesheets      Timesheet[]          @relation("ApprovedTimesheets")
+  leaveApprovals          LeaveApproval[]      @relation("LeaveApprovalDecider")
+  leaveAttachments        LeaveAttachment[]    @relation("LeaveAttachmentUploader")
+  approvedTravelRequests  TravelRequest[]      @relation("TravelApprover")
+  trainingNominationsMade TrainingNomination[] @relation("TrainingNominatedBy")
+  approvedTrainings       TrainingNomination[] @relation("TrainingApprover")
+  budgetsCreated          Budget[]             @relation("BudgetCreatedBy")
+  lettersIssued           LetterRequest[]      @relation("LetterIssuedBy")
+  grievancesHandled       Grievance[]          @relation("GrievanceHandler")
+  grievanceEvents         GrievanceEvent[]     @relation("GrievanceEventActor")
+  assetAssignmentsMade    AssetAssignment[]    @relation("AssetAssignedBy")
+  assetReturnsReceived    AssetAssignment[]    @relation("AssetReturnReceivedBy")
+  overtimeRequestsEdited  OvertimeRequest[]    @relation("OvertimeRequestEditor")
 
   // Legal document lifecycle relations
   createdLegalDocuments EmployeeLegalDocument[]   @relation("LegalDocumentCreator")
@@ -79,15 +75,6 @@ model User {
 
   // HR Copilot conversations
   copilotConversations CopilotConversation[]
-
-  // WhatsApp delivery identities (0..n numbers per user)
-  whatsappIdentities WhatsAppIdentity[] @relation("UserWhatsAppIdentities")
-
-  // Discord accounts linked to this user
-  discordIdentities DiscordIdentity[] @relation("UserDiscordIdentities")
-
-  // Telegram chats linked to this user
-  telegramIdentities TelegramIdentity[] @relation("UserTelegramIdentities")
 
   // Document engine authorship. Kept as four distinct relations rather than one
   // generic "actor" edge because drafting, publishing, uploading stationery and
@@ -187,18 +174,6 @@ model Branch {
   assets           AssetItem[]
   trainingSessions TrainingSession[]
   budgets          Budget[]
-  loanTypes        LoanType[]
-  ledgerAccounts   LedgerAccount[]
-  ledgerMappings   LedgerMapping[]
-  journalEntries   JournalEntry[]
-  loanPolicy       LoanPolicy?
-
-  // External attendance provider wired to this branch (at most one).
-  attendanceIntegration AttendanceIntegration?
-
-  // Wage-file (WPS) setup for this branch (at most one) + the files generated.
-  wpsConfiguration WpsConfiguration?
-  wpsFiles         WpsFile[]
 
   // Employee-form override for this branch (at most one active). Absent => the
   // company-wide template applies.
@@ -332,10 +307,10 @@ model Employee {
   address          String?  @db.Text
   phone            String?  @db.VarChar(20)
   /// ISO-3166 alpha-2 used to read `phone` when it was typed without a country
-  /// prefix, so one instance can message a workforce spread over several
+  /// prefix, so one instance can serve a workforce spread over several
   /// countries. Null means "not stated" and falls back to the branch country,
-  /// then whatsapp.defaultRegion, then payroll_country — it does NOT mean the
-  /// number is local. A `phone` already stored with a '+' ignores this entirely.
+  /// then payroll_country — it does NOT mean the number is local. A `phone`
+  /// already stored with a '+' ignores this entirely.
   phoneCountryCode String?  @map("phone_country_code") @db.VarChar(2)
   email            String   @unique @db.VarChar(255)
   avatarUrl        String?  @map("avatar_url") @db.Text
@@ -383,13 +358,6 @@ model Employee {
   // 'MM/DD/YYYY', 'YYYY-MM-DD'). null = app default (DD/MM/YYYY).
   dateFormat String? @map("date_format") @db.VarChar(20)
 
-  // Identity of this employee inside the branch's external attendance provider
-  // (see AttendanceIntegration). Null = not linked yet; the sync auto-matches on
-  // employeeCode and backfills this column, or an admin binds it by hand.
-  // Unique per branch rather than globally: two providers may legitimately reuse
-  // the same external id string for different people.
-  attendanceExternalId String? @map("attendance_external_id") @db.VarChar(100)
-
   /// Values for Employee Profile Template fields whose storage is JSONB —
   /// i.e. the fields an admin invented, keyed by ProfileTemplateField.fieldKey.
   /// Fields bound to real columns NEVER live here; the mapping is the code
@@ -416,10 +384,7 @@ model Employee {
   attendances           Attendance[]
   attendanceCorrections AttendanceCorrection[]
   overtimeRequests      OvertimeRequest[]
-  reimbursements        Reimbursement[]
-  advanceLoanRequests   AdvanceLoanRequest[]
   garnishmentOrders     GarnishmentOrder[]
-  loanSettlements       LoanSettlement[]
   leaveRequests         LeaveRequest[]
   leaveBalances         LeaveBalance[]
   leaveTypeBalances     LeaveTypeBalance[]
@@ -454,7 +419,6 @@ model Employee {
   // Enterprise payment info — versioned bank details + change requests (Bank Master).
   bankDetails        EmployeeBankDetail[]
   bankChangeRequests BankChangeRequest[]
-  wpsFileRows        WpsFileRow[]
 
   // Legal document lifecycle (visa, future: passport/work permit/emirates id)
   legalDocuments EmployeeLegalDocument[]
@@ -462,10 +426,10 @@ model Employee {
   // Company assets held. An OPEN assignment (returnedAt = null) blocks offboarding.
   assetAssignments AssetAssignment[] @relation("AssetHolder")
 
-  // Trip requests raised. Expense claims land on `reimbursements` above.
+  // Trip requests raised.
   travelRequests TravelRequest[] @relation("TravelRequester")
 
-  // Training nominations. Costs also land on `reimbursements`.
+  // Training nominations.
   trainingNominations TrainingNomination[] @relation("TrainingNominee")
 
   // Self-service letters and grievances.
@@ -485,15 +449,11 @@ model Employee {
   timesheets              Timesheet[]          @relation("Timesheets")
   payrollBatchMemberships PayrollBatchMember[]
 
-  // `name` is the Prisma-side compound key; `map` is the actual DB index name —
-  // without the latter Prisma would expect its own generated name and report drift.
-  @@unique([branchId, attendanceExternalId], name: "unique_branch_external_attendance_id", map: "unique_branch_external_attendance_id")
   @@index([status])
   @@index([departmentId])
   @@index([branchId])
   @@index([supervisorId])
   @@index([overtimePolicyId])
-  @@index([attendanceExternalId])
   @@map("employees")
 }
 
@@ -679,10 +639,8 @@ enum PayrollStatus {
   LOCKED
 }
 
-/// What kind of run a payroll is. Only the types listed in the
-/// `loan_recover_on_run_types` setting recover loan installments — that single
-/// gate closes the "employee receives only bonus (no basic salary)" and
-/// "retro/arrears run double-charges an EMI" cases.
+/// What kind of run a payroll is. Distinguishes a regular cycle from a bonus,
+/// an adjustment (retro pay, arrears), an off-cycle run and a final settlement.
 enum PayrollRunType {
   REGULAR
   OFF_CYCLE
@@ -699,7 +657,6 @@ enum ApprovalRequestType {
   BANK_CHANGE
   TRAVEL
   TRAINING
-  ADVANCE_LOAN
 }
 
 // Step resolvers — how each step's approver(s) are found at runtime. These are
@@ -788,9 +745,8 @@ model Payroll {
   rejectionReason   String?        @map("rejection_reason") @db.Text
   lockedAt          DateTime?      @map("locked_at") @db.Timestamp(6)
   lockedBy          String?        @map("locked_by") @db.Uuid
-  /// Gates loan recovery: only the run types listed in
-  /// `loan_recover_on_run_types` recover installments. A BONUS or ADJUSTMENT
-  /// run (retro pay, arrears) must not charge an EMI a second time.
+  /// Distinguishes a regular cycle from a bonus, an adjustment (retro pay,
+  /// arrears), an off-cycle run and a final settlement.
   runType           PayrollRunType @default(REGULAR) @map("run_type")
   unlockedAt        DateTime?      @map("unlocked_at") @db.Timestamp(6)
   unlockedBy        String?        @map("unlocked_by") @db.Uuid
@@ -811,7 +767,6 @@ model Payroll {
   items           PayrollItem[]
   previousVersion Payroll?      @relation("PayrollVersions", fields: [previousVersionId], references: [id], onDelete: SetNull)
   nextVersions    Payroll[]     @relation("PayrollVersions")
-  wpsFiles        WpsFile[]
 
   // Period uniqueness is an EXPRESSION index Prisma cannot express, enforced in
   // migration 20260805100000. A plain @@unique([month, year, batchId]) does not
@@ -828,64 +783,59 @@ model Payroll {
 }
 
 model PayrollItem {
-  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  payrollId            String   @map("payroll_id") @db.Uuid
-  employeeId           String   @map("employee_id") @db.Uuid
-  baseSalary           Decimal  @map("base_salary") @db.Decimal(12, 2)
-  workDays             Int      @map("work_days")
-  actualWorkDays       Decimal  @map("actual_work_days") @db.Decimal(5, 2)
-  allowances           Decimal  @default(0) @db.Decimal(12, 2)
-  bonus                Decimal  @default(0) @db.Decimal(12, 2)
-  deduction            Decimal  @default(0) @db.Decimal(12, 2)
-  overtimeHours        Decimal  @default(0) @map("overtime_hours") @db.Decimal(5, 2)
-  overtimePay          Decimal  @default(0) @map("overtime_pay") @db.Decimal(12, 2)
-  foodAllowance        Decimal  @default(0) @map("food_allowance") @db.Decimal(12, 2)
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payrollId       String   @map("payroll_id") @db.Uuid
+  employeeId      String   @map("employee_id") @db.Uuid
+  baseSalary      Decimal  @map("base_salary") @db.Decimal(12, 2)
+  workDays        Int      @map("work_days")
+  actualWorkDays  Decimal  @map("actual_work_days") @db.Decimal(5, 2)
+  allowances      Decimal  @default(0) @db.Decimal(12, 2)
+  bonus           Decimal  @default(0) @db.Decimal(12, 2)
+  deduction       Decimal  @default(0) @db.Decimal(12, 2)
+  overtimeHours   Decimal  @default(0) @map("overtime_hours") @db.Decimal(5, 2)
+  overtimePay     Decimal  @default(0) @map("overtime_pay") @db.Decimal(12, 2)
+  foodAllowance   Decimal  @default(0) @map("food_allowance") @db.Decimal(12, 2)
   /// Site allowance granted by an approver on an individual overtime request.
   ///
   /// Its own column rather than folded into `foodAllowance` so the payslip can
-  /// name what it is paying for. An EARNING, taxable, and it reaches the wage
-  /// file only through the allowances sum in wps-payload.builder.ts.
-  siteAllowance        Decimal  @default(0) @map("site_allowance") @db.Decimal(12, 2)
-  reimbursement        Decimal  @default(0) @db.Decimal(12, 2)
-  advanceLoanDeduction Decimal  @default(0) @map("advance_loan_deduction") @db.Decimal(12, 2)
-  /// Court-ordered attachment of earnings. Subtracted from the pool BEFORE any
-  /// loan recovery, so the statutory > garnishment > protected-net > advance >
-  /// loan priority ladder is enforced structurally rather than aspirationally.
-  garnishment          Decimal  @default(0) @db.Decimal(12, 2)
+  /// name what it is paying for. An EARNING, taxable, and it reaches the
+  /// allowances sum like any other earning.
+  siteAllowance   Decimal  @default(0) @map("site_allowance") @db.Decimal(12, 2)
+  /// Court-ordered attachment of earnings. Subtracted from the pool after the
+  /// statutory deductions, so the statutory > garnishment > protected-net
+  /// priority ladder is enforced structurally rather than aspirationally.
+  garnishment     Decimal  @default(0) @db.Decimal(12, 2)
   /// Leave paid out instead of taken.
   ///
   /// Its own column rather than folded into `bonus`: `bonus` means rewards, and
   /// overloading it would make the taxability question a migration instead of a
   /// setting. Contributes a literal 0 while the feature is off.
-  leaveEncashment      Decimal  @default(0) @map("leave_encashment") @db.Decimal(12, 2)
+  leaveEncashment Decimal  @default(0) @map("leave_encashment") @db.Decimal(12, 2)
   /// Asset damage, training bonds and other employer recoveries.
   ///
   /// Its own column because recovery must be POST-TAX. `deduction` sits inside
   /// gross, so folding it there would reduce the employee's taxable base, which
-  /// is simply wrong; `advanceLoanDeduction` and `garnishment` would mislabel it.
-  otherRecovery        Decimal  @default(0) @map("other_recovery") @db.Decimal(12, 2)
+  /// is simply wrong; `garnishment` would mislabel it.
+  otherRecovery   Decimal  @default(0) @map("other_recovery") @db.Decimal(12, 2)
   /// End-of-service benefit PAID THROUGH this run.
   ///
   /// Normally zero: gratuity is a provision, not a payslip line, and an exit is
   /// settled outside payroll. Some jurisdictions require the whole exit package
-  /// to appear in the wage file the bank receives, and
-  /// `payroll_eosb_pay_through_final_run` says whether this is one of them.
+  /// to appear on the payslip, and `payroll_eosb_pay_through_final_run` says
+  /// whether this is one of them.
   /// Only ever non-zero on a FINAL_SETTLEMENT run.
-  gratuityPayout       Decimal  @default(0) @map("gratuity_payout") @db.Decimal(12, 2)
-  insurance            Decimal  @default(0) @db.Decimal(12, 2)
-  tax                  Decimal  @default(0) @db.Decimal(12, 2)
-  netSalary            Decimal  @map("net_salary") @db.Decimal(12, 2)
-  notes                String?  @db.Text
-  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  gratuityPayout  Decimal  @default(0) @map("gratuity_payout") @db.Decimal(12, 2)
+  insurance       Decimal  @default(0) @db.Decimal(12, 2)
+  tax             Decimal  @default(0) @db.Decimal(12, 2)
+  netSalary       Decimal  @map("net_salary") @db.Decimal(12, 2)
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
-  payroll               Payroll                  @relation(fields: [payrollId], references: [id], onDelete: Cascade)
-  employee              Employee                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  reimbursements        Reimbursement[]
-  advanceLoanDeductions AdvanceLoanDeduction[]
-  wpsFileRows           WpsFileRow[]
-  lines                 PayrollItemLine[]
-  leaveEncashments      LeaveEncashmentRequest[]
+  payroll          Payroll                  @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  employee         Employee                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  lines            PayrollItemLine[]
+  leaveEncashments LeaveEncashmentRequest[]
 
   @@unique([payrollId, employeeId], name: "unique_payroll_employee")
   @@index([employeeId])
@@ -895,7 +845,7 @@ model PayrollItem {
 /// One line of a payslip's itemised breakdown.
 ///
 /// The columns on `PayrollItem` stay authoritative: they are what the employee
-/// is paid, what the wage file carries and what every existing report reads.
+/// is paid and what every existing report reads.
 /// A line explains a column, it never produces one — which is what lets this
 /// ship on a running payroll without changing a single figure.
 ///
@@ -903,12 +853,12 @@ model PayrollItem {
 /// invariant is stated per bucket: `sum(lines where bucket = b) == item.b`.
 /// Grouping by EARNING/DEDUCTION alone would not do, because `deduction`,
 /// `insurance` and `tax` are three separate deduction columns computed by three
-/// different rules — a PF line could reconcile against a loan instalment and
+/// different rules — a PF line could reconcile against an insurance premium and
 /// the sum would balance while the payslip lied.
 model PayrollItemLine {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   payrollItemId String   @map("payroll_item_id") @db.Uuid
-  /// Stable machine key the UI and reports join on: BASIC, PF, LOP, LOAN_EMI…
+  /// Stable machine key the UI and reports join on: BASIC, PF, LOP, OT…
   code          String   @db.VarChar(50)
   /// The human label AS AT GENERATION. Snapshotted rather than derived so
   /// renaming a library item cannot rewrite what a payslip issued two years
@@ -936,17 +886,14 @@ model PayrollItemLine {
 /// pay, and any other deduction that exceeded net.
 ///
 /// A balance does NOT die with the employment. On exit an unrecovered row
-/// becomes `RECEIVABLE` — a debt on record, the way the loan module already
-/// treats an unpaid balance — rather than being written off silently.
+/// becomes `RECEIVABLE` — a debt on record — rather than being written off
+/// silently.
 model PayrollCarryForward {
   id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId String @map("employee_id") @db.Uuid
   branchId   String @map("branch_id") @db.Uuid
 
-  /// GARNISHMENT | DEDUCTION — what the shortfall came from. Loans and
-  /// advances are excluded on purpose: `AdvanceLoanDeduction.shortfallAmount`
-  /// already carries their own arrears, and duplicating it here would
-  /// double-recover.
+  /// GARNISHMENT | DEDUCTION — what the shortfall came from.
   kind String @db.VarChar(20)
 
   /// The `Garnishment` the shortfall belongs to, when there is one.
@@ -1179,598 +1126,13 @@ model AttendanceCorrection {
   @@map("attendance_corrections")
 }
 
-model Reimbursement {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  employeeId      String    @map("employee_id") @db.Uuid
-  type            String    @db.VarChar(100)
-  amount          Decimal   @db.Decimal(12, 2)
-  expenseDate     DateTime  @map("expense_date") @db.Date
-  description     String?   @db.Text
-  status          String    @default("PENDING") @db.VarChar(20)
-  approverId      String?   @map("approver_id") @db.Uuid
-  approvedAt      DateTime? @map("approved_at") @db.Timestamp(6)
-  approverRemarks String?   @map("approver_remarks") @db.Text
-  rejectedReason  String?   @map("rejected_reason") @db.Text
-  payrollItemId   String?   @map("payroll_item_id") @db.Uuid
-  paidAt          DateTime? @map("paid_at") @db.Timestamp(6)
-
-  // Provenance for claims spawned by an approved parent request. Travel and
-  // Training do NOT get their own expense tables — a trip or a nomination owns
-  // the *request*, and the money lands here so the existing payroll payout path
-  // (payrollItemId back-link, APPROVED->PAID at lock) works unchanged.
-  // 'TRAVEL' | 'TRAINING'; null for an ordinary standalone claim.
-  sourceType     String? @map("source_type") @db.VarChar(30)
-  // TravelRequest.id | TrainingNomination.id. Intentionally not an FK: one
-  // nullable column cannot reference two tables, and the parent is resolved
-  // through the same registry the approval engine uses.
-  sourceId       String? @map("source_id") @db.Uuid
-  // BUDGET_CATEGORY library label. Set at creation so the variance report can
-  // attribute actual spend without re-deriving it from `type`.
-  budgetCategory String? @map("budget_category") @db.VarChar(100)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  employee    Employee                  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  approver    User?                     @relation("ReimbursementApprover", fields: [approverId], references: [id], onDelete: SetNull)
-  payrollItem PayrollItem?              @relation(fields: [payrollItemId], references: [id], onDelete: SetNull)
-  attachments ReimbursementAttachment[]
-
-  @@index([employeeId])
-  @@index([status])
-  @@index([payrollItemId])
-  @@index([sourceType, sourceId])
-  @@map("reimbursements")
-}
-
-model ReimbursementAttachment {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  reimbursementId String    @map("reimbursement_id") @db.Uuid
-  fileName        String    @map("file_name") @db.VarChar(255)
-  fileUrl         String    @map("file_url") @db.Text
-  fileSize        BigInt?   @map("file_size")
-  mimeType        String?   @map("mime_type") @db.VarChar(100)
-  uploadedBy      String?   @map("uploaded_by") @db.Uuid
-  uploadedAt      DateTime  @default(now()) @map("uploaded_at") @db.Timestamp(6)
-  deletedAt       DateTime? @map("deleted_at") @db.Timestamp(6)
-
-  reimbursement Reimbursement @relation(fields: [reimbursementId], references: [id], onDelete: Cascade)
-  uploader      User?         @relation("ReimbursementAttachmentUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
-
-  @@index([reimbursementId])
-  @@map("reimbursement_attachments")
-}
-
-// =====================================================
-// SALARY ADVANCE & LOAN MANAGEMENT
-// =====================================================
-
-/// Interest model for a loan product. NONE keeps the pre-v2 behaviour.
-enum LoanInterestMethod {
-  NONE
-  FLAT
-  REDUCING_BALANCE
-}
-
-/// How often an installment falls due. Payroll stays monthly regardless: it
-/// collects every schedule row whose dueDate is on or before the period end, so
-/// a WEEKLY loan contributes 4-5 rows to one run and a QUARTERLY loan one every
-/// third run.
-enum LoanDeductionFrequency {
-  MONTHLY
-  WEEKLY
-  QUARTERLY
-}
-
-/// Lifecycle of ONE planned installment.
-/// SCHEDULED/PARTIAL/PAID are driven by the payroll ledger at LOCK time.
-/// DEFERRED/SKIPPED/WAIVED/WRITTEN_OFF/CLOSED_EARLY/CANCELLED are admin acts.
-enum LoanScheduleStatus {
-  SCHEDULED
-  PARTIAL
-  PAID
-  DEFERRED
-  SKIPPED
-  WAIVED
-  WRITTEN_OFF
-  CLOSED_EARLY
-  CANCELLED
-}
-
-enum LoanTransactionType {
-  DISBURSEMENT
-  PROCESSING_FEE
-  EMI_RECOVERY
-  PREPAYMENT
-  WAIVER
-  WRITE_OFF
-  ADJUSTMENT
-  SETTLEMENT
-  CONVERSION
-  TOPUP_SETTLEMENT
-  REVERSAL
-}
-
-enum LoanTransactionStatus {
-  POSTED
-  REVERSED
-}
-
-enum LoanClosureType {
-  AUTO
-  MANUAL
-  EARLY_CLOSURE
-  FORECLOSED
-  WRITE_OFF
-  WAIVER
-  SETTLEMENT
-  CONVERTED
-  TOPPED_UP
-}
-
-enum LoanProcessingFeeMode {
-  DEDUCT_FROM_DISBURSEMENT
-  ADD_TO_FIRST_EMI
-  CAPITALIZE
-}
-
-enum LoanGraceMode {
-  NONE
-  MORATORIUM_FULL
-  MORATORIUM_INTEREST_ONLY
-}
-
-/// Admin-managed loan product catalogue.
-///
-/// Deliberately NOT a LibraryItem: LibraryItem carries per-type metadata as
-/// bolt-on nullable columns and already strains with one (perDiemRate); a loan
-/// product needs ~25 policy fields.
-///
-/// Its values are SNAPSHOTTED onto the request at creation (the same rule as
-/// LibraryItem.perDiemRate -> TravelRequest): editing a product must never
-/// change the terms of a loan that is already approved.
-model LoanType {
-  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  code      String  @unique @db.VarChar(40) // PERSONAL | SALARY_ADVANCE | VEHICLE | EDUCATION | EMERGENCY
-  name      String  @db.VarChar(120)
-  /// 'LOAN' | 'ADVANCE' — drives AdvanceLoanRequest.type so both flows stay unified.
-  category  String  @default("LOAN") @db.VarChar(20)
-  isActive  Boolean @default(true) @map("is_active")
-  sortOrder Int     @default(0) @map("sort_order")
-  /// null => available in every branch (mirrors Holiday.branchId).
-  branchId  String? @map("branch_id") @db.Uuid
-
-  // ── Default terms ────────────────────────────────────────────────────────
-  interestMethod         LoanInterestMethod     @default(NONE) @map("interest_method")
-  /// Annual nominal rate, percent. 3dp so 8.375% is representable.
-  interestRate           Decimal                @default(0) @map("interest_rate") @db.Decimal(6, 3)
-  deductionFrequency     LoanDeductionFrequency @default(MONTHLY) @map("deduction_frequency")
-  defaultInstallments    Int                    @default(12) @map("default_installments")
-  maxInstallments        Int                    @default(24) @map("max_installments")
-  processingFeePercent   Decimal                @default(0) @map("processing_fee_percent") @db.Decimal(6, 3)
-  processingFeeFlat      Decimal                @default(0) @map("processing_fee_flat") @db.Decimal(12, 2)
-  processingFeeMode      LoanProcessingFeeMode  @default(DEDUCT_FROM_DISBURSEMENT) @map("processing_fee_mode")
-  /// Share of INTEREST (never principal) borne by the employer. 0-100.
-  employerSubsidyPercent Decimal                @default(0) @map("employer_subsidy_percent") @db.Decimal(5, 2)
-  gracePeriods           Int                    @default(0) @map("grace_periods")
-  graceMode              LoanGraceMode          @default(NONE) @map("grace_mode")
-
-  // ── Eligibility & affordability ──────────────────────────────────────────
-  maxAmount               Decimal? @map("max_amount") @db.Decimal(12, 2)
-  maxMultipleOfSalary     Decimal? @map("max_multiple_of_salary") @db.Decimal(6, 2)
-  minServiceMonths        Int      @default(0) @map("min_service_months")
-  maxActiveLoans          Int      @default(1) @map("max_active_loans")
-  minNetSalaryAfterEmi    Decimal? @map("min_net_salary_after_emi") @db.Decimal(12, 2)
-  maxEmiPercentOfNet      Decimal? @map("max_emi_percent_of_net") @db.Decimal(5, 2)
-  minEmiAmount            Decimal? @map("min_emi_amount") @db.Decimal(12, 2)
-  requiresSecurity        Boolean  @default(false) @map("requires_security")
-  /// Employee has no `grade` column; grade/designation ceilings map to these.
-  eligiblePositions       String[] @default([]) @map("eligible_positions")
-  eligibleEmploymentTypes String[] @default([]) @map("eligible_employment_types")
-  /// Recovery order when several loans compete for a limited net. Lower = first.
-  priority                Int      @default(100)
-  /// Pause EMI automatically in an unpaid-leave / zero-salary month.
-  pauseOnUnpaidLeave      Boolean  @default(true) @map("pause_on_unpaid_leave")
-  allowPrepayment         Boolean  @default(true) @map("allow_prepayment")
-  allowWriteOff           Boolean  @default(true) @map("allow_write_off")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  branch   Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  requests AdvanceLoanRequest[]
-
-  @@index([isActive, sortOrder])
-  @@index([branchId])
-  @@map("loan_types")
-}
-
-/// Per-branch recovery policy. SystemSetting is key-unique with no branch
-/// column and must not gain one — the established per-branch precedent in this
-/// codebase is a dedicated table/column (see getGeofencingPolicy reading
-/// Branch). Resolution chain:
-///   LoanType -> LoanPolicy(branchId) -> LoanPolicy(null) -> SystemSetting -> default
-model LoanPolicy {
-  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  /// null = global fallback row.
-  branchId String? @unique @map("branch_id") @db.Uuid
-  isActive Boolean @default(true) @map("is_active")
-
-  minNetPayAmount               Decimal?            @map("min_net_pay_amount") @db.Decimal(12, 2)
-  minNetPayPercent              Decimal?            @map("min_net_pay_percent") @db.Decimal(5, 2)
-  maxTotalDeductionPercentOfNet Decimal?            @map("max_total_deduction_percent_of_net") @db.Decimal(5, 2)
-  /// PARTIAL | DEFER | SKIP
-  shortfallPolicy               String?             @map("shortfall_policy") @db.VarChar(20)
-  /// CARRY_FORWARD | EXTEND_TENURE
-  deferralMode                  String?             @map("deferral_mode") @db.VarChar(20)
-  /// CONTINUE | PAUSE | EXTEND
-  unpaidLeavePolicy             String?             @map("unpaid_leave_policy") @db.VarChar(20)
-  gracePeriodCycles             Int?                @map("grace_period_cycles")
-  maxActivePerEmployee          Int?                @map("max_active_per_employee")
-  minServiceMonths              Int?                @map("min_service_months")
-  maxAmountMultipleOfSalary     Decimal?            @map("max_amount_multiple_of_salary") @db.Decimal(6, 2)
-  interestDefaultMethod         LoanInterestMethod? @map("interest_default_method")
-  roundingTolerance             Decimal?            @map("rounding_tolerance") @db.Decimal(12, 2)
-  writeOffRoles                 String?             @map("write_off_roles") @db.VarChar(200)
-  waiverRoles                   String?             @map("waiver_roles") @db.VarChar(200)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
-
-  @@map("loan_policies")
-}
-
-model AdvanceLoanRequest {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  employeeId        String    @map("employee_id") @db.Uuid
-  type              String    @db.VarChar(20) // CHECK: 'ADVANCE' | 'LOAN'
-  /// ORIGINAL principal. Immutable after disbursement — a change of principal is
-  /// a prepayment (down) or a top-up (up), never an edit, or every historical
-  /// closingBalance on the schedule becomes a lie.
-  amount            Decimal   @db.Decimal(12, 2)
-  reason            String?   @db.Text
-  /// CHECK-constrained rather than a Prisma enum: converting the column is an
-  /// ACCESS EXCLUSIVE rewrite on a table payroll reads, and `prisma migrate dev`
-  /// is broken here so there is no shadow-DB rehearsal. See loan.types.ts.
-  status            String    @default("PENDING") @db.VarChar(20)
-  installments      Int       @default(1) // 1 for advance; set by approver for loan
-  installmentAmount Decimal?  @map("installment_amount") @db.Decimal(12, 2)
-  /// v2 SEMANTIC: PRINCIPAL repaid, NOT total cash. With interest, cash exceeds
-  /// principal, and a cash-based counter would auto-complete loans early. This
-  /// keeps `outstanding = amount - amountRepaid` and the existing completion
-  /// test correct. Interest and fees have their own counters below.
-  amountRepaid      Decimal   @default(0) @map("amount_repaid") @db.Decimal(12, 2)
-  approverId        String?   @map("approver_id") @db.Uuid
-  approvedAt        DateTime? @map("approved_at") @db.Timestamp(6)
-  approverRemarks   String?   @map("approver_remarks") @db.Text
-  rejectedReason    String?   @map("rejected_reason") @db.Text
-  completedAt       DateTime? @map("completed_at") @db.Timestamp(6)
-
-  // ── v2: product & identity ───────────────────────────────────────────────
-  loanTypeId           String? @map("loan_type_id") @db.Uuid
-  /// Human reference, e.g. LN-2026-000123. Unique => the doc's "duplicate loan
-  /// reference number" case is a DB-level rejection, not an application race.
-  /// Nullable and NOT backfilled for legacy rows; minted on first v2 touch.
-  referenceNo          String? @unique @map("reference_no") @db.VarChar(40)
-  /// Snapshot of payroll_currency at creation: an employee transferring to
-  /// another entity must not silently re-denominate an existing loan.
-  currency             String  @default("INR") @db.VarChar(3)
-  /// Kept for reporting after an employee is archived (loan history must
-  /// outlive the person for statutory audit).
-  employeeCodeSnapshot String? @map("employee_code_snapshot") @db.VarChar(50)
-  employeeNameSnapshot String? @map("employee_name_snapshot") @db.VarChar(200)
-
-  // ── v2: interest terms, snapshotted from LoanType ────────────────────────
-  interestMethod         LoanInterestMethod     @default(NONE) @map("interest_method")
-  interestRate           Decimal                @default(0) @map("interest_rate") @db.Decimal(6, 3)
-  deductionFrequency     LoanDeductionFrequency @default(MONTHLY) @map("deduction_frequency")
-  processingFee          Decimal                @default(0) @map("processing_fee") @db.Decimal(12, 2)
-  processingFeeMode      LoanProcessingFeeMode  @default(DEDUCT_FROM_DISBURSEMENT) @map("processing_fee_mode")
-  employerSubsidyPercent Decimal                @default(0) @map("employer_subsidy_percent") @db.Decimal(5, 2)
-  securityDeposit        Decimal                @default(0) @map("security_deposit") @db.Decimal(12, 2)
-  gracePeriods           Int                    @default(0) @map("grace_periods")
-  graceMode              LoanGraceMode          @default(NONE) @map("grace_mode")
-
-  // ── v2: dates ────────────────────────────────────────────────────────────
-  effectiveDate      DateTime? @map("effective_date") @db.Date
-  disbursementDate   DateTime? @map("disbursement_date") @db.Date
-  /// principal - fee when processingFeeMode = DEDUCT_FROM_DISBURSEMENT.
-  disbursedAmount    Decimal?  @map("disbursed_amount") @db.Decimal(12, 2)
-  /// Explicit column so grace/holiday shifting stays auditable instead of being
-  /// re-derived on every schedule regeneration.
-  firstDeductionDate DateTime? @map("first_deduction_date") @db.Date
-
-  // ── v2: recovery control ─────────────────────────────────────────────────
-  /// Lower = recovered first when net cannot cover every loan.
-  priority   Int       @default(100)
-  holdFrom   DateTime? @map("hold_from") @db.Date
-  /// Deductions are suppressed while the cycle start is before holdUntil.
-  holdUntil  DateTime? @map("hold_until") @db.Date
-  holdReason String?   @map("hold_reason") @db.Text
-
-  // ── v2: money counters (denormalised; LoanLedgerService is the ONLY writer) ─
-  outstandingPrincipal Decimal? @map("outstanding_principal") @db.Decimal(12, 2)
-  outstandingInterest  Decimal  @default(0) @map("outstanding_interest") @db.Decimal(12, 2)
-  interestAccrued      Decimal  @default(0) @map("interest_accrued") @db.Decimal(12, 2)
-  interestPaid         Decimal  @default(0) @map("interest_paid") @db.Decimal(12, 2)
-  feesPaid             Decimal  @default(0) @map("fees_paid") @db.Decimal(12, 2)
-  /// Snapshot at approval: principal + employee-borne interest + payable fees.
-  totalPayable         Decimal? @map("total_payable") @db.Decimal(12, 2)
-  writtenOffAmount     Decimal  @default(0) @map("written_off_amount") @db.Decimal(12, 2)
-  waivedAmount         Decimal  @default(0) @map("waived_amount") @db.Decimal(12, 2)
-
-  // ── v2: closure & restructuring ──────────────────────────────────────────
-  closureType       LoanClosureType? @map("closure_type")
-  closedAt          DateTime?        @map("closed_at") @db.Timestamp(6)
-  closureRemarks    String?          @map("closure_remarks") @db.Text
-  /// Bumped on every regeneration. Live schedule rows carry this version.
-  scheduleVersion   Int              @default(0) @map("schedule_version")
-  restructuredAt    DateTime?        @map("restructured_at") @db.Timestamp(6)
-  /// Actor columns are plain uuids with no Prisma relation: they are audit
-  /// provenance, not referential load-bearing, and a relation each would mean
-  /// eight more back-references on User.
-  restructuredBy    String?          @map("restructured_by") @db.Uuid
-  createdOnBehalfBy String?          @map("created_on_behalf_by") @db.Uuid
-  /// How this request was raised: SELF | ON_BEHALF | IMPORT | TRAVEL | CONVERSION | TOPUP
-  approvalSource    String           @default("SELF") @map("approval_source") @db.VarChar(20)
-  /// FINAL_PAY | GRATUITY | LEAVE_ENCASHMENT | ... set by the settlement flow.
-  settlementMode    String?          @map("settlement_mode") @db.VarChar(30)
-  convertedFromId   String?          @map("converted_from_id") @db.Uuid
-  /// The loan this one topped up and settled. `LoanClosureType.TOPPED_UP` and
-  /// `LoanTransactionType.TOPUP_SETTLEMENT` existed for this and had no
-  /// producer, because there was no link to record.
-  topupOfId         String?          @map("topup_of_id") @db.Uuid
-
-  // ── v2: import (loans arriving with existing repayment history) ──────────
-  importBatchId    String?  @map("import_batch_id") @db.Uuid
-  openingPrincipal Decimal? @map("opening_principal") @db.Decimal(12, 2)
-  openingRepaid    Decimal? @map("opening_repaid") @db.Decimal(12, 2)
-
-  /// Optimistic concurrency for every balance-moving write outside the payroll
-  /// transaction (prepay, close, write-off, waive, settle, convert, top-up).
-  version Int @default(0)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  /// Restrict, not Cascade: loan history must survive the employee record for
-  /// statutory audit. employees.service.ts hardDelete() carries a matching
-  /// application-level guard so this surfaces as a readable message, not P2003.
-  employee         Employee                     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  approver         User?                        @relation("AdvanceLoanApprover", fields: [approverId], references: [id], onDelete: SetNull)
-  loanType         LoanType?                    @relation(fields: [loanTypeId], references: [id], onDelete: Restrict)
-  convertedFrom    AdvanceLoanRequest?          @relation("LoanConversion", fields: [convertedFromId], references: [id], onDelete: SetNull)
-  convertedInto    AdvanceLoanRequest[]         @relation("LoanConversion")
-  topupOf          AdvanceLoanRequest?          @relation("LoanTopup", fields: [topupOfId], references: [id], onDelete: SetNull)
-  toppedUpBy       AdvanceLoanRequest[]         @relation("LoanTopup")
-  deductions       AdvanceLoanDeduction[]
-  attachments      AdvanceLoanAttachment[]
-  schedules        LoanSchedule[]
-  transactions     LoanTransaction[]
-  rateChanges      LoanRateChange[]
-  notificationLogs AdvanceLoanNotificationLog[]
-  // Set when this advance was raised by an approved trip.
-  travelRequests   TravelRequest[]              @relation("TravelAdvance")
-
-  @@index([employeeId])
-  @@index([status])
-  @@index([type])
-  @@index([employeeId, status])
-  @@index([employeeId, status, priority])
-  @@index([loanTypeId])
-  @@map("advance_loan_requests")
-}
-
-/// The PLAN: one row per planned installment, with its principal/interest split.
-///
-/// Written by the amortization engine at approval/disbursement. Payroll
-/// GENERATION never writes here — status/paid* are a PROJECTION computed at
-/// LOCK time from PAID ledger rows, plus explicit admin acts. That single rule
-/// is what makes deleting a draft payroll a no-op for the plan and what stops
-/// a re-run from double-charging.
-model LoanSchedule {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  requestId     String   @map("request_id") @db.Uuid
-  /// Matches AdvanceLoanRequest.scheduleVersion for LIVE rows. Superseded rows
-  /// keep their old version and status=CANCELLED — the audit trail for
-  /// "schedule regenerated".
-  version       Int      @default(1)
-  installmentNo Int      @map("installment_no")
-  dueDate       DateTime @map("due_date") @db.Date
-  /// dueYear * 12 + dueMonth, denormalised from dueDate so "this cycle OR
-  /// earlier" (which is what sweeps arrears forward) is ONE indexed comparison
-  /// instead of an OR-of-tuples or per-row date arithmetic across 100k loans.
-  dueCycleKey   Int      @map("due_cycle_key")
-  dueMonth      Int      @map("due_month")
-  dueYear       Int      @map("due_year")
-
-  openingBalance           Decimal @map("opening_balance") @db.Decimal(12, 2)
-  principalComponent       Decimal @map("principal_component") @db.Decimal(12, 2)
-  interestComponent        Decimal @default(0) @map("interest_component") @db.Decimal(12, 2)
-  /// Part of interestComponent the EMPLOYER pays. Never deducted from salary;
-  /// carried for the interest-expense journal.
-  employerSubsidyComponent Decimal @default(0) @map("employer_subsidy_component") @db.Decimal(12, 2)
-  feeComponent             Decimal @default(0) @map("fee_component") @db.Decimal(12, 2)
-  /// EMPLOYEE-PAYABLE = principal + (interest - subsidy) + fee. Payroll deducts
-  /// THIS, not installmentAmount.
-  emiAmount                Decimal @map("emi_amount") @db.Decimal(12, 2)
-  closingBalance           Decimal @map("closing_balance") @db.Decimal(12, 2)
-
-  status             LoanScheduleStatus @default(SCHEDULED)
-  paidAmount         Decimal            @default(0) @map("paid_amount") @db.Decimal(12, 2)
-  paidPrincipal      Decimal            @default(0) @map("paid_principal") @db.Decimal(12, 2)
-  paidInterest       Decimal            @default(0) @map("paid_interest") @db.Decimal(12, 2)
-  /// Unpaid remainder of a PARTIAL row, swept forward by the dueCycleKey <= rule.
-  carryForwardAmount Decimal            @default(0) @map("carry_forward_amount") @db.Decimal(12, 2)
-  settledAt          DateTime?          @map("settled_at") @db.Timestamp(6)
-  supersededAt       DateTime?          @map("superseded_at") @db.Timestamp(6)
-  note               String?            @db.Text
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  request    AdvanceLoanRequest     @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  deductions AdvanceLoanDeduction[]
-
-  @@unique([requestId, version, installmentNo])
-  @@index([requestId, status])
-  @@index([dueCycleKey, status])
-  @@index([dueDate, status])
-  @@map("loan_schedules")
-}
-
-/// The payroll REPAYMENT LEDGER: one row per amount actually taken from one
-/// payroll item. A schedule row may have 0..N of these (partial recovery,
-/// arrears catch-up).
-model AdvanceLoanDeduction {
-  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  requestId     String  @map("request_id") @db.Uuid
-  /// Which planned installment this settles. NULL for legacy rows and for
-  /// schedule-less advance recovery. SetNull, not Cascade: cancelling a
-  /// superseded schedule row must never destroy a payment record.
-  scheduleId    String? @map("schedule_id") @db.Uuid
-  payrollItemId String? @map("payroll_item_id") @db.Uuid
-  amount        Decimal @db.Decimal(12, 2)
-
-  /// Split of `amount`, waterfall fee -> interest -> principal. A DB CHECK
-  /// asserts the three sum to `amount`, so an engine rounding bug fails loudly
-  /// at write time instead of silently drifting amountRepaid.
-  principalComponent Decimal @default(0) @map("principal_component") @db.Decimal(12, 2)
-  interestComponent  Decimal @default(0) @map("interest_component") @db.Decimal(12, 2)
-  feeComponent       Decimal @default(0) @map("fee_component") @db.Decimal(12, 2)
-
-  /// What was due vs what was taken — makes "why was nothing recovered in
-  /// June?" answerable from the ledger alone.
-  plannedAmount   Decimal? @map("planned_amount") @db.Decimal(12, 2)
-  shortfallAmount Decimal  @default(0) @map("shortfall_amount") @db.Decimal(12, 2)
-  /// FULL | PARTIAL | DEFER | SKIP | HOLD
-  outcome         String?  @db.VarChar(20)
-  /// AFFORDABLE | INSUFFICIENT_NET | ZERO_NET | UNPAID_LEAVE | ON_HOLD | ...
-  reason          String?  @db.VarChar(30)
-
-  month  Int
-  year   Int
-  /// PENDING (draft payroll) | PAID (locked) | SKIPPED (explanatory zero-amount
-  /// row) | REVERSED (payroll unlocked) | VOID. SKIPPED/REVERSED/VOID sit
-  /// OUTSIDE the live partial unique index so they never block a genuine later
-  /// recovery.
-  status String @default("PENDING") @db.VarChar(20)
-
-  /// True when a payroll admin overrode the computed amount; suppresses the
-  /// auto-clamp on re-run.
-  isManual   Boolean   @default(false) @map("is_manual")
-  reversedAt DateTime? @map("reversed_at") @db.Timestamp(6)
-  reversedBy String?   @map("reversed_by") @db.Uuid
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-
-  request     AdvanceLoanRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  schedule    LoanSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
-  /// SetNull, not Cascade: after an unlock the payroll holds REVERSED rows
-  /// whose history must survive the run being deleted. payrolls.remove()
-  /// explicitly deletes the PENDING rows to keep the re-release behaviour.
-  payrollItem PayrollItem?       @relation(fields: [payrollItemId], references: [id], onDelete: SetNull)
-  transaction LoanTransaction?
-
-  @@index([requestId])
-  @@index([payrollItemId])
-  @@index([status])
-  @@index([requestId, status])
-  @@index([scheduleId, status])
-  @@index([year, month, status])
-  @@index([payrollItemId, status])
-  @@map("advance_loan_deductions")
-}
-
-/// Every money event that is NOT a payroll deduction: disbursement, processing
-/// fee, cash prepayment, waiver, write-off, adjustment, settlement recovery,
-/// reversal. Both this and AdvanceLoanDeduction are written through the single
-/// helper LoanLedgerService so the denormalised counters cannot drift.
-model LoanTransaction {
-  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  requestId       String                @map("request_id") @db.Uuid
-  type            LoanTransactionType
-  status          LoanTransactionStatus @default(POSTED)
-  transactionDate DateTime              @map("transaction_date") @db.Date
-  /// Always POSITIVE. Direction is implied by `type`.
-  amount          Decimal               @db.Decimal(12, 2)
-
-  principalComponent Decimal  @default(0) @map("principal_component") @db.Decimal(12, 2)
-  interestComponent  Decimal  @default(0) @map("interest_component") @db.Decimal(12, 2)
-  feeComponent       Decimal  @default(0) @map("fee_component") @db.Decimal(12, 2)
-  /// Outstanding principal immediately after this event — makes the employee
-  /// statement one ordered scan with no running recomputation.
-  balanceAfter       Decimal? @map("balance_after") @db.Decimal(12, 2)
-
-  reference      String? @db.VarChar(120) // cheque / UTR / settlement id
-  narration      String? @db.Text
-  /// GRATUITY | LEAVE_ENCASHMENT | FINAL_PAY | BANK | CASH ...
-  sourceType     String? @map("source_type") @db.VarChar(30)
-  sourceId       String? @map("source_id") @db.Uuid
-  /// Accounting hook. Null until posted to the GL.
-  journalRef     String? @map("journal_ref") @db.VarChar(60)
-  /// Retry/replay guard: a double-submitted prepayment cannot post twice.
-  idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(120)
-
-  /// Set on a REVERSAL row, pointing at what it reverses. The original is never
-  /// deleted.
-  reversalOfId String? @map("reversal_of_id") @db.Uuid
-  /// Optional 1:1 mirror of a payroll deduction when accounting wants one
-  /// unified stream. Unique => a deduction is mirrored at most once.
-  deductionId  String? @unique @map("deduction_id") @db.Uuid
-
-  createdById String?  @map("created_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-
-  request    AdvanceLoanRequest    @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  reversalOf LoanTransaction?      @relation("LoanTxnReversal", fields: [reversalOfId], references: [id], onDelete: SetNull)
-  reversals  LoanTransaction[]     @relation("LoanTxnReversal")
-  deduction  AdvanceLoanDeduction? @relation(fields: [deductionId], references: [id], onDelete: SetNull)
-
-  @@index([requestId, transactionDate])
-  @@index([type, status])
-  @@index([journalRef])
-  @@map("loan_transactions")
-}
-
-/// Audit + trigger record for a mid-loan rate/method change. Inserting a row is
-/// what causes a schedule regeneration from `effectiveFrom`. Shipped now (five
-/// real columns) so floating-rate support is a service change, not a migration.
-model LoanRateChange {
-  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  requestId     String             @map("request_id") @db.Uuid
-  effectiveFrom DateTime           @map("effective_from") @db.Date
-  oldRate       Decimal            @map("old_rate") @db.Decimal(6, 3)
-  newRate       Decimal            @map("new_rate") @db.Decimal(6, 3)
-  oldMethod     LoanInterestMethod @map("old_method")
-  newMethod     LoanInterestMethod @map("new_method")
-  /// KEEP_TENURE (EMI moves) | KEEP_EMI (tenure moves)
-  mode          String             @default("KEEP_TENURE") @db.VarChar(20)
-  reason        String?            @db.Text
-
-  scheduleVersionBefore Int      @map("schedule_version_before")
-  scheduleVersionAfter  Int      @map("schedule_version_after")
-  appliedAt             DateTime @default(now()) @map("applied_at") @db.Timestamp(6)
-  appliedById           String?  @map("applied_by_id") @db.Uuid
-
-  request AdvanceLoanRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-
-  @@index([requestId, effectiveFrom])
-  @@map("loan_rate_changes")
-}
-
-/// Records the DECISION taken on an employee's outstanding loans at exit and
-/// its ledger effect. This is not an F&F module — the gratuity / leave
-/// encashment payout itself remains external.
 // A court-ordered attachment of earnings.
 //
 // `PayrollItem.garnishment` and `CycleContext.garnishment` both existed and
 // payroll passed a hard-coded 0, so the requirement doc's headline case —
-// "statutory deductions, garnishments, advances and loans compete for a limited
-// net salary" — had a missing rung: there was nowhere to record that an order
-// existed. This is that record.
+// "statutory deductions and garnishments compete for a limited net salary" —
+// had a missing rung: there was nowhere to record that an order existed. This
+// is that record.
 //
 // Deliberately NOT a SalaryComponent: every non-PAYROLL_CONFIG component is
 // treated as an EARNING by payroll-earnings.util.ts, so a garnishment expressed
@@ -1815,7 +1177,7 @@ model GarnishmentOrder {
 
 // What one payroll run actually took under one order.
 //
-// The mirror of AdvanceLoanDeduction, and for the same reason: a running
+// One row per cycle, and for good reason: a running
 // `collected` counter alone cannot say WHICH cycle took what, cannot be
 // reconciled against a payslip, and cannot be reversed when a locked payroll is
 // unlocked. The counter on the order stays as the fast read; this is the truth
@@ -1836,206 +1198,6 @@ model GarnishmentDeduction {
   @@unique([orderId, month, year])
   @@index([payrollItemId])
   @@map("garnishment_deductions")
-}
-
-// ── Accounting ──────────────────────────────────────────────────────────────
-//
-// Gap report §1: there is no accounting, GL or journal module anywhere, and
-// `LoanTransaction.journalRef` is declared, indexed, and referenced by NOTHING.
-// The whole of catalogue §14 was therefore 0% testable.
-//
-// What exists instead is the right feed: `LoanTransaction` is a complete,
-// append-only money log with typed components and a reversal link. This is the
-// posting side it was always waiting for, and nothing more — a full chart of
-// accounts, periods and trial balances belong to a finance system, not here.
-
-// A GL account, as this product needs to know about it.
-//
-// Deliberately thin: a code, a name, a type. The real chart of accounts lives
-// in whatever system consumes these entries; this exists so a posting can name
-// its debit and credit sides in the customer's own language rather than in
-// hard-coded strings.
-model LedgerAccount {
-  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  code     String  @unique @db.VarChar(40)
-  name     String  @db.VarChar(200)
-  /// ASSET | LIABILITY | INCOME | EXPENSE
-  type     String  @db.VarChar(20)
-  isActive Boolean @default(true) @map("is_active")
-  /// null => used by every branch.
-  branchId String? @map("branch_id") @db.Uuid
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  branch         Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  debitLines     JournalLine[]   @relation("DebitAccount")
-  creditLines    JournalLine[]   @relation("CreditAccount")
-  debitMappings  LedgerMapping[] @relation("MappingDebitAccount")
-  creditMappings LedgerMapping[] @relation("MappingCreditAccount")
-
-  @@index([isActive, code])
-  @@map("ledger_accounts")
-}
-
-// Which accounts a given kind of loan event posts to.
-//
-// The mapping is data, not code, because "loan receivable" is account 1310 in
-// one company and 1205 in the next — and because a company that has not mapped
-// an event should get a clear refusal rather than a posting to a guessed
-// account.
-model LedgerMapping {
-  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  /// The LoanTransactionType this mapping covers, plus DISBURSEMENT/WRITE_OFF etc.
-  event    String  @db.VarChar(40)
-  /// null => applies to every branch.
-  branchId String? @map("branch_id") @db.Uuid
-
-  debitAccountId  String @map("debit_account_id") @db.Uuid
-  creditAccountId String @map("credit_account_id") @db.Uuid
-
-  /// PRINCIPAL | INTEREST | FEE | TOTAL — which component of the event this
-  /// line carries. One event can map several components to different accounts.
-  component String  @default("TOTAL") @db.VarChar(20)
-  isActive  Boolean @default(true) @map("is_active")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  branch        Branch?       @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  debitAccount  LedgerAccount @relation("MappingDebitAccount", fields: [debitAccountId], references: [id], onDelete: Restrict)
-  creditAccount LedgerAccount @relation("MappingCreditAccount", fields: [creditAccountId], references: [id], onDelete: Restrict)
-
-  /// Prisma cannot express a PARTIAL unique index, and `branch_id` is nullable
-  /// — Postgres does not treat two NULLs as equal, so this declaration alone
-  /// would let the company-wide mapping be duplicated without limit. The real
-  /// rule is two partial indexes in the migration, mirrored into
-  /// `prisma/e2e-partial-indexes.sql` and `prisma/db-push-preflight.sql` so all
-  /// three provisioning paths agree. See R80.
-  @@unique([event, component, branchId])
-  @@index([event, isActive])
-  @@map("ledger_mappings")
-}
-
-// One balanced journal entry.
-//
-// `sourceType`/`sourceId` name what caused it, so a posting can always be
-// traced back to the money that produced it — and so a replay can find what has
-// already been posted instead of posting it twice.
-model JournalEntry {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  /// Human-readable, unique, and written back onto LoanTransaction.journalRef.
-  reference String   @unique @db.VarChar(60)
-  entryDate DateTime @map("entry_date") @db.Date
-  narration String?  @db.Text
-
-  /// LOAN_TRANSACTION for now; the column exists so payroll and reimbursement
-  /// can post through the same service later.
-  sourceType String  @map("source_type") @db.VarChar(40)
-  sourceId   String  @map("source_id") @db.Uuid
-  branchId   String? @map("branch_id") @db.Uuid
-
-  /// POSTED | REVERSED. Never deleted: a reversal is another entry.
-  status       String  @default("POSTED") @db.VarChar(20)
-  reversalOfId String? @map("reversal_of_id") @db.Uuid
-
-  postedById String?  @map("posted_by_id") @db.Uuid
-  postedAt   DateTime @default(now()) @map("posted_at") @db.Timestamp(6)
-
-  branch     Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  lines      JournalLine[]
-  reversalOf JournalEntry?  @relation("JournalReversal", fields: [reversalOfId], references: [id], onDelete: SetNull)
-  reversedBy JournalEntry[] @relation("JournalReversal")
-
-  /// One posting per source event. This is what makes posting replayable: a
-  /// second attempt loses on the index instead of duplicating the entry.
-  @@unique([sourceType, sourceId, status])
-  @@index([entryDate])
-  @@map("journal_entries")
-}
-
-model JournalLine {
-  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entryId String @map("entry_id") @db.Uuid
-
-  debitAccountId  String  @map("debit_account_id") @db.Uuid
-  creditAccountId String  @map("credit_account_id") @db.Uuid
-  amount          Decimal @db.Decimal(12, 2)
-  /// PRINCIPAL | INTEREST | FEE | TOTAL
-  component       String  @default("TOTAL") @db.VarChar(20)
-  narration       String? @db.Text
-
-  entry         JournalEntry  @relation(fields: [entryId], references: [id], onDelete: Cascade)
-  debitAccount  LedgerAccount @relation("DebitAccount", fields: [debitAccountId], references: [id], onDelete: Restrict)
-  creditAccount LedgerAccount @relation("CreditAccount", fields: [creditAccountId], references: [id], onDelete: Restrict)
-
-  @@index([entryId])
-  @@map("journal_lines")
-}
-
-model LoanSettlement {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  employeeId       String    @map("employee_id") @db.Uuid
-  totalOutstanding Decimal   @default(0) @map("total_outstanding") @db.Decimal(12, 2)
-  recovered        Decimal   @default(0) @db.Decimal(12, 2)
-  waived           Decimal   @default(0) @db.Decimal(12, 2)
-  writtenOff       Decimal   @default(0) @map("written_off") @db.Decimal(12, 2)
-  carried          Decimal   @default(0) @db.Decimal(12, 2)
-  /// Pre-state snapshot per loan, so reverseSettlement() can restore exactly.
-  decisionsJson    Json      @map("decisions_json")
-  decidedBy        String?   @map("decided_by") @db.Uuid
-  decidedAt        DateTime  @default(now()) @map("decided_at") @db.Timestamp(6)
-  reversedAt       DateTime? @map("reversed_at") @db.Timestamp(6)
-  reversedBy       String?   @map("reversed_by") @db.Uuid
-  reversalReason   String?   @map("reversal_reason") @db.Text
-
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-
-  @@index([employeeId])
-  @@map("loan_settlements")
-}
-
-/// Notification claim log. Reuses the primitive the reminders engine already
-/// relies on: insert with skipDuplicates, and only the rows actually inserted
-/// get sent. That is what stops a payroll rerun from resending "EMI deducted".
-model AdvanceLoanNotificationLog {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  requestId       String    @map("request_id") @db.Uuid
-  event           String    @db.VarChar(40)
-  /// '2026-08' for period-bound events, the mutation id for one-shot events,
-  /// '' for lifecycle-once events.
-  periodKey       String    @default("") @map("period_key") @db.VarChar(40)
-  recipientUserId String?   @map("recipient_user_id") @db.Uuid
-  channel         String    @default("IN_APP") @db.VarChar(10)
-  status          String    @default("PENDING") @db.VarChar(20) // PENDING | SENT | FAILED
-  attempts        Int       @default(0)
-  lastError       String?   @map("last_error") @db.Text
-  sentAt          DateTime? @map("sent_at") @db.Timestamp(6)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
-
-  request AdvanceLoanRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-
-  @@unique([requestId, event, periodKey, recipientUserId, channel])
-  @@index([status, attempts])
-  @@map("advance_loan_notification_logs")
-}
-
-model AdvanceLoanAttachment {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  requestId  String    @map("request_id") @db.Uuid
-  fileName   String    @map("file_name") @db.VarChar(255)
-  fileUrl    String    @map("file_url") @db.Text
-  fileSize   BigInt?   @map("file_size")
-  mimeType   String?   @map("mime_type") @db.VarChar(100)
-  uploadedBy String?   @map("uploaded_by") @db.Uuid
-  uploadedAt DateTime  @default(now()) @map("uploaded_at") @db.Timestamp(6)
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamp(6)
-
-  request  AdvanceLoanRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  uploader User?              @relation("AdvanceLoanAttachmentUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
-
-  @@index([requestId])
-  @@map("advance_loan_attachments")
 }
 
 model OvertimeRequest {
@@ -2204,7 +1366,7 @@ model GratuityRule {
 /// sets aside, and its purpose is to give Finance a liability figure they can
 /// plan against.
 ///
-/// Written when a payroll LOCKS, in the same transaction as the loan ledger, so
+/// Written when a payroll LOCKS, in the same transaction as the run itself, so
 /// the provision moves when the money does — and reversed by the same unlock.
 model GratuityAccrual {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -2284,10 +1446,10 @@ model LeaveTypePolicy {
 
 /// A request to be paid for leave instead of taking it.
 ///
-/// Carries an explicit `employeeId` that ADMIN/HR_MANAGER may set — deliberately
-/// unlike `Reimbursement`, whose missing `employeeId` is what stopped HR filing
-/// on an employee's behalf. HR files encashment for a leaver every day, so the
-/// field is product behaviour rather than a test convenience.
+/// Carries an explicit `employeeId` that ADMIN/HR_MANAGER may set, rather than
+/// always inferring the requester from the principal. HR files encashment for a
+/// leaver every day, so the field is product behaviour rather than a test
+/// convenience.
 model LeaveEncashmentRequest {
   id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId   String @map("employee_id") @db.Uuid
@@ -2356,11 +1518,10 @@ model LeaveCarryForwardRun {
 /// What an employee is owed when they leave, and the permanent working behind it.
 ///
 /// Distinct from `PayrollRunType.FINAL_SETTLEMENT`, which is a payroll RUN. The
-/// run pays pending salary through payroll, so it reaches the payslip, the wage
-/// file and the bank; this document composes the whole exit package — gratuity,
-/// leave encashment, notice pay, less loans and recoveries — and records how
-/// every figure was arrived at. The run's net becomes this document's
-/// PENDING_SALARY line.
+/// run pays pending salary through payroll, so it reaches the payslip and the
+/// bank; this document composes the whole exit package — gratuity, leave
+/// encashment, notice pay, less recoveries — and records how every figure was
+/// arrived at. The run's net becomes this document's PENDING_SALARY line.
 model FinalSettlement {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId      String   @map("employee_id") @db.Uuid
@@ -2482,7 +1643,7 @@ model PayrollCalendarPeriod {
   @@map("payroll_calendar_periods")
 }
 
-/// Money the employer is recovering from an employee, other than a loan.
+/// Money the employer is recovering from an employee.
 ///
 /// One model with a `kind` rather than a table per case, because asset damage,
 /// an asset never returned, a training bond and a notice shortfall are the same
@@ -2490,9 +1651,8 @@ model PayrollCalendarPeriod {
 /// the pay can bear — and differ only in what a payslip should call them.
 ///
 /// `clearance.service.ts` already BLOCKS an exit while an asset is out, but no
-/// money has ever moved: recovering meant raising a loan or a salary component
-/// by hand, with nothing linking it back to the asset. `assetAssignmentId`
-/// closes that.
+/// money has ever moved: recovering meant raising a salary component by hand,
+/// with nothing linking it back to the asset. `assetAssignmentId` closes that.
 model EmployeeRecovery {
   id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId String @map("employee_id") @db.Uuid
@@ -2776,7 +1936,7 @@ model CountryBankingField {
 }
 
 // Versioned source of truth for an employee's approved bank details. Exactly one
-// active row per employee (partial unique index in migration); payroll + WPS read
+// active row per employee (partial unique index in migration); payroll reads
 // only the active row. History preserved by keeping deactivated rows.
 model EmployeeBankDetail {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -2796,9 +1956,8 @@ model EmployeeBankDetail {
   branchId          String?  @map("branch_id") @db.Uuid
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamp(6)
 
-  employee    Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  bank        Bank         @relation(fields: [bankId], references: [id])
-  wpsFileRows WpsFileRow[]
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  bank     Bank     @relation(fields: [bankId], references: [id])
 
   // Partial unique index enforced in migration:
   //   CREATE UNIQUE INDEX uniq_active_bank_detail ON employee_bank_details(employee_id) WHERE is_active;
@@ -3049,10 +2208,8 @@ model Notification {
 // =====================================================
 // TRAVEL MANAGEMENT
 //
-// An EXTENSION of the reimbursement feature, not a parallel expense system.
-// A TravelRequest owns the trip and its multi-level approval; every currency
-// amount it produces becomes a `Reimbursement` row tagged sourceType='TRAVEL',
-// so payroll pays it out through the path that already exists.
+// A TravelRequest owns the trip and its multi-level approval, together with the
+// estimated cost and the per-diem rate snapshotted at submit time.
 // =====================================================
 
 model TravelRequest {
@@ -3074,9 +2231,8 @@ model TravelRequest {
   perDiemDays Int?     @map("per_diem_days")
 
   estimatedCost Decimal  @map("estimated_cost") @db.Decimal(12, 2)
-  // Optional cash advance, recovered through the EXISTING loans ledger.
+  // Optional cash advance requested for the trip.
   advanceAmount Decimal? @map("advance_amount") @db.Decimal(12, 2)
-  advanceLoanId String?  @map("advance_loan_id") @db.Uuid
 
   // PENDING | APPROVED | REJECTED | CANCELLED | COMPLETED
   status          String    @default("PENDING") @db.VarChar(20)
@@ -3088,10 +2244,9 @@ model TravelRequest {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
-  employee    Employee            @relation("TravelRequester", fields: [employeeId], references: [id], onDelete: Cascade)
-  approver    User?               @relation("TravelApprover", fields: [approverId], references: [id], onDelete: SetNull)
-  advanceLoan AdvanceLoanRequest? @relation("TravelAdvance", fields: [advanceLoanId], references: [id], onDelete: SetNull)
-  itinerary   TravelItinerary[]
+  employee  Employee          @relation("TravelRequester", fields: [employeeId], references: [id], onDelete: Cascade)
+  approver  User?             @relation("TravelApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  itinerary TravelItinerary[]
 
   @@index([employeeId, status])
   @@index([departureDate, returnDate])
@@ -3261,12 +2416,11 @@ model GrievanceEvent {
 //
 // A commitment becomes REALIZED (not released) the moment its spend shows up in
 // actuals. That transition is the entire double-counting guard: an approved trip
-// commits 500, spawns a per-diem reimbursement, and that reimbursement lands in
-// a locked payroll — without the transition the same 500 would be subtracted
-// twice.
+// commits 500, and once that 500 has landed in a locked payroll it must stop
+// counting as committed or the same money would be subtracted twice.
 //
-// Actuals are NOT stored here. They are read from payroll/reimbursement rows,
-// which are already the single source of truth; a second copy could only drift.
+// Actuals are NOT stored here. They are read from the payroll rows, which are
+// already the single source of truth; a second copy could only drift.
 // =====================================================
 
 model Budget {
@@ -3351,9 +2505,8 @@ model BudgetCommitment {
 // =====================================================
 // TRAINING MANAGEMENT
 //
-// Same shape as travel, and the same rule: a nomination owns the *request* and
-// its approval; the money becomes `Reimbursement` rows tagged
-// sourceType='TRAINING'. No training-expense table.
+// Same shape as travel: a nomination owns the *request* and its approval, and
+// the budget commitment it raises. No training-expense table.
 //
 // The differentiator is `TrainingNomination.source = 'APPRAISAL'` +
 // `appraisalResultId` — needs derived from the AI appraisal engine's
@@ -3566,497 +2719,30 @@ model ReminderDispatch {
   @@map("reminder_dispatches")
 }
 
-// =====================================================
-// WHATSAPP NOTIFICATIONS (Evolution API)
-//
-// Neither table is registered in common/branch/branch-scope.map.ts. That is
-// deliberate: Phase 2 resolves an identity from a @Public() webhook where
-// getBranchContext() is null, and a scoped model would then be filtered
-// non-deterministically the moment a context did exist. Same choice as
-// CopilotConversation. Branch isolation for the admin views is enforced
-// explicitly against the denormalised branch_id column instead.
-// =====================================================
-
-/// Delivery identity + consent for one WhatsApp number.
-///
-/// Deliberately NOT columns on Employee: `Employee.phone` is a free-text HR
-/// field (dashes, spaces, inconsistent country prefixes) that is searchable,
-/// counted in profile completion, and present in the bulk-import template.
-/// Delivery needs a normalised, verified, consented number whose provenance is
-/// auditable and which does not silently re-point when somebody tidies a profile.
-model WhatsAppIdentity {
-  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-
-  /// The tee only has Notification.userId, so keying on it avoids a join on
-  /// every send. employeeId is denormalised for the admin roster and for
-  /// branch-scoped filtering.
-  userId     String  @map("user_id") @db.Uuid
-  employeeId String? @map("employee_id") @db.Uuid
-  branchId   String? @map("branch_id") @db.Uuid
-
-  /// E.164 with the leading '+'. Max real E.164 is 15 digits, so 16 chars.
-  /// Unique from day one so Phase 2's one-phone-one-owner rule needs no
-  /// index churn later.
-  phoneE164 String  @unique @map("phone_e164") @db.VarChar(20)
-  /// '<digits>@s.whatsapp.net' as returned by /chat/whatsappNumbers, cached so a
-  /// send never needs a lookup round trip.
-  waJid     String? @map("wa_jid") @db.VarChar(60)
-
-  /// EMPLOYEE_PHONE (backfilled) | SELF (employee entered) | ADMIN (HR entered).
-  source String @default("EMPLOYEE_PHONE") @db.VarChar(20)
-
-  /// Consent. Default false: nobody is messaged until a human said yes.
-  optedIn    Boolean   @default(false) @map("opted_in")
-  optedInAt  DateTime? @map("opted_in_at") @db.Timestamp(6)
-  optedOutAt DateTime? @map("opted_out_at") @db.Timestamp(6)
-
-  /// Number confirmed to exist on WhatsApp. Distinct from optedIn: a number can
-  /// be real and unconsented, or consented and wrong.
-  verified      Boolean   @default(false)
-  verifiedAt    DateTime? @map("verified_at") @db.Timestamp(6)
-  lastCheckedAt DateTime? @map("last_checked_at") @db.Timestamp(6)
-
-  /// Consecutive hard delivery failures. At >= 5 the identity auto-suspends
-  /// (verified -> false) so a dead number stops burning outbox attempts.
-  failureCount Int     @default(0) @map("failure_count")
-  lastError    String? @map("last_error") @db.Text
-
-  // ---------------------------------------------------------------- Phase 2
-  // Inbound. An ACTIVE identity means "messages from this number are this
-  // user" — the same durable trust model as a registered push device.
-
-  /// Reply address exactly as WhatsApp reports it. May be an @lid privacy id,
-  /// which is why it is stored separately from phoneE164 and never conflated:
-  /// one is where to reply, the other is who the sender is.
-  remoteJid String? @map("remote_jid") @db.VarChar(100)
-  /// PENDING (enrolled on the web, handset not confirmed) | ACTIVE | BLOCKED | REVOKED
-  status    String  @default("PENDING") @db.VarChar(20)
-  /// Free-text label so a user with two handsets can tell them apart.
-  label     String? @db.VarChar(60)
-
-  /// bcrypt of a 6-digit PIN. Set ONLY from the authenticated web page —
-  /// never accepted over WhatsApp, or the channel could bootstrap its own trust.
-  pinHash        String?   @map("pin_hash") @db.VarChar(255)
-  pinSetAt       DateTime? @map("pin_set_at") @db.Timestamp(6)
-  failedPinCount Int       @default(0) @map("failed_pin_count")
-  lockedUntil    DateTime? @map("locked_until") @db.Timestamp(6)
-
-  /// The handset replied START, proving the WhatsApp account is live and consenting.
-  handsetOptInAt DateTime? @map("handset_opt_in_at") @db.Timestamp(6)
-  lastSeenAt     DateTime? @map("last_seen_at") @db.Timestamp(6)
-
-  /// Persisted daily budget, so a restart cannot reset an abuser's allowance.
-  dailyMsgCount Int       @default(0) @map("daily_msg_count")
-  dailyMsgDate  DateTime? @map("daily_msg_date") @db.Date
-
-  createdById String?   @map("created_by_id") @db.Uuid
-  revokedAt   DateTime? @map("revoked_at") @db.Timestamp(6)
-  revokedById String?   @map("revoked_by_id") @db.Uuid
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  user     User              @relation("UserWhatsAppIdentities", fields: [userId], references: [id], onDelete: Cascade)
-  sessions WhatsAppSession[]
-
-  @@index([userId])
-  @@index([employeeId])
-  @@index([optedIn, verified])
-  @@index([branchId])
-  @@index([status])
-  @@map("whatsapp_identities")
-}
-
-// =====================================================
-// WHATSAPP INBOUND (Phase 2)
-//
-// None of these tables is in BRANCH_SCOPE either, and for a sharper reason than
-// the Phase 1 pair: identity and session rows are read from a @Public() webhook
-// where getBranchContext() is null, BEFORE any principal exists. Scoping them
-// would make identity resolution succeed or fail depending on whatever context
-// happened to be set, which is the worst possible failure mode for an auth
-// lookup. Branch scope is applied where it belongs — inside the tool executor,
-// once the principal has been built.
-// =====================================================
-
-/// A one-time code proving the employee controls the handset they entered.
-model WhatsAppEnrollment {
-  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String @map("user_id") @db.Uuid
-  phoneE164 String @map("phone_e164") @db.VarChar(20)
-
-  /// bcrypt. The code itself is never stored or recoverable.
-  codeHash    String    @map("code_hash") @db.VarChar(255)
-  expiresAt   DateTime  @map("expires_at") @db.Timestamp(6)
-  attempts    Int       @default(0)
-  maxAttempts Int       @default(5) @map("max_attempts")
-  consumedAt  DateTime? @map("consumed_at") @db.Timestamp(6)
-  /// The web request's IP. Inet is valid here — unlike audit_logs, this is
-  /// genuinely an IP address and never a phone number.
-  createdIp   String?   @map("created_ip") @db.Inet
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-
-  @@index([userId, createdAt(sort: Desc)])
-  @@index([phoneE164, createdAt(sort: Desc)])
-  @@map("whatsapp_enrollments")
-}
-
-/// Conversation state for one chat. Deliberately NOT authentication: an idle
-/// session clears the in-progress flow, never the identity behind it.
-model WhatsAppSession {
-  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  instance   String  @db.VarChar(100)
-  remoteJid  String  @map("remote_jid") @db.VarChar(100)
-  identityId String? @map("identity_id") @db.Uuid
-  userId     String? @map("user_id") @db.Uuid
-
-  /// In-progress multi-step flow (e.g. applying for leave).
-  flowKey       String?   @map("flow_key") @db.VarChar(80)
-  flowStep      Int?      @map("flow_step")
-  slotsJson     Json?     @map("slots_json")
-  flowExpiresAt DateTime? @map("flow_expires_at") @db.Timestamp(6)
-  flowErrors    Int       @default(0) @map("flow_errors")
-
-  /// The last numbered menu rendered, so a bare "3" can be resolved. Without
-  /// this a numeric reply is a guess, and guessing can fire a mutation.
-  lastMenuJson Json?     @map("last_menu_json")
-  lastMenuAt   DateTime? @map("last_menu_at") @db.Timestamp(6)
-
-  /// Step-up for the sensitive class (payslips, loan balances).
-  pinVerifiedAt DateTime? @map("pin_verified_at") @db.Timestamp(6)
-
-  lastMessageAt DateTime? @map("last_message_at") @db.Timestamp(6)
-  /// Consecutive messages we could not route. Reset by any resolved action or
-  /// control verb, so it measures a RUN of confusion rather than a lifetime
-  /// total — which is what decides when to stop repeating the same guesses.
-  unknownStreak Int       @default(0) @map("unknown_streak")
-  /// Optimistic concurrency: two messages arriving at once must not interleave
-  /// halfway through a flow.
-  version       Int       @default(0)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  identity WhatsAppIdentity? @relation(fields: [identityId], references: [id], onDelete: SetNull)
-
-  @@unique([instance, remoteJid])
-  @@index([flowExpiresAt])
-  @@index([userId])
-  @@map("whatsapp_sessions")
-}
-
-/// Every inbound message. The first write IS the duplicate-delivery claim, and
-/// the row is also the retry record — there is no broker to hold either.
-model WhatsAppInboundMessage {
-  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  instance    String @db.VarChar(100)
-  waMessageId String @map("wa_message_id") @db.VarChar(120)
-  remoteJid   String @map("remote_jid") @db.VarChar(100)
-
-  phoneE164 String? @map("phone_e164") @db.VarChar(20)
-  pushName  String? @map("push_name") @db.VarChar(120)
-
-  sessionId  String? @map("session_id") @db.Uuid
-  identityId String? @map("identity_id") @db.Uuid
-  userId     String? @map("user_id") @db.Uuid
-
-  /// text | callback | location | unsupported
-  inputKind         String  @map("input_kind") @db.VarChar(20)
-  body              String? @db.Text
-  callbackId        String? @map("callback_id") @db.VarChar(220)
-  resolvedActionKey String? @map("resolved_action_key") @db.VarChar(80)
-
-  /// RECEIVED | PROCESSING | DONE | FAILED | IGNORED
-  status      String    @default("RECEIVED") @db.VarChar(20)
-  attempts    Int       @default(0)
-  lastError   String?   @map("last_error") @db.Text
-  nextRetryAt DateTime? @map("next_retry_at") @db.Timestamp(6)
-
-  /// Raw envelope with `apikey`, `server_url` and any base64 media stripped —
-  /// the webhook body carries the instance credential.
-  rawJson Json? @map("raw_json")
-
-  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamp(6)
-  processedAt DateTime? @map("processed_at") @db.Timestamp(6)
-
-  @@unique([instance, waMessageId])
-  @@index([status, nextRetryAt])
-  @@index([userId, receivedAt(sort: Desc)])
-  @@index([receivedAt(sort: Desc)])
-  @@map("whatsapp_inbound_messages")
-}
-
-/// A write awaiting the user's "yes".
-///
-/// The arguments live here, server-side, and are never re-read from the reply:
-/// a WhatsApp message is attacker-controllable text, so the only safe thing to
-/// take from it is the fact that the user said yes.
-model WhatsAppPendingAction {
-  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  sessionId  String @map("session_id") @db.Uuid
-  userId     String @map("user_id") @db.Uuid
-  identityId String @map("identity_id") @db.Uuid
-
-  actionKey   String @map("action_key") @db.VarChar(80)
-  toolName    String @map("tool_name") @db.VarChar(150)
-  argsJson    Json   @map("args_json")
-  previewJson Json?  @map("preview_json")
-
-  /// PENDING | CONFIRMED | REJECTED | EXPIRED
-  status     String    @default("PENDING") @db.VarChar(20)
-  resultJson Json?     @map("result_json")
-  expiresAt  DateTime  @map("expires_at") @db.Timestamp(6)
-  resolvedAt DateTime? @map("resolved_at") @db.Timestamp(6)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-
-  @@index([sessionId, status])
-  @@index([status, expiresAt])
-  @@map("whatsapp_pending_actions")
-}
-
-/// Single-use capability for an approve/reject tapped from a notification.
-///
-/// Bound to BOTH the handset identity and the approver: a message forwarded to
-/// another enrolled colleague fails even though the token string is intact.
-/// Only the SHA-256 is stored, so the DB cannot leak a usable token.
-model WhatsAppActionToken {
-  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tokenHash  String @unique @map("token_hash") @db.VarChar(64)
-  identityId String @map("identity_id") @db.Uuid
-  userId     String @map("user_id") @db.Uuid
-
-  actionKey    String @map("action_key") @db.VarChar(80)
-  toolName     String @map("tool_name") @db.VarChar(150)
-  argsJson     Json   @map("args_json")
-  resourceType String @map("resource_type") @db.VarChar(100)
-  resourceId   String @map("resource_id") @db.Uuid
-
-  /// PENDING | CONSUMED | EXPIRED | REVOKED
-  status              String    @default("PENDING") @db.VarChar(20)
-  expiresAt           DateTime  @map("expires_at") @db.Timestamp(6)
-  consumedAt          DateTime? @map("consumed_at") @db.Timestamp(6)
-  consumedByMessageId String?   @map("consumed_by_message_id") @db.Uuid
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-
-  @@index([userId, resourceType, resourceId, status])
-  @@index([status, expiresAt])
-  @@map("whatsapp_action_tokens")
-}
-
-/// Durable outbound queue.
-///
-/// There is no queue infrastructure in this repo (no redis, no bullmq, no
-/// event-emitter) and adding one for notifications is not proportionate. This
-/// table IS the queue: a row is the claim, the payload and the delivery record.
-/// The body is rendered at enqueue time so the drainer needs no domain context
-/// and so what was sent stays provable after the source row changes — the same
-/// reasoning as ReminderDispatch recording the decision rather than re-deriving it.
-model WhatsAppMessage {
-  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-
-  /// Caller-supplied stable identity. Enqueue is createMany(skipDuplicates), so a
-  /// replayed cron or a double-submit can never double-message a human.
-  /// e.g. 'reminder:legal_document:<entityId>:30:2026-09-01:<userId>'
-  dedupeKey String @unique @map("dedupe_key") @db.VarChar(200)
-
-  /// No FK to users/employees on purpose: the delivery log must survive employee
-  /// deletion. A cascade would erase the evidence that a message was sent.
-  /// Mirrors how AttendanceSyncRun.triggeredBy is modelled.
-  userId     String? @map("user_id") @db.Uuid
-  employeeId String? @map("employee_id") @db.Uuid
-  /// Denormalised for the admin log view and for explicit branch filtering.
-  branchId   String? @map("branch_id") @db.Uuid
-
-  toPhoneE164      String  @map("to_phone_e164") @db.VarChar(20)
-  templateKey      String  @map("template_key") @db.VarChar(60)
-  notificationType String? @map("notification_type") @db.VarChar(50)
-
-  /// Fully rendered at enqueue time, immutable thereafter.
-  body            String  @db.Text
-  /// Tappable affordances, also decided at ENQUEUE time so the drainer needs no
-  /// domain context and the offer stays as provable as the body.
-  ///
-  /// Holds only callback ids, which carry no authority — never a raw token. The
-  /// token itself exists exactly once, inside the message that went out.
-  interactiveJson Json?   @map("interactive_json")
-  /// Phase 2 media support. The drainer resolves the private:// ref at send time
-  /// so the outbox row stays small.
-  mediaRef        String? @map("media_ref") @db.Text
-  mediaMimeType   String? @map("media_mime_type") @db.VarChar(100)
-  mediaFileName   String? @map("media_file_name") @db.VarChar(255)
-
-  /// QUEUED | SENDING | SENT | FAILED | SKIPPED
-  status            String    @default("QUEUED") @db.VarChar(20)
-  attempts          Int       @default(0)
-  maxAttempts       Int       @default(5) @map("max_attempts")
-  nextAttemptAt     DateTime  @default(now()) @map("next_attempt_at") @db.Timestamp(6)
-  lockedAt          DateTime? @map("locked_at") @db.Timestamp(6)
-  sentAt            DateTime? @map("sent_at") @db.Timestamp(6)
-  providerMessageId String?   @map("provider_message_id") @db.VarChar(120)
-  lastError         String?   @map("last_error") @db.Text
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  /// Drives the drainer's claim scan.
-  @@index([status, nextAttemptAt])
-  @@index([employeeId, createdAt(sort: Desc)])
-  @@index([userId, createdAt(sort: Desc)])
-  @@index([createdAt(sort: Desc)])
-  @@map("whatsapp_messages")
-}
-
-// =====================================================
-// DISCORD CHANNEL
-//
-// Same shape as whatsapp_identities and for the same reasons: an identity row
-// is authentication, consent is recorded with timestamps, and the table is
-// deliberately absent from BRANCH_SCOPE because it is read from a @Public()
-// interactions endpoint before any principal (and therefore any branch
-// context) exists.
-// =====================================================
-
-/// Maps a Discord account to an ESS user.
-model DiscordIdentity {
-  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-
-  userId     String  @map("user_id") @db.Uuid
-  employeeId String? @map("employee_id") @db.Uuid
-  branchId   String? @map("branch_id") @db.Uuid
-
-  /// Discord snowflake. Unique: one Discord account is one person, the same
-  /// rule the WhatsApp channel applies to a handset.
-  discordUserId String  @unique @map("discord_user_id") @db.VarChar(32)
-  /// Denormalised for the admin roster; Discord usernames change.
-  discordTag    String? @map("discord_tag") @db.VarChar(64)
-  /// Cached DM channel id, so a notification need not re-open one every time.
-  dmChannelId   String? @map("dm_channel_id") @db.VarChar(32)
-
-  /// PENDING (code issued, not yet redeemed) | ACTIVE | REVOKED
-  status String @default("PENDING") @db.VarChar(20)
-
-  /// One-time linking code, hashed. Never stored in the clear.
-  linkCodeHash  String?   @map("link_code_hash") @db.VarChar(255)
-  linkExpiresAt DateTime? @map("link_expires_at") @db.Timestamp(6)
-  linkedAt      DateTime? @map("linked_at") @db.Timestamp(6)
-
-  optedIn    Boolean   @default(true) @map("opted_in")
-  optedOutAt DateTime? @map("opted_out_at") @db.Timestamp(6)
-
-  lastSeenAt DateTime? @map("last_seen_at") @db.Timestamp(6)
-  revokedAt  DateTime? @map("revoked_at") @db.Timestamp(6)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  user User @relation("UserDiscordIdentities", fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([employeeId])
-  @@index([status])
-  @@map("discord_identities")
-}
-
-/// Outbound Discord notification log.
-///
-/// Mirrors whatsapp_messages: the row is the claim, the payload and the
-/// delivery record, because this repo still has no queue infrastructure.
-model DiscordMessage {
-  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-
-  dedupeKey String @unique @map("dedupe_key") @db.VarChar(200)
-
-  userId        String? @map("user_id") @db.Uuid
-  employeeId    String? @map("employee_id") @db.Uuid
-  branchId      String? @map("branch_id") @db.Uuid
-  discordUserId String  @map("discord_user_id") @db.VarChar(32)
-
-  templateKey      String  @map("template_key") @db.VarChar(60)
-  notificationType String? @map("notification_type") @db.VarChar(50)
-  body             String  @db.Text
-
-  status            String    @default("QUEUED") @db.VarChar(20)
-  attempts          Int       @default(0)
-  maxAttempts       Int       @default(5) @map("max_attempts")
-  nextAttemptAt     DateTime  @default(now()) @map("next_attempt_at") @db.Timestamp(6)
-  lockedAt          DateTime? @map("locked_at") @db.Timestamp(6)
-  sentAt            DateTime? @map("sent_at") @db.Timestamp(6)
-  providerMessageId String?   @map("provider_message_id") @db.VarChar(64)
-  lastError         String?   @map("last_error") @db.Text
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  @@index([status, nextAttemptAt])
-  @@index([userId, createdAt(sort: Desc)])
-  @@index([createdAt(sort: Desc)])
-  @@map("discord_messages")
-}
-
-/// Single-use capability to complete one geofenced check-in from a browser.
-///
-/// Discord has no location primitive — no attachment, no modal field — so a
-/// geofenced branch can never be satisfied inside the chat. The bot hands out a
-/// link instead, and this row is what the link carries.
-///
-/// The same four properties as whatsapp_action_tokens, for the same reasons:
-/// only the hash is stored; it is bound to the Discord identity that asked;
-/// consumption is an atomic CAS so a double tap checks in once; and the tool
-/// name plus its static arguments live here, so the browser supplies nothing
-/// but coordinates. A forwarded link is therefore useless to anyone else, and
-/// the worst a stolen one can do is check its owner in from the thief's GPS —
-/// which is why the TTL is minutes, not hours.
-model DiscordActionToken {
-  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tokenHash  String @unique @map("token_hash") @db.VarChar(64)
-  identityId String @map("identity_id") @db.Uuid
-  userId     String @map("user_id") @db.Uuid
-
-  /// CHECKIN today; the shape is deliberately not check-in specific.
-  purpose   String @default("CHECKIN") @db.VarChar(40)
-  actionKey String @map("action_key") @db.VarChar(80)
-  toolName  String @map("tool_name") @db.VarChar(150)
-  argsJson  Json   @map("args_json")
-
-  /// PENDING | CONSUMED | EXPIRED
-  status     String    @default("PENDING") @db.VarChar(20)
-  expiresAt  DateTime  @map("expires_at") @db.Timestamp(6)
-  consumedAt DateTime? @map("consumed_at") @db.Timestamp(6)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-
-  @@index([userId, purpose, status])
-  @@index([status, expiresAt])
-  @@map("discord_action_tokens")
-}
-
 /// One-time, single-use capability to complete ONE attendance action from
 /// outside the chat — AND the receipt for whatever proof was collected on the
 /// way.
 ///
-/// Channel-agnostic successor to DiscordActionToken. The four properties that
-/// made that table safe are unchanged: only the SHA-256 is stored, the row is
-/// bound to the identity that asked for it, consumption is an atomic CAS, and
-/// the tool name plus its arguments live HERE — the browser or the chat can
-/// only add a position and a photo, never choose what happens.
+/// Channel-agnostic by design. Four properties make the table safe: only the
+/// SHA-256 is stored, the row is bound to the identity that asked for it,
+/// consumption is an atomic CAS, and the tool name plus its arguments live
+/// HERE — the browser or the chat can only add a position and a photo, never
+/// choose what happens.
 ///
-/// Two are added, because face proof is now in scope. The row names the CHANNEL
-/// it was minted for, checked against the actor channel when the proof is
-/// spent; and it names the EMPLOYEE, so a proof can never be redeemed for
-/// somebody else.
+/// Two more matter because face proof is in scope. The row names the CHANNEL it
+/// was minted for, checked against the actor channel when the proof is spent;
+/// and it names the EMPLOYEE, so a proof can never be redeemed for somebody
+/// else.
 ///
-/// No foreign keys: `identity_id` points at whatsapp_identities OR
-/// discord_identities depending on `channel`, so no single FK is expressible —
-/// and like discord_messages this row is evidence, which has to outlive the
-/// employee record it describes.
+/// No foreign keys: `identity_id` points at whichever channel identity table
+/// `channel` names, so no single FK is expressible — and this row is evidence,
+/// which has to outlive the employee record it describes.
 model ChannelVerificationToken {
   id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tokenHash String @unique @map("token_hash") @db.VarChar(64)
 
-  /// 'whatsapp' | 'discord'. Must equal the actor channel at spend time.
+  /// The delivery channel the token was minted for. Must equal the actor
+  /// channel at spend time.
   channel String @db.VarChar(20)
 
   /// LINK — the token is handed to a browser as a one-time url.
@@ -4225,13 +2911,6 @@ model LibraryItem {
   // destination. Snapshotted onto TravelRequest at submit — never read live,
   // because remove() is a hard delete and edits must not change approved trips.
   perDiemRate Decimal? @map("per_diem_rate") @db.Decimal(12, 2)
-
-  // Metadata field for LEAVE_TYPE: what happens to a loan EMI in a cycle this
-  // leave overlaps. 'CONTINUE' | 'PAUSE' | 'EXTEND' | null (inherit the global
-  // loan_unpaid_leave_policy). Resolved strictest-wins across every approved
-  // leave overlapping the cycle, which is how maternity / sabbatical /
-  // suspension / long-medical each get their own rule without new code.
-  loanDeductionPolicy String? @map("loan_deduction_policy") @db.VarChar(20)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
@@ -4418,9 +3097,9 @@ model CopilotPendingAction {
 
 enum LegalDocumentCategory {
   VISA
-  // Government identifiers. A wage file must carry a real national/labour
-  // identifier — Employee.idCard cannot be used: the onboarding stepper sets it
-  // to employeeCode, so it is an internal code, not a government number.
+  // Government identifiers. Employee.idCard cannot stand in for one: the
+  // onboarding stepper sets it to employeeCode, so it is an internal code, not
+  // a government number.
   LABOUR_CARD
   CIVIL_ID
   NATIONAL_ID
@@ -4494,308 +3173,6 @@ model LegalDocumentAttachment {
   @@map("legal_document_attachments")
 }
 
-// =====================================================
-// EXTERNAL ATTENDANCE PROVIDERS
-// A branch may delegate attendance capture to an external system (biometric
-// vendor, face-recognition analytics platform, ...). We mirror their records
-// into `attendances` read-only; our own ESS check-in flow is untouched.
-// Provider-agnostic by design: `provider` is a registry key and everything
-// vendor-specific lives in `options`, so adding a vendor needs no migration.
-// =====================================================
-model AttendanceIntegration {
-  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  // One provider per branch. Unique, not just indexed: two concurrent syncs
-  // writing the same branch would race on the same attendance rows.
-  branchId String @unique @map("branch_id") @db.Uuid
-
-  provider    String  @db.VarChar(50) // registry key, e.g. 'fusion-analytics'
-  displayName String  @map("display_name") @db.VarChar(100)
-  enabled     Boolean @default(false) // cron only picks up enabled rows
-
-  // --- Connection ---
-  baseUrl        String  @map("base_url") @db.VarChar(255)
-  authScheme     String  @default("header") @map("auth_scheme") @db.VarChar(20) // header | bearer
-  authHeaderName String? @map("auth_header_name") @db.VarChar(100)
-  // AES-256-GCM at rest (common/crypto/secret-crypto.ts). Never returned to the
-  // UI — the read projection exposes only a boolean + a masked hint.
-  authSecretEnc  String? @map("auth_secret_enc") @db.Text
-
-  // --- Identity on the remote side ---
-  externalBranchId String  @map("external_branch_id") @db.VarChar(100) // e.g. 'TAGGER'
-  externalTenantId String? @map("external_tenant_id") @db.VarChar(50) // e.g. '10'
-
-  // Provider-specific knobs, shape declared by the provider's configSchema
-  // (calculationVersion, sourceTimezone, pageSize, ...).
-  options Json?
-
-  // --- Sync behaviour ---
-  conflictPolicy      String  @default("PROVIDER_WINS_SAFE") @map("conflict_policy") @db.VarChar(30)
-  syncIntervalMinutes Int     @default(15) @map("sync_interval_minutes")
-  // How many days back each cron run re-reads, so late-arriving punches correct
-  // an earlier ABSENT instead of being lost.
-  lookbackDays        Int     @default(3) @map("lookback_days")
-  autoCreateAbsent    Boolean @default(false) @map("auto_create_absent")
-
-  // --- Last-run summary (denormalized from AttendanceSyncRun for cheap display) ---
-  lastSyncAt     DateTime? @map("last_sync_at") @db.Timestamp(6)
-  lastSyncStatus String?   @map("last_sync_status") @db.VarChar(20) // OK | PARTIAL | ERROR
-  lastSyncError  String?   @map("last_sync_error") @db.Text
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  branch Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  runs   AttendanceSyncRun[]
-
-  @@index([enabled])
-  @@map("attendance_integrations")
-}
-
-// One row per sync attempt (cron, manual, or dry run). The operator-facing
-// audit trail: what window was read, what was written, and why anything was
-// skipped. Kept out of AuditLog because these are system events, not user acts.
-model AttendanceSyncRun {
-  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  integrationId String @map("integration_id") @db.Uuid
-
-  trigger     String   @db.VarChar(20) // CRON | MANUAL | DRY_RUN
-  windowStart DateTime @map("window_start") @db.Date
-  windowEnd   DateTime @map("window_end") @db.Date
-
-  startedAt  DateTime  @default(now()) @map("started_at") @db.Timestamp(6)
-  finishedAt DateTime? @map("finished_at") @db.Timestamp(6)
-  status     String    @default("RUNNING") @db.VarChar(20) // RUNNING | OK | PARTIAL | ERROR
-
-  fetched    Int @default(0)
-  matched    Int @default(0)
-  created    Int @default(0)
-  updated    Int @default(0)
-  skipped    Int @default(0)
-  unmapped   Int @default(0)
-  errorCount Int @default(0) @map("error_count")
-
-  // Per-record outcomes, capped in the service so a bad day cannot bloat the row.
-  details     Json?
-  // User who pressed Sync/Preview. Raw id, no relation — mirrors how
-  // AttendanceCorrection.approverId is modelled.
-  triggeredBy String? @map("triggered_by") @db.Uuid
-
-  integration AttendanceIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-
-  @@index([integrationId, startedAt(sort: Desc)])
-  @@map("attendance_sync_runs")
-}
-
-// =====================================================
-// WAGE PROTECTION SYSTEM (WPS) — salary payment files
-//
-// The HRMS never moves money. It produces the official salary instruction file
-// the employer uploads to their bank; the bank validates it and transfers.
-//
-// Format-agnostic by design: `format` is a registry key and everything
-// country-specific lives in JSONB validated against the adapter's declared
-// schema, so adding the UAE / KSA / Qatar needs no migration.
-//
-// Status columns are VARCHAR, not Postgres enums: ALTER TYPE ... ADD VALUE cannot
-// run in a transaction, and bank acknowledgement vocabularies differ per country.
-// Validation lives in the DTOs (@IsIn) and the registry.
-// =====================================================
-
-/// Employer registration as the wage authority knows it.
-///
-/// Deliberately NOT on Branch: one Ministry establishment registration commonly
-/// covers several branches, so putting these on Branch would duplicate them the
-/// first time a customer has two offices. And the required fields differ per
-/// country (Oman: MoL establishment no + CR; UAE: MOHRE employer id + routing
-/// code), which is why `data` is JSONB validated against
-/// WpsFormat.employerConfigSchema rather than a fixed column set.
-model WpsEmployerProfile {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name      String   @db.VarChar(255) // operator-facing label
-  legalName String   @map("legal_name") @db.VarChar(255)
-  country   String   @db.VarChar(2) // ISO-3166 alpha-2
-  format    String   @db.VarChar(50) // registry key this data was validated against
-  /// Keys = format.employerConfigSchema[].name. Values of `secret: true` fields are
-  /// AES-256-GCM ciphertext (common/crypto/secret-crypto.ts), masked on every read.
-  data      Json?    @db.JsonB
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  configurations WpsConfiguration[]
-
-  @@index([country, isActive])
-  @@map("wps_employer_profiles")
-}
-
-/// Which wage-file format a branch pays through, and under which employer.
-/// One row per branch (unique, not merely indexed) — two concurrent generations
-/// for the same branch would race on the same bank-detail freeze.
-model WpsConfiguration {
-  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  branchId          String   @unique @map("branch_id") @db.Uuid
-  employerProfileId String   @map("employer_profile_id") @db.Uuid
-  format            String   @db.VarChar(50)
-  enabled           Boolean  @default(false)
-  /// Defaults for format.runOptionsSchema; overridable per run.
-  defaultRunOptions Json?    @map("default_run_options") @db.JsonB
-  /// WARNING codes an admin has pre-accepted for this branch. BLOCKING codes can
-  /// never appear here — they are not waivable.
-  acceptedWarnings  String[] @default([]) @map("accepted_warnings")
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  branch          Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  employerProfile WpsEmployerProfile @relation(fields: [employerProfileId], references: [id], onDelete: Restrict)
-  files           WpsFile[]
-
-  @@index([enabled])
-  @@map("wps_configurations")
-}
-
-/// One generated wage file (or file set).
-///
-/// Immutable once GENERATED — a correction is a NEW row at version+1 pointing
-/// back, mirroring Payroll's own version/previousVersionId convention. The
-/// original is never overwritten, because the bank may already hold it.
-model WpsFile {
-  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  /// NOT NULL: a wage file always belongs to one employer/branch. A null-branch
-  /// (legacy company-wide) payroll spans countries and cannot produce one file.
-  branchId        String  @map("branch_id") @db.Uuid
-  payrollId       String  @map("payroll_id") @db.Uuid
-  configurationId String? @map("configuration_id") @db.Uuid
-
-  format      String @db.VarChar(50)
-  /// The adapter's spec revision at generation time, so a historical file always
-  /// records which bank layout it was written against.
-  specVersion String @map("spec_version") @db.VarChar(100)
-
-  /// GENERATING | GENERATED | FAILED | SUBMITTED | ACKNOWLEDGED
-  /// | PARTIALLY_REJECTED | REJECTED | SUPERSEDED | CANCELLED
-  status String @default("GENERATING") @db.VarChar(30)
-
-  version           Int     @default(1)
-  previousVersionId String? @map("previous_version_id") @db.Uuid
-
-  // --- The artifact ---
-  fileName   String? @map("file_name") @db.VarChar(255)
-  /// `private://…` ref from StorageService. NOT a URL — deliberately not
-  /// representable as one. Reachable only via GET /secure-files/wps-file/:id.
-  privateRef String? @map("private_ref") @db.Text
-  mimeType   String? @map("mime_type") @db.VarChar(100)
-  byteSize   Int?    @map("byte_size")
-  /// SHA-256 of the PRIMARY artifact's bytes — the tamper fingerprint.
-  sha256     String? @db.VarChar(64)
-  /// Companion artifacts: [{ fileName, privateRef, mimeType, byteSize, sha256 }]
-  companions Json?   @db.JsonB
-
-  // --- Contents ---
-  employeeCount    Int      @default(0) @map("employee_count")
-  /// Integer MINOR units (baisa/fils), summed from wps_file_rows.net_minor.
-  /// Never derived from payrolls.total_amount: the file's header total must equal
-  /// the sum of its own detail rows, which is what a bank validator recomputes.
-  totalMinor       Decimal  @default(0) @map("total_minor") @db.Decimal(24, 0)
-  currency         String   @db.VarChar(3)
-  currencyExponent Int      @map("currency_exponent")
-  paymentDate      DateTime @map("payment_date") @db.Date
-  periodMonth      Int      @map("period_month")
-  periodYear       Int      @map("period_year")
-
-  // --- Snapshots: what was true AT generation, not what is true now ---
-  runOptions        Json? @map("run_options") @db.JsonB
-  employerSnapshot  Json? @map("employer_snapshot") @db.JsonB // secrets stripped
-  preflightSnapshot Json? @map("preflight_snapshot") @db.JsonB // incl. accepted WARNINGs
-
-  // --- Lifecycle ---
-  generatedBy     String   @map("generated_by") @db.Uuid
-  generatedAt     DateTime @default(now()) @map("generated_at") @db.Timestamp(6)
-  generationError String?  @map("generation_error") @db.Text
-
-  submittedBy         String?   @map("submitted_by") @db.Uuid
-  submittedAt         DateTime? @map("submitted_at") @db.Timestamp(6)
-  submissionReference String?   @map("submission_reference") @db.VarChar(120)
-
-  bankResponseAt    DateTime? @map("bank_response_at") @db.Timestamp(6)
-  bankResponseRef   String?   @map("bank_response_ref") @db.VarChar(120)
-  bankResponseNotes String?   @map("bank_response_notes") @db.Text
-  rejectedCount     Int       @default(0) @map("rejected_count")
-  recordedBy        String?   @map("recorded_by") @db.Uuid
-
-  downloadCount Int @default(0) @map("download_count")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  branch          Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  payroll         Payroll           @relation(fields: [payrollId], references: [id], onDelete: Restrict)
-  configuration   WpsConfiguration? @relation(fields: [configurationId], references: [id], onDelete: SetNull)
-  previousVersion WpsFile?          @relation("WpsFileVersions", fields: [previousVersionId], references: [id], onDelete: SetNull)
-  nextVersions    WpsFile[]         @relation("WpsFileVersions")
-  rows            WpsFileRow[]
-
-  // Partial unique index enforced in migration (concurrency guard — only one
-  // generation may be in flight per payroll):
-  //   CREATE UNIQUE INDEX uniq_wps_generating_per_payroll
-  //     ON wps_files(payroll_id) WHERE status = 'GENERATING';
-  @@unique([payrollId, version], name: "unique_wps_payroll_version")
-  @@index([branchId, status])
-  @@index([payrollId])
-  @@index([status])
-  @@map("wps_files")
-}
-
-/// Per-employee snapshot of what the file actually told the bank.
-///
-/// Required, not optional: bank rejections are PER ROW, so PARTIALLY_REJECTED has
-/// nowhere to hang a per-employee code without this; createRevision() creates NEW
-/// PayrollItem ids, so a v2-vs-v1 diff would lose its link; and support must be
-/// able to answer "was X in the January file, for how much, to which account"
-/// without downloading and parsing a live payment file.
-///
-/// Stores bank_detail_id, NOT the IBAN: EmployeeBankDetail rows are append-only
-/// (deactivated, never mutated), so the FK reproduces the exact account that was
-/// paid without duplicating the sensitive value.
-model WpsFileRow {
-  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  wpsFileId     String  @map("wps_file_id") @db.Uuid
-  employeeId    String  @map("employee_id") @db.Uuid
-  payrollItemId String? @map("payroll_item_id") @db.Uuid
-  bankDetailId  String? @map("bank_detail_id") @db.Uuid
-  sequence      Int // 1-based position in the file
-
-  employeeCodeSnapshot String  @map("employee_code_snapshot") @db.VarChar(50)
-  employeeNameSnapshot String  @map("employee_name_snapshot") @db.VarChar(255)
-  /// { LABOUR_CARD: '…', CIVIL_ID: '…' } — masked in every read projection.
-  identifierSnapshot   Json?   @map("identifier_snapshot") @db.JsonB
-  bankCodeSnapshot     String? @map("bank_code_snapshot") @db.VarChar(20)
-  /// maskAccount() output only — last 4. Never the full number.
-  accountMasked        String? @map("account_masked") @db.VarChar(40)
-
-  basicMinor      Decimal @default(0) @map("basic_minor") @db.Decimal(24, 0)
-  allowancesMinor Decimal @default(0) @map("allowances_minor") @db.Decimal(24, 0)
-  deductionsMinor Decimal @default(0) @map("deductions_minor") @db.Decimal(24, 0)
-  netMinor        Decimal @map("net_minor") @db.Decimal(24, 0)
-  currency        String  @db.VarChar(3)
-
-  /// INCLUDED | ACCEPTED | REJECTED
-  status          String  @default("INCLUDED") @db.VarChar(20)
-  rejectionCode   String? @map("rejection_code") @db.VarChar(50)
-  rejectionReason String? @map("rejection_reason") @db.Text
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-
-  wpsFile     WpsFile             @relation(fields: [wpsFileId], references: [id], onDelete: Cascade)
-  employee    Employee            @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  payrollItem PayrollItem?        @relation(fields: [payrollItemId], references: [id], onDelete: SetNull)
-  bankDetail  EmployeeBankDetail? @relation(fields: [bankDetailId], references: [id], onDelete: SetNull)
-
-  @@unique([wpsFileId, employeeId], name: "unique_wps_file_employee")
-  @@index([wpsFileId, status])
-  @@index([employeeId])
-  @@map("wps_file_rows")
-}
-
 // ── Employee Profile Template ───────────────────────────────────────────────
 // Replaces the hardcoded employee form. The set of fields, their labels, order,
 // sections, requiredness and per-role visibility are DATA; the code only knows
@@ -4804,8 +3181,8 @@ model WpsFileRow {
 //
 // Storage is HYBRID and deliberately so: a template field either binds to a real
 // column on employees/employee_profiles (see EMPLOYEE_BOUND_COLUMNS) or lives in
-// employees.custom_fields JSONB. Payroll, WPS wage files, letters and exports
-// read the columns, so those may be relabelled and reordered but never dropped.
+// employees.custom_fields JSONB. Payroll, letters and exports read the columns,
+// so those may be relabelled and reordered but never dropped.
 
 /// One template per scope. The COMPANY row (branch_id NULL) is the fallback; a
 /// BRANCH row overrides it wholesale for that branch — a full copy rather than a
@@ -4942,97 +3319,6 @@ model ProfileTemplateField {
   @@index([templateId, isActive])
   @@index([sectionId, displayOrder])
   @@map("profile_template_fields")
-}
-
-/// Telegram chat -> ESS user.
-///
-/// Third delivery channel, same shape as DiscordIdentity. The one Telegram
-/// specific: a bot cannot open a conversation, the human must press Start
-/// first, so the PRIVATE CHAT ID is what we actually send to and it is the
-/// unique key. For a private chat that id equals the user id, but they are
-/// different concepts and a group chat id is negative — storing the chat id
-/// keeps the send path honest about what it holds.
-model TelegramIdentity {
-  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-
-  userId     String  @map("user_id") @db.Uuid
-  employeeId String? @map("employee_id") @db.Uuid
-  branchId   String? @map("branch_id") @db.Uuid
-
-  /// Private chat id — the sendMessage target. Unique: one Telegram chat is one
-  /// person, the rule both other channels apply to a handset / an account.
-  telegramChatId String  @unique @map("telegram_chat_id") @db.VarChar(32)
-  /// Telegram user id. Equals the chat id for a private chat; kept separately
-  /// because a future group feature would break that assumption.
-  telegramUserId String? @map("telegram_user_id") @db.VarChar(32)
-  /// Denormalised for the admin roster; Telegram usernames change and are optional.
-  username       String? @map("username") @db.VarChar(64)
-
-  /// PENDING (code issued, not yet redeemed) | ACTIVE | REVOKED
-  status String @default("PENDING") @db.VarChar(20)
-
-  /// One-time linking code, hashed. Never stored in the clear.
-  linkCodeHash  String?   @map("link_code_hash") @db.VarChar(255)
-  linkExpiresAt DateTime? @map("link_expires_at") @db.Timestamp(6)
-  linkedAt      DateTime? @map("linked_at") @db.Timestamp(6)
-
-  optedIn    Boolean   @default(true) @map("opted_in")
-  optedOutAt DateTime? @map("opted_out_at") @db.Timestamp(6)
-
-  lastSeenAt DateTime? @map("last_seen_at") @db.Timestamp(6)
-  revokedAt  DateTime? @map("revoked_at") @db.Timestamp(6)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  user User @relation("UserTelegramIdentities", fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([employeeId])
-  @@index([status])
-  @@map("telegram_identities")
-}
-
-/// Outbound Telegram message log.
-///
-/// Mirrors discord_messages: the row is the claim, the payload and the delivery
-/// record, because this repo still has no queue infrastructure.
-///
-/// `user_id` is nullable here for a reason the other two channels do not have —
-/// a login alert to the ops group is addressed to a CHAT, not to a person, and
-/// a failed login may not correspond to any user at all.
-model TelegramMessage {
-  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-
-  dedupeKey String @unique @map("dedupe_key") @db.VarChar(200)
-
-  userId     String? @map("user_id") @db.Uuid
-  employeeId String? @map("employee_id") @db.Uuid
-  branchId   String? @map("branch_id") @db.Uuid
-  /// Target chat. A negative value is a group; that is how alerts are addressed.
-  chatId     String  @map("chat_id") @db.VarChar(32)
-
-  templateKey      String  @map("template_key") @db.VarChar(60)
-  notificationType String? @map("notification_type") @db.VarChar(50)
-  /// Telegram HTML. Rendered at enqueue so a template change cannot rewrite history.
-  body             String  @db.Text
-
-  status            String    @default("QUEUED") @db.VarChar(20)
-  attempts          Int       @default(0)
-  maxAttempts       Int       @default(5) @map("max_attempts")
-  nextAttemptAt     DateTime  @default(now()) @map("next_attempt_at") @db.Timestamp(6)
-  lockedAt          DateTime? @map("locked_at") @db.Timestamp(6)
-  sentAt            DateTime? @map("sent_at") @db.Timestamp(6)
-  providerMessageId String?   @map("provider_message_id") @db.VarChar(64)
-  lastError         String?   @map("last_error") @db.Text
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-
-  @@index([status, nextAttemptAt])
-  @@index([userId, createdAt(sort: Desc)])
-  @@index([createdAt(sort: Desc)])
-  @@map("telegram_messages")
 }
 
 // =====================================================
@@ -5280,7 +3566,7 @@ model GeneratedDocument {
 
   /// Whom it is about. NULL for company-wide artefacts (a payroll register).
   employeeId  String? @map("employee_id") @db.Uuid
-  /// Pointer at the record the document describes: a payrollItemId, a loanId, a
+  /// Pointer at the record the document describes: a payrollItemId, a
   /// settlementId. Interpreted by the type's resolver, never joined.
   subjectType String? @map("subject_type") @db.VarChar(40)
   subjectId   String? @map("subject_id") @db.Uuid
@@ -5322,11 +3608,10 @@ model GeneratedDocument {
   @@map("generated_documents")
 }
 
-/// A bulk run. Outbox table plus a cron drainer — the in-house async pattern
-/// (WhatsAppMessage + whatsapp-outbox.scheduler.ts). There is no Bull, no
-/// Redis and no job table in this codebase, and adding one to render PDFs
-/// would be a new piece of infrastructure for a problem the repo has already
-/// answered twice.
+/// A bulk run. Outbox table plus a cron drainer — the in-house async pattern.
+/// There is no Bull, no Redis and no job table in this codebase, and adding one
+/// to render PDFs would be a new piece of infrastructure for a problem the repo
+/// has already answered.
 model DocumentBatch {
   id                String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   typeKey           String @map("type_key") @db.VarChar(50)
@@ -5354,7 +3639,7 @@ model DocumentBatch {
   resultFileName String? @map("result_file_name") @db.VarChar(255)
 
   /// Set when a worker claims the row. A row RUNNING longer than the stale
-  /// window is reclaimed by the sweep, as the WhatsApp outbox does.
+  /// window is reclaimed by the sweep.
   claimedAt  DateTime? @map("claimed_at") @db.Timestamp(6)
   startedAt  DateTime? @map("started_at") @db.Timestamp(6)
   finishedAt DateTime? @map("finished_at") @db.Timestamp(6)

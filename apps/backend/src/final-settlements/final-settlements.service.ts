@@ -49,8 +49,8 @@ export class FinalSettlementsService {
    * Prepare a settlement, computing every line and storing the working.
    *
    * The parts come from the services that own them — gratuity from the rule
-   * engine, encashment from the leave policy, loans from their own ledger — so
-   * this assembles rather than calculates. Anything it calculated itself would
+   * engine, encashment from the leave policy — so this assembles rather than
+   * calculates. Anything it calculated itself would
    * be a second definition of a number that already exists somewhere.
    */
   async create(dto: Record<string, unknown>, user: any) {
@@ -418,20 +418,13 @@ export class FinalSettlementsService {
     lastWorkingDate: Date,
     dto: Record<string, unknown>,
   ) {
-    const [entitlement, encashRows, loanRows, carryRows, garnishRows] =
+    const [entitlement, encashRows, carryRows, garnishRows] =
       await Promise.all([
         this.gratuity
           .entitlementFor(employee.id, { role: 'ADMIN' }, lastWorkingDate)
           .catch(() => null),
         this.prisma.leaveEncashmentRequest.findMany({
           where: { employeeId: employee.id, status: 'APPROVED', payrollItemId: null },
-        }),
-        this.prisma.advanceLoanRequest.findMany({
-          where: {
-            employeeId: employee.id,
-            status: { notIn: ['CLOSED', 'REJECTED', 'CANCELLED', 'WRITTEN_OFF'] },
-          },
-          select: { id: true, amount: true, amountRepaid: true },
         }),
         this.prisma.payrollCarryForward.findMany({
           where: { employeeId: employee.id, status: 'OUTSTANDING' },
@@ -444,10 +437,6 @@ export class FinalSettlementsService {
     const gratuity = Number((entitlement as any)?.data?.amount ?? 0);
     const leaveEncashment = encashRows.reduce(
       (a, r) => a + Number(r.amount ?? 0),
-      0,
-    );
-    const loanRecovery = loanRows.reduce(
-      (a, l) => a + Math.max(0, Number(l.amount) - Number(l.amountRepaid ?? 0)),
       0,
     );
     const carryForward = carryRows.reduce(
@@ -477,7 +466,6 @@ export class FinalSettlementsService {
         noticePay: Number(dto.noticePay ?? 0),
         otherEarnings:
           (dto.otherEarnings as Array<{ code: string; label: string; amount: number }>) ?? [],
-        loanRecovery,
         garnishment,
         recoveries: [],
         carryForward,

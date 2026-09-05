@@ -97,7 +97,7 @@ export class CreateTravelRequestDto {
   estimatedCost: number;
 
   @ApiPropertyOptional({
-    description: 'Cash advance; recovered through the existing loans ledger',
+    description: 'Cash advance requested for the trip',
   })
   @IsOptional()
   @IsNumber()

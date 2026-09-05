@@ -89,7 +89,7 @@ interface Emp {
   absentDates: Set<string>;
 }
 
-const TOTAL_STEPS = 35;
+const TOTAL_STEPS = 34;
 
 // Per-month spec factories — same shapes as before, but relative to a given
 // (year, month) so we can seed both the previous and the current month.
@@ -130,21 +130,6 @@ function otSpecsFor(year: number, month: number) {
     { empIdx: 20, day: [year, month, 23] as [number, number, number], hours: 4, otType: 'DOUBLE', status: 'APPROVED', food: 8 },
   ];
 }
-function reimbSpecsFor(year: number, month: number) {
-  return [
-    { empIdx: 0, type: 'Travel', amount: 4500, status: 'APPROVED', date: [year, month, 6] as [number, number, number] },
-    { empIdx: 1, type: 'Medical', amount: 2200, status: 'APPROVED', date: [year, month, 9] as [number, number, number] },
-    { empIdx: 2, type: 'Food', amount: 800, status: 'APPROVED', date: [year, month, 14] as [number, number, number] },
-    { empIdx: 3, type: 'Office Supplies', amount: 1500, status: 'PENDING', date: [year, month, 19] as [number, number, number] },
-    { empIdx: 4, type: 'Other', amount: 1200, status: 'REJECTED', date: [year, month, 21] as [number, number, number] },
-    { empIdx: 5, type: 'Travel', amount: 3000, status: 'CANCELLED', date: [year, month, 3] as [number, number, number] },
-    { empIdx: 6, type: 'Medical', amount: 5000, status: 'PAID', date: [year, month, 15] as [number, number, number] },
-    // Oman branch — amounts in OMR.
-    { empIdx: 21, type: 'Travel', amount: 120, status: 'APPROVED', date: [year, month, 10] as [number, number, number] },
-    { empIdx: 22, type: 'Medical', amount: 80, status: 'PENDING', date: [year, month, 17] as [number, number, number] },
-  ];
-}
-
 @Injectable()
 export class SampleDataService {
   private readonly logger = new Logger(SampleDataService.name);
@@ -242,10 +227,9 @@ export class SampleDataService {
         const baseSalary = isOman
           ? 400 + deptIndex * 220 + randInt(rng, 0, 8) * 80
           : 40000 + deptIndex * 5000 + branchIndex * 3000 + randInt(rng, 0, 8) * 1000;
-        // Both branches of this must be dialable: WhatsApp delivery normalises
-        // Employee.phone to E.164 and drops anything invalid. The India form
-        // needs ten national digits (5 + 5) — the previous `+91-90000-NNN0`
-        // produced only nine and was rejected by every phone-number validator.
+        // Both branches of this must be dialable. The India form needs ten
+        // national digits (5 + 5) — the previous `+91-90000-NNN0` produced only
+        // nine and was rejected by every phone-number validator.
         const phone = isOman ? `+968-9${pad3(i + 1)}-0000` : `+91-90000-${pad3(i + 1)}00`;
         const gender = i % 2 === 0 ? 'MALE' : 'FEMALE';
         const dateOfBirth = new Date(Date.UTC(1985 + (i % 12), (i * 2) % 12, 1 + (i % 27)));
@@ -479,7 +463,7 @@ export class SampleDataService {
           }
         }
 
-        say(`Adding ${monthLabel(m)} leave, overtime & reimbursements…`);
+        say(`Adding ${monthLabel(m)} leave & overtime…`);
         for (const s of leaveSpecs) {
           const emp = employees[s.empIdx];
           const decided = s.status === 'APPROVED' || s.status === 'REJECTED';
@@ -518,67 +502,18 @@ export class SampleDataService {
             },
           });
         }
-        for (const r of reimbSpecsFor(m.year, m.month)) {
-          const approved = r.status === 'APPROVED' || r.status === 'PAID';
-          await prisma.reimbursement.create({
-            data: {
-              employeeId: employees[r.empIdx].id, type: r.type, amount: r.amount,
-              expenseDate: dU(r.date), description: `${r.type} expense claim`, status: r.status,
-              approverId: approved || r.status === 'REJECTED' ? hrUserId : null,
-              approvedAt: approved ? new Date() : null,
-              approverRemarks: r.status === 'APPROVED' ? 'Approved for reimbursement.' : null,
-              rejectedReason: r.status === 'REJECTED' ? 'Missing receipt.' : null,
-              paidAt: r.status === 'PAID' ? new Date() : null,
-            },
-          });
-        }
       }
 
       await prisma.workSchedule.createMany({ data: scheduleRows });
       await prisma.attendance.createMany({ data: attendanceRows });
 
-      say('Setting up salary advances & loans…');
-      const alSpecs = [
-        { empIdx: 0, type: 'LOAN', amount: 60000, installments: 12, status: 'APPROVED' },
-        { empIdx: 1, type: 'ADVANCE', amount: 10000, installments: 1, status: 'APPROVED' },
-        { empIdx: 2, type: 'LOAN', amount: 24000, installments: 6, status: 'APPROVED' },
-        { empIdx: 3, type: 'ADVANCE', amount: 8000, installments: 1, status: 'PENDING' },
-        { empIdx: 4, type: 'LOAN', amount: 30000, installments: 10, status: 'REJECTED' },
-        { empIdx: 5, type: 'ADVANCE', amount: 5000, installments: 1, status: 'CANCELLED' },
-        { empIdx: 6, type: 'LOAN', amount: 12000, installments: 6, status: 'COMPLETED' },
-        // Oman branch — amounts in OMR.
-        { empIdx: 18, type: 'ADVANCE', amount: 300, installments: 1, status: 'APPROVED' },
-        { empIdx: 19, type: 'LOAN', amount: 1200, installments: 6, status: 'APPROVED' },
-      ] as const;
-      for (const a of alSpecs) {
-        const completed = a.status === 'COMPLETED';
-        const hasPlan = a.status === 'APPROVED' || completed;
-        const installmentAmount = a.type === 'LOAN' ? Math.round(a.amount / a.installments) : a.amount;
-        await prisma.advanceLoanRequest.create({
-          data: {
-            employeeId: employees[a.empIdx].id, type: a.type, amount: a.amount,
-            reason: `${a.type === 'LOAN' ? 'Personal loan' : 'Salary advance'} request`,
-            status: a.status, installments: a.installments,
-            installmentAmount: hasPlan ? installmentAmount : null,
-            amountRepaid: completed ? a.amount : 0,
-            approverId: hasPlan || a.status === 'REJECTED' ? hrUserId : null,
-            approvedAt: hasPlan ? new Date() : null,
-            approverRemarks: a.status === 'APPROVED' ? 'Approved; recovered via payroll.' : null,
-            rejectedReason: a.status === 'REJECTED' ? 'Exceeds allowed limit.' : null,
-            completedAt: completed ? new Date() : null,
-          },
-        });
-      }
-
       say('Running payroll (draft) for the previous & current month…');
       // ONE BATCH AND ONE RUN PER BRANCH, not one company-wide run.
       //
-      // A run with no branch is a dead end for the wage file: `WpsPayloadBuilder`
-      // refuses it outright — "this payroll is not attached to a branch (a legacy
-      // company-wide run), so no wage file can be produced for it" — because a
-      // run spanning countries and currencies cannot map to one employer's file.
-      // Seeding company-wide runs therefore made the whole Oman WPS flow
-      // unreachable from a freshly seeded database.
+      // A run spanning countries and currencies belongs to no employer, so every
+      // per-branch screen downstream of it reads empty. Seeding company-wide runs
+      // therefore left the whole Oman payroll flow unreachable from a freshly
+      // seeded database.
       //
       // `PayrollsService.create` stamps the branch from the request's branch
       // context, and a seed has none (it runs under `runWithBranchBypass`), so
@@ -588,8 +523,8 @@ export class SampleDataService {
       for (let b = 0; b < branchIds.length; b++) {
         // One employee is deliberately left branch-less later in the seed as a
         // data-quality example. On a per-branch run that person is a BLOCKING
-        // `NOT_IN_BRANCH` finding — "is not in branch X but appears on its
-        // payroll" — which stops the branch's wage file, so they are not paid
+        // `NOT_IN_BRANCH` pre-flight finding — "is not in branch X but appears
+        // on its payroll" — which stops the branch's run, so they are not paid
         // through a branch run at all.
         const branchEmployees = employees.filter(
           (e) => e.branchIndex === b && e.index !== NO_BRANCH_EMPLOYEE_INDEX,
@@ -665,9 +600,8 @@ export class SampleDataService {
       });
 
       // The hub dashboards read aggregates the core seed never produces —
-      // LOCKED payroll runs, gratuity, settlements, wage files, loan
-      // amortisation, this month's joiners, roster conflicts. Without this the
-      // demo opens on a row of zeroes.
+      // LOCKED payroll runs, gratuity, settlements, this month's joiners,
+      // roster conflicts. Without this the demo opens on a row of zeroes.
       await seedDemoFill({
         prisma: prisma as any,
         employees,
@@ -681,19 +615,18 @@ export class SampleDataService {
         info,
       });
 
-      // Oman is the branch the wage-file flow is demonstrated on, and it has to
-      // run LAST: it repairs the payment details the extras seed wrote, decides
-      // any bank change still open, and itemises the payslips demo-fill locked.
+      // Oman is the showcase payroll branch, and it has to run LAST: it repairs
+      // the payment details the extras seed wrote, decides any bank change still
+      // open, and itemises the payslips demo-fill locked.
       const muscat = await seedMuscatPayrollDemo(prisma as any, {
         year: monthsToSeed[monthsToSeed.length - 1].year,
         say,
         info,
       });
 
-      // The screens either side of payroll: approvals, loans, the ledger, the
-      // onboarding queue. Runs after the payroll pass because several of its
-      // rows hang off what that one creates (journal entries off loan
-      // transactions, approval-state runs off the branch's batch).
+      // The screens either side of payroll: approvals, overtime, the onboarding
+      // queue. Runs after the payroll pass because several of its rows hang off
+      // what that one creates (approval-state runs off the branch's batch).
       const muscatExtra = await seedMuscatCoverage(prisma as any, {
         period: monthsToSeed[monthsToSeed.length - 1],
         say,
@@ -718,7 +651,7 @@ export class SampleDataService {
     const ofEmp = sampleFilters.ofSampleEmployee;
     const [
       employees, departments, branches, attendance, leaveRequests, overtime,
-      reimbursements, advancesLoans, payrollItems,
+      payrollItems,
       teams, assets, travelRequests, trainingNominations, budgetLines,
       bankDetails, letters, grievances, documents, visas, rewards, disciplines,
       timesheets, corrections, appraisalResults, notifications, auditLogs,
@@ -729,8 +662,6 @@ export class SampleDataService {
       this.prisma.attendance.count({ where: ofEmp }),
       this.prisma.leaveRequest.count({ where: ofEmp }),
       this.prisma.overtimeRequest.count({ where: ofEmp }),
-      this.prisma.reimbursement.count({ where: ofEmp }),
-      this.prisma.advanceLoanRequest.count({ where: ofEmp }),
       this.prisma.payrollItem.count({ where: { payroll: { batch: { name: { startsWith: 'SMP' } } } } }),
       this.prisma.team.count({ where: sampleFilters.byCodePrefix }),
       this.prisma.assetItem.count({ where: { assetTag: { startsWith: SMP } } }),
@@ -752,7 +683,7 @@ export class SampleDataService {
     ]);
     return {
       departments, branches, employees, attendance, leaveRequests,
-      overtime, reimbursements, advancesLoans, payrollItems,
+      overtime, payrollItems,
       teams, assets, travelRequests, trainingNominations, budgetLines,
       bankDetails, letters, grievances, documents, visas, rewards, disciplines,
       timesheets, corrections, appraisalResults, notifications, auditLogs,

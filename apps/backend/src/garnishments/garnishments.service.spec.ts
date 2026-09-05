@@ -6,8 +6,8 @@ import { GarnishmentsService } from './garnishments.service';
  *
  * `PayrollItem.garnishment` and `CycleContext.garnishment` both existed and
  * payroll passed a hard-coded `0`, so the requirement doc's headline case —
- * statutory deductions, garnishments, advances and loans competing for one
- * limited net salary — could not be exercised even in principle.
+ * statutory deductions, garnishments and recoveries competing for one limited
+ * net salary — could not be exercised even in principle.
  *
  * `takeFor` is pure, so the arithmetic is a table here rather than a database
  * fixture. What it has to get right is the two bounds: an order stops at its

@@ -207,7 +207,7 @@ the user is told nothing.
 None of these block the module. Each is a lane that will light up when the
 counterpart exists.
 
-### 7.1 Shift reminders (email / in-app / WhatsApp)
+### 7.1 Shift reminders (email / in-app)
 
 HRM's `ShiftNotificationScheduler` sends a reminder before a shift starts and an
 alert after it has. It needs, none of which this repo has:

@@ -23,12 +23,10 @@ describe('isDeveloperSettingKey', () => {
     }
   });
 
-  it('covers copilot and whatsapp keys by prefix, including ones not yet written', () => {
+  it('covers copilot keys by prefix, including ones not yet written', () => {
     expect(isDeveloperSettingKey('copilot.enabled')).toBe(true);
     expect(isDeveloperSettingKey('copilot.llmBaseUrl')).toBe(true);
     expect(isDeveloperSettingKey('copilot.somethingAddedNextYear')).toBe(true);
-    expect(isDeveloperSettingKey('whatsapp.enabled')).toBe(true);
-    expect(isDeveloperSettingKey('whatsapp.instanceName')).toBe(true);
   });
 
   it('covers the employee-field template switch', () => {
@@ -43,7 +41,6 @@ describe('isDeveloperSettingKey', () => {
       'overtime_enabled',
       'office_start_time',
       'theme_preset',
-      'reimbursement_enabled',
       'supervisor_approval_enabled',
       'attendance_day_end_time',
     ]) {

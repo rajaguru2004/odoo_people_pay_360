@@ -5,8 +5,7 @@
  * new feature lands, add its endpoints here.
  *
  * Flow: onboarding → attendance (check-in/out + lunch) → corrections → leave
- * (requests + balances) → contract lifecycle → salary → overtime → reimbursement
- * → salary advance & loan (request + approval + payroll recovery across cycles)
+ * (requests + balances) → contract lifecycle → salary → overtime
  * → rewards/discipline → org (dept/branch/holiday/team) → calendar → timesheets →
  * payroll state machine (run → item edit → submit → approve → reject → lock →
  * finalize → revision → bulk-approve → payslip) → dashboards/exports/audit/etc.
@@ -24,9 +23,8 @@
  *    require a real detectable face image + loaded face-api models. Capture-* are
  *    skipped too (they mutate attendance with dummy data).
  *  • File I/O infra: all /upload/* (avatar/contract/document/logo), multipart
- *    POST /employees/:id/avatar|documents,
- *    leave/reimbursement attachment UPLOADS, /employees/import/preview|confirm —
- *    need disk/MinIO/S3 + xlsx fixtures.
+ *    POST /employees/:id/avatar|documents, leave attachment UPLOADS,
+ *    /employees/import/preview|confirm — need disk/MinIO/S3 + xlsx fixtures.
  *  • Embeddings: POST/PUT/DELETE /knowledge + GET /knowledge/search — first call
  *    downloads a ~23MB local model; slow/flaky in CI. Read-only knowledge covered.
  *  • Global-state mutators: POST /system-settings, /system-settings/apply-preset,
@@ -74,15 +72,8 @@ describe(`Full HR lifecycle @ ${BASE_URL}`, () => {
     // Original values are captured and restored in afterAll (shared DB hygiene).
     const overrides: Record<string, string> = {
       overtime_enabled: 'true',
-      reimbursement_enabled: 'true',
       geofencing_enabled: 'false',
       attendance_face_only: 'false',
-      // Salary advance & loan: module on, admin can approve, deterministic limits
-      // so the affordability + max-installment guards assert predictably.
-      advance_loan_enabled: 'true',
-      advance_loan_approver_roles: 'HR_MANAGER,ADMIN',
-      advance_loan_max_installments: '12',
-      advance_max_percent_of_salary: '100',
     };
     S.origSettings = {};
     for (const key of Object.keys(overrides)) {
@@ -142,28 +133,12 @@ describe(`Full HR lifecycle @ ${BASE_URL}`, () => {
       departmentId: dept.id, branchId: branch.id, position: 'Analyst', startDate: '2026-01-01', baseSalary: 50000,
     }, H(S.adminToken, branch.id));
     S.attId = attOnboard.status === 201 ? attOnboard.data.data.id : undefined;
-
-    // Dedicated employee for the salary-advance / loan payroll-recovery flow, kept
-    // ISOLATED (its own payroll batch + months) so per-request deduction amounts
-    // and balance transitions assert exactly. baseSalary 40000, no components, so
-    // the advance affordability proxy is a known 40000.
-    const alOnboard = await api.post('/employees', {
-      fullName: 'Life AdvLoan', email: mail('al'), dateOfBirth: '1992-02-02', idCard: `ID-${runId}-AL`,
-      departmentId: dept.id, branchId: branch.id, position: 'Analyst', startDate: '2026-01-01', baseSalary: 40000,
-    }, H(S.adminToken, branch.id));
-    if (alOnboard.status !== 201) throw new Error(`al onboard ${alOnboard.status}: ${JSON.stringify(alOnboard.data)}`);
-    S.alEmpId = alOnboard.data.data.id;
-    const alUser = await prisma.user.update({ where: { email: mail('al') }, data: { passwordHash: hash, isActive: true } });
-    S.alEmpUserId = alUser.id;
-    const allogin = await api.post('/auth/login', { email: mail('al'), password: PW });
-    if (allogin.status !== 201) throw new Error(`al login ${allogin.status}: ${JSON.stringify(allogin.data)}`);
-    S.alEmpToken = allogin.data.data.accessToken;
   }, 180000);
 
   afterAll(async () => {
     const q = async (fn: () => Promise<any>) => { try { await fn(); } catch { /* best-effort cleanup */ } };
-    const empIds = [S.empId, S.mgrId, S.attId, S.alEmpId].filter(Boolean);
-    const userIds = [S.admin?.id, S.empUserId, S.hr?.id, S.alEmpUserId].filter(Boolean);
+    const empIds = [S.empId, S.mgrId, S.attId].filter(Boolean);
+    const userIds = [S.admin?.id, S.empUserId, S.hr?.id].filter(Boolean);
     try {
       await q(() => prisma.timesheet.deleteMany({ where: { employeeId: { in: empIds } } }));
       // Teams, calendar, notifications, library.
@@ -173,12 +148,6 @@ describe(`Full HR lifecycle @ ${BASE_URL}`, () => {
       await q(() => prisma.notification.deleteMany({ where: { userId: { in: userIds } } }));
       await q(() => prisma.libraryItem.deleteMany({ where: { label: { contains: runId } } }));
       // Benefits / requests keyed by employee.
-      await q(() => prisma.reimbursementAttachment.deleteMany({ where: { reimbursement: { employeeId: { in: empIds } } } }));
-      await q(() => prisma.reimbursement.deleteMany({ where: { employeeId: { in: empIds } } }));
-      // Salary advance & loan (delete the deduction ledger before payroll items).
-      await q(() => prisma.advanceLoanAttachment.deleteMany({ where: { request: { employeeId: { in: empIds } } } }));
-      await q(() => prisma.advanceLoanDeduction.deleteMany({ where: { request: { employeeId: { in: empIds } } } }));
-      await q(() => prisma.advanceLoanRequest.deleteMany({ where: { employeeId: { in: empIds } } }));
       await q(() => prisma.overtimeRequest.deleteMany({ where: { employeeId: { in: empIds } } }));
       await q(() => prisma.reward.deleteMany({ where: { employeeId: { in: empIds } } }));
       await q(() => prisma.discipline.deleteMany({ where: { employeeId: { in: empIds } } }));
@@ -317,7 +286,7 @@ describe(`Full HR lifecycle @ ${BASE_URL}`, () => {
     });
     it('soft-deletes (terminates) a throwaway employee', async () => {
       // Dedicated throwaway (runId-tagged so afterAll sweeps it) → never perturbs the
-      // primary/manager/AL employees the later payroll & benefit assertions depend on.
+      // primary/manager employees the later payroll & benefit assertions depend on.
       const create = await P('/employees', {
         fullName: 'Life Throwaway', email: mail('del'), dateOfBirth: '1995-05-05', idCard: `ID-${runId}-DEL`,
         departmentId: S.deptId, branchId: S.branchId, position: 'Temp', startDate: '2026-01-01', baseSalary: 30000,
@@ -668,41 +637,6 @@ describe(`Full HR lifecycle @ ${BASE_URL}`, () => {
     });
   });
 
-  // ── Reimbursement (mostly raw entities) ──────────────────────────────────────
-  describe('Reimbursement', () => {
-    it('employee files a reimbursement, admin approves it', async () => {
-      const create = await P('/reimbursements', {
-        type: 'Travel', amount: 1250.5, expenseDate: '2026-07-01', description: 'Client visit cab',
-      }, S.empToken);
-      if (create.status !== 201) {
-        console.warn(`  ⚠ reimbursement skipped (${create.status}): ${JSON.stringify(create.data?.message)}`);
-        return;
-      }
-      expect(create.data.status).toBe('PENDING');
-      const approve = await P(`/reimbursements/${create.data.id}/approve`, { remarks: 'ok' });
-      expect(approve.status).toBe(201);
-      expect(approve.data.status).toBe('APPROVED');
-    });
-    it('employee files another; admin rejects; employee cancels a third', async () => {
-      const rej = await P('/reimbursements', { type: 'Food', amount: 300, expenseDate: '2026-07-02' }, S.empToken);
-      if (rej.status !== 201) return;
-      expect((await P(`/reimbursements/${rej.data.id}/reject`, { remarks: 'Missing receipt' })).status).toBe(201);
-      const can = await P('/reimbursements', { type: 'Other', amount: 100, expenseDate: '2026-07-03' }, S.empToken);
-      if (can.status === 201) expect((await D(`/reimbursements/${can.data.id}`, S.empToken)).status).toBe(200);
-    });
-    it('serves reimbursement reads (list/pending/my) and empty attachments', async () => {
-      expect((await G('/reimbursements')).status).toBe(200);
-      expect((await G('/reimbursements/pending')).status).toBe(200);
-      const my = await G('/reimbursements/my-requests', S.empToken);
-      expect(my.status).toBe(200);
-      const first = Array.isArray(my.data) ? my.data[0] : my.data?.data?.[0];
-      if (first?.id) {
-        expect((await G(`/reimbursements/${first.id}`, S.empToken)).status).toBe(200);
-        expect((await G(`/reimbursements/${first.id}/attachments`, S.empToken)).status).toBe(200);
-      }
-    });
-  });
-
   // ── Rewards & discipline ─────────────────────────────────────────────────────
   describe('Rewards & discipline', () => {
     it('grants, lists and deletes a reward', async () => {
@@ -1006,126 +940,6 @@ describe(`Full HR lifecycle @ ${BASE_URL}`, () => {
       expect((await G('/payrolls/my-ytd-summary?year=2026', S.empToken)).status).toBe(200);
       const itemId = (list.data.data ?? [])[0]?.id;
       if (itemId) expect((await G(`/payrolls/my-payslips/${itemId}`, S.empToken)).status).toBe(200);
-    });
-  });
-
-  // ── Salary advance & loan (request → approval → payroll recovery) ────────────
-  describe('Salary advance & loan', () => {
-    // Drive a dedicated payroll (own batch + month) for the isolated AL employee,
-    // read the pre-lock item, then submit → approve → lock. Returns the item so
-    // callers can assert the recovered amount for that cycle.
-    const runLockPayroll = async (month: number) => {
-      const run = await P('/payrolls', { month, year: 2026, batchId: S.alBatchId });
-      expect(run.status).toBe(201);
-      const pid = idOf(run);
-      S.payrollIds.push(pid);
-      const detail = await G(`/payrolls/${pid}`);
-      const item = (detail.data.data.items ?? []).find((i: any) => i.employeeId === S.alEmpId);
-      expect((await P(`/payrolls/${pid}/submit`, {})).status).toBe(201);
-      expect((await P(`/payrolls/${pid}/approve`, { notes: 'ok' })).status).toBe(201);
-      expect((await P(`/payrolls/${pid}/lock`, {})).status).toBe(201);
-      return item;
-    };
-
-    it('employee files an advance and a loan; admin approves the loan (per-cycle amount derived)', async () => {
-      const adv = await P('/advance-loans', { type: 'ADVANCE', amount: 8000, reason: 'Medical' }, S.alEmpToken);
-      expect(adv.status).toBe(201);
-      expect(adv.data.status).toBe('PENDING');
-      S.alAdvanceId = adv.data.id;
-
-      const loan = await P('/advance-loans', { type: 'LOAN', amount: 10000, reason: 'Home repair', installments: 2 }, S.alEmpToken);
-      expect(loan.status).toBe(201);
-      S.alLoanId = loan.data.id;
-
-      // Approve ONLY the loan now (2 installments → 5000/cycle). The advance stays
-      // PENDING so the first two cycles recover the loan alone (clean assertions).
-      const ap = await P(`/advance-loans/${S.alLoanId}/approve`, { installments: 2, remarks: 'ok' });
-      expect(ap.status).toBe(201);
-      expect(ap.data.status).toBe('APPROVED');
-      expect(Number(ap.data.installments)).toBe(2);
-      expect(Number(ap.data.installmentAmount)).toBe(5000);
-    });
-
-    it('blocks an over-sized advance and an over-long loan at approval', async () => {
-      // proxy = base 40000, cap 100% → 40000; 999999 exceeds it → approval blocked.
-      const big = await P('/advance-loans', { type: 'ADVANCE', amount: 999999, reason: 'too big' }, S.alEmpToken);
-      expect(big.status).toBe(201);
-      expect((await P(`/advance-loans/${big.data.id}/approve`, {})).status).toBe(400);
-      expect((await D(`/advance-loans/${big.data.id}`, S.alEmpToken)).status).toBe(200);
-
-      // Loan installments above the configured maximum (12) are rejected.
-      const long = await P('/advance-loans', { type: 'LOAN', amount: 12000, installments: 3 }, S.alEmpToken);
-      expect(long.status).toBe(201);
-      expect((await P(`/advance-loans/${long.data.id}/approve`, { installments: 999 })).status).toBe(400);
-      expect((await D(`/advance-loans/${long.data.id}`, S.alEmpToken)).status).toBe(200);
-    });
-
-    it('rejects one request and lets the employee cancel another', async () => {
-      const rej = await P('/advance-loans', { type: 'ADVANCE', amount: 5000 }, S.alEmpToken);
-      expect((await P(`/advance-loans/${rej.data.id}/reject`, { remarks: 'Not eligible' })).status).toBe(201);
-      const can = await P('/advance-loans', { type: 'ADVANCE', amount: 4000 }, S.alEmpToken);
-      if (can.status === 201) expect((await D(`/advance-loans/${can.data.id}`, S.alEmpToken)).status).toBe(200);
-    });
-
-    it('serves advance/loan reads (list/pending/my/detail/attachments)', async () => {
-      expect((await G('/advance-loans')).status).toBe(200);
-      expect((await G('/advance-loans/pending')).status).toBe(200);
-      const my = await G('/advance-loans/my-requests', S.alEmpToken);
-      expect(my.status).toBe(200);
-      expect((await G(`/advance-loans/${S.alLoanId}`, S.alEmpToken)).status).toBe(200);
-      expect((await G(`/advance-loans/${S.alLoanId}/attachments`, S.alEmpToken)).status).toBe(200);
-    });
-
-    it('recovers the first loan installment in the next payroll and advances the balance on lock', async () => {
-      const batch = await P('/payroll-batches', { name: `LIFE-ALBATCH-${runId}`, employeeIds: [S.alEmpId] });
-      expect(batch.status).toBe(201);
-      S.alBatchId = idOf(batch);
-
-      const item = await runLockPayroll(10);
-      expect(item).toBeTruthy();
-      expect(Number(item.advanceLoanDeduction)).toBe(5000);
-
-      // A ledger row was written for the installment and flipped PENDING → PAID on lock.
-      const ledger = await prisma.advanceLoanDeduction.findMany({ where: { requestId: S.alLoanId } });
-      expect(ledger.length).toBe(1);
-      expect(ledger[0].status).toBe('PAID');
-
-      const loan = await G(`/advance-loans/${S.alLoanId}`);
-      expect(Number(loan.data.amountRepaid)).toBe(5000);
-      expect(Number(loan.data.outstandingBalance)).toBe(5000);
-      expect(loan.data.status).toBe('APPROVED'); // still active — one installment left
-    });
-
-    it('recovers the final installment and marks the loan COMPLETED', async () => {
-      const item = await runLockPayroll(11);
-      expect(Number(item.advanceLoanDeduction)).toBe(5000);
-
-      const loan = await G(`/advance-loans/${S.alLoanId}`);
-      expect(Number(loan.data.amountRepaid)).toBe(10000);
-      expect(Number(loan.data.outstandingBalance)).toBe(0);
-      expect(loan.data.status).toBe('COMPLETED');
-      expect(loan.data.completedAt).toBeTruthy();
-    });
-
-    it('recovers an approved advance in full in one cycle and completes it', async () => {
-      // Loan is done; approve the advance now so this cycle recovers only the advance.
-      const ap = await P(`/advance-loans/${S.alAdvanceId}/approve`, { remarks: 'ok' });
-      expect(ap.status).toBe(201);
-      expect(Number(ap.data.installmentAmount)).toBe(8000);
-
-      const item = await runLockPayroll(12);
-      expect(Number(item.advanceLoanDeduction)).toBe(8000);
-
-      const adv = await G(`/advance-loans/${S.alAdvanceId}`);
-      expect(Number(adv.data.amountRepaid)).toBe(8000);
-      expect(Number(adv.data.outstandingBalance)).toBe(0);
-      expect(adv.data.status).toBe('COMPLETED');
-    });
-
-    it('never re-charges a completed advance/loan in a later payroll (double-charge guard)', async () => {
-      // Both requests are COMPLETED, so a fresh cycle recovers nothing.
-      const item = await runLockPayroll(1);
-      expect(Number(item.advanceLoanDeduction)).toBe(0);
     });
   });
 

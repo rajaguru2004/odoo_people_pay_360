@@ -11,8 +11,8 @@ import React from 'react';
  * OFF. These are declared once and rendered by a loop, so adding the next one is
  * a line in this array rather than five edits spread over a 4,600-line file.
  *
- * Modelled on `WpsSection`'s field renderer, which switches on `type` and knows
- * nothing about the fields it draws.
+ * The renderer switches on the spec alone and knows nothing about the fields it
+ * draws, so the array below is the only thing a new switch touches.
  */
 export interface FeatureSwitch {
   key: string;
@@ -69,9 +69,9 @@ export const PAYROLL_FEATURE_SWITCHES: FeatureSwitch[] = [
         key: 'payroll_eosb_pay_through_final_run',
         label: 'Pay the benefit through the payroll run',
         help:
-          'The gratuity appears on the final payslip, so it reaches the wage ' +
-          'file the bank receives. Some jurisdictions require the whole exit ' +
-          'package to be visible there.',
+          'The gratuity appears on the final payslip, so it reaches the ' +
+          'payment the bank receives. Some jurisdictions require the whole ' +
+          'exit package to be visible there.',
         off:
           'Gratuity stays a provision settled outside payroll, and the final ' +
           'run carries pending salary only. Which is correct is a local legal ' +
@@ -92,9 +92,9 @@ export const PAYROLL_FEATURE_SWITCHES: FeatureSwitch[] = [
           'The payment joins the gross, so tax and statutory insurance are ' +
           'calculated on it. On by default.',
         off:
-          'It is added after tax, like a reimbursement. The employee receives ' +
-          'the same amount either way — only the tax and insurance bases ' +
-          'differ. Which is correct depends on your jurisdiction.',
+          'It is added after tax, outside the taxable base. The employee ' +
+          'receives the same amount either way — only the tax and insurance ' +
+          'bases differ. Which is correct depends on your jurisdiction.',
       },
     ],
   },
@@ -120,7 +120,7 @@ export const PAYROLL_FEATURE_SWITCHES: FeatureSwitch[] = [
     key: 'payroll_employee_recovery_enabled',
     label: 'Recoveries through payroll',
     help: 'Asset damage, asset loss, training bonds and notice shortfalls, recovered in instalments.',
-    off: 'Recoveries stay manual salary components or loans, unlinked to the asset.',
+    off: 'Recoveries stay manual salary components, unlinked to the asset.',
   },
   {
     key: 'payroll_reports_enabled',

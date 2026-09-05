@@ -222,8 +222,8 @@ test.describe('two administrators, and a run at size', () => {
         'the loser is told the state moved under them, not given a generic failure',
       ).toMatch(/no longer in a lockable state|locked or changed concurrently/i);
 
-      // Locking is the step that settles reimbursements and writes the loan
-      // ledger. Doing it twice would pay twice.
+      // Locking is the step that settles the run's money — encashment, gratuity
+      // accrual, garnishment collections. Doing it twice would pay twice.
       const after = await itemsOf(admin, run.id, branchId);
       expect(after.length, 'the item count is unchanged').toBe(before.length);
       expect(
@@ -241,7 +241,7 @@ test.describe('two administrators, and a run at size', () => {
     });
 
     test('two simultaneous unlocks reverse the run exactly once', async () => {
-      // Unlock is the compensating action: it reverses loan recoveries and
+      // Unlock is the compensating action: it reverses what the lock settled and
       // restores balances. Applying it twice would credit the employee twice.
       const { subject } = await twinPair(admin, {
         marker: `${MARK}-unlock`,

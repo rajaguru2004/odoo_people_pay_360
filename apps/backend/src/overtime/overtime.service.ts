@@ -818,7 +818,7 @@ export class OvertimeService {
       const max = Number(
         await this.settingsService.getSetting('overtime_site_allowance_max', '0'),
       );
-      // 0 means "no ceiling", the same convention the loan maxima use.
+      // 0 means "no ceiling", the convention every maximum here uses.
       if (max > 0 && siteAllowance > max) {
         throw new BadRequestException(
           `Site allowance exceeds the maximum of ${max}`,
@@ -1125,12 +1125,6 @@ export class OvertimeService {
           'Your overtime request was approved.',
           'OVERTIME_APPROVED',
           '/dashboard/overtime',
-          // OVERTIME_APPROVED already selects the WhatsApp template; waData
-          // only enriches the body.
-          {
-            waData: { date: updated.date?.toISOString(), hours: updated.hours },
-            waDedupeKey: `overtime:${updated.id}:approved`,
-          },
         )
         .catch(() => undefined);
     }
@@ -1220,14 +1214,6 @@ export class OvertimeService {
           'Your overtime request was rejected.',
           'OVERTIME_REJECTED',
           '/dashboard/overtime',
-          {
-            waData: {
-              date: updated.date?.toISOString(),
-              hours: updated.hours,
-              rejectionReason: (updated as any).rejectedReason ?? undefined,
-            },
-            waDedupeKey: `overtime:${updated.id}:rejected`,
-          },
         )
         .catch(() => undefined);
     }

@@ -1,19 +1,18 @@
 /**
  * Court-ordered attachment of earnings — the allocation half.
  *
- * Kept pure and free of Prisma for the same reason `LoanRecoveryService`'s
- * allocator is: the priority ladder is the part that must be provable, and a
- * rule you can only exercise by generating a payroll is a rule nobody tests at
- * its boundaries.
+ * Kept pure and free of Prisma: the priority ladder is the part that must be
+ * provable, and a rule you can only exercise by generating a payroll is a rule
+ * nobody tests at its boundaries.
  *
  * Where this sits in the ladder:
  *
- *     statutory  ->  GARNISHMENT  ->  protected-net  ->  advance  ->  loan
+ *     statutory  ->  GARNISHMENT  ->  protected-net  ->  recovery
  *
  * A garnishment outranks every voluntary recovery and is NOT subject to the
- * minimum-take-home floor that protects loan instalments: a court order is not
- * something the employer may decline to honour because it leaves the employee
- * short. It is bounded only by pay actually available.
+ * minimum-take-home floor that protects those: a court order is not something
+ * the employer may decline to honour because it leaves the employee short. It
+ * is bounded only by pay actually available.
  *
  * When pay is not enough, the shortfall is CARRIED FORWARD rather than lapsing
  * (the decision recorded in docs/PAYROLL-EDGE-TASK-TRACKER.md): a legally

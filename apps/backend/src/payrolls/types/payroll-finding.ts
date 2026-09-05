@@ -1,10 +1,9 @@
 /**
  * A problem found before a payroll is generated.
  *
- * Shaped identically to `src/wps/types/wps-finding.ts`, deliberately: the WPS
- * pre-flight already solved "tell an operator what is wrong, per employee, with
- * a link to the screen that fixes it", and having two shapes would mean two
- * screen components and two ways of being inconsistent.
+ * One shape for "tell an operator what is wrong, per employee, with a link to
+ * the screen that fixes it": two shapes would mean two screen components and
+ * two ways of being inconsistent.
  *
  * BLOCKING means generation is refused. WARNING means it proceeds, and the
  * operator was told.
@@ -47,8 +46,8 @@ export interface PayrollPreflightResult {
   warningEmployees: number;
 
   /**
-   * All-or-nothing, exactly as the WPS pre-flight is: true only when there is
-   * ZERO blocking anywhere. Half a payroll is not a useful thing to produce.
+   * All-or-nothing: true only when there is ZERO blocking anywhere. Half a
+   * payroll is not a useful thing to produce.
    */
   canGenerate: boolean;
 

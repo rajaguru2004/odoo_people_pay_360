@@ -34,8 +34,6 @@ const FEATURE_FLAG_KEYS = [
   'training_enabled',
   'pdf_enabled',
   'clearance_blocking_enabled',
-  'advance_loan_enabled',
-  'reimbursement_enabled',
   'overtime_enabled',
   // ── Payroll extensions (gap-closure phase) ──────────────────────────────
   'payroll_item_lines_enabled',
@@ -64,9 +62,8 @@ const FEATURE_FLAG_KEYS = [
  * The payroll-extension flags, which MUST default OFF.
  *
  * Deliberately NOT every key in `FEATURE_FLAG_KEYS`: `overtime_enabled`,
- * `advance_loan_enabled`, `reimbursement_enabled`, `travel_enabled`,
- * `training_enabled`, `pdf_enabled` and `clearance_blocking_enabled` are
- * established features that ship ON, and for those the breaking change would be
+ * `travel_enabled`, `training_enabled`, `pdf_enabled` and
+ * `clearance_blocking_enabled` are established features that ship ON, and for those the breaking change would be
  * turning them off. The default a flag must declare depends on whether the
  * feature is already part of the product, not on it being a flag.
  *
@@ -106,7 +103,6 @@ const PAYROLL_ENUM_DEFAULTS: Array<[string, string]> = [
   ['payroll_eosb_service_year_days', '365'],
   ['leave_encashment_taxable', 'true'],
   ['payroll_cutoff_enforcement', 'WARN'],
-  ['payroll_recovery_ladder_position', 'AFTER_LOAN'],
   ['payroll_recovery_respects_min_net', 'true'],
   ['payroll_transfer_pay_basis', 'PERIOD_END'],
 ];

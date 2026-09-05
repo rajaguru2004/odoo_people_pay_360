@@ -24,14 +24,14 @@ const CREDS = [
 ];
 
 const ENDPOINTS = `
-/dashboard/overview /dashboard/activities /loan-policies /dashboard/alerts /dashboard/attendance-summary
+/dashboard/overview /dashboard/activities /dashboard/alerts /dashboard/attendance-summary
 /dashboard/employee-stats /dashboard/payroll-summary /dashboard/turnover-stats /dashboard/contract-alerts
 /employees /employees/directory /employees/hub-summary /employees/statistics /employees/stats/profile-completion
 /employees/without-active-contract
 /departments /departments/tree /branches /teams /organization/hub-summary
 /contracts /contracts/expiring /contracts/statistics /contracts/termination-requests/pending /contracts/termination-requests/history
 /attendances/list /attendances/today/all /attendances/statistics /attendances/hub-summary /attendances/overview
-/attendance-corrections /attendance-corrections/pending /attendance-integrations
+/attendance-corrections /attendance-corrections/pending
 /calendar/hub-summary /holidays
 /leave-requests /leave-requests/pending /leave-requests/hub-summary /leave-balances /leave-balances/company-overview
 /leave-balances/leave-types /leave-encashment/policies /leave-encashment/carry-forward/runs
@@ -42,13 +42,9 @@ const ENDPOINTS = `
 /payrolls/reports/gratuity-liability
 /salary-components /grades /gratuity/rules /gratuity/liability /final-settlements /final-settlements/variants
 /employee-recoveries/kinds /employee-transfers
-/wps/config /wps/files /wps/formats /wps/employer-profiles
 /banks /banks/branch-countries /banking-config /bank-change-requests /bank-change-requests/migration/candidates
-/reimbursements /reimbursements/pending /travel-requests /travel-requests/on-trip
-/advance-loans /advance-loans/pending /loan-types /advance-loans/reports/portfolio /advance-loans/reports/outstanding
-/advance-loans/reports/emi-due /advance-loans/reports/overdue /advance-loans/reports/interest-earned
-/advance-loans/settlement/receivable
-/budgets /garnishments /accounting/accounts /accounting/journal /accounting/mappings
+/travel-requests /travel-requests/on-trip
+/budgets /garnishments
 /assets /assets/summary /assets/assignments/open /assets/clearance/reports/outstanding
 /training/courses /training/sessions /training/nominations
 /appraisal/runs /projects /projects/stats /tasks /tasks/stats /task-dashboard/manager

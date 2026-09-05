@@ -22,8 +22,6 @@ const DEP_ORDER = [
   'settingsService',
   'storage',
   'clearance',
-  'whatsappOutbox',
-  'whatsappSettings',
   'templates',
   'supervisors',
 ] as const;

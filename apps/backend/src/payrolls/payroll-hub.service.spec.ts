@@ -33,7 +33,6 @@ describe('PayrollHubService', () => {
   let legacyRuns: number;
   let carryForward: number;
   let settlementRows: any[];
-  let lastWpsFile: any;
   let readinessEmployees: any[];
   let countryFields: Record<string, any[]>;
 
@@ -132,7 +131,6 @@ describe('PayrollHubService', () => {
           overtimePay: i.overtimePay ?? 0,
           foodAllowance: i.foodAllowance ?? 0,
           siteAllowance: i.siteAllowance ?? 0,
-          reimbursement: i.reimbursement ?? 0,
           leaveEncashment: i.leaveEncashment ?? 0,
         }));
       }),
@@ -149,10 +147,6 @@ describe('PayrollHubService', () => {
     finalSettlement: {
       groupBy: jest.fn(async () => settlementRows),
       aggregate: jest.fn(async () => ({ _sum: { netPayable: 1200 } })),
-    },
-    wpsFile: {
-      findFirst: jest.fn(async () => lastWpsFile),
-      aggregate: jest.fn(async () => ({ _sum: { rejectedCount: 3 } })),
     },
   };
 
@@ -213,7 +207,6 @@ describe('PayrollHubService', () => {
       { status: 'DRAFT', _count: { _all: 2 } },
       { status: 'APPROVED', _count: { _all: 1 } },
     ];
-    lastWpsFile = null;
     readinessEmployees = [employee('e1'), employee('e2')];
     countryFields = { OM: [IBAN_FIELD] };
     jest.clearAllMocks();
@@ -591,26 +584,6 @@ describe('PayrollHubService', () => {
     it('carries settlements on the same DRAFT/APPROVED definition the settlements screen uses', async () => {
       const out = await make().getSummary('6', NOW);
       expect(out.settlements).toEqual({ draft: 2, awaitingPayment: 1, openPayout: 1200 });
-    });
-
-    it('reports wps as null until a wage file has ever been produced', async () => {
-      const out = await make().getSummary('6', NOW);
-      expect(out.wps).toBeNull();
-    });
-
-    it('reports the last wage file once one exists', async () => {
-      lastWpsFile = {
-        generatedAt: new Date('2026-08-02T09:00:00Z'),
-        status: 'SUBMITTED',
-        fileName: 'wps-aug.csv',
-      };
-      const out = await make().getSummary('6', NOW);
-      expect(out.wps).toEqual({
-        lastFileAt: '2026-08-02T09:00:00.000Z',
-        lastFileStatus: 'SUBMITTED',
-        lastFileName: 'wps-aug.csv',
-        rejected: 3,
-      });
     });
 
     it('carries the outstanding carry-forward balance count', async () => {

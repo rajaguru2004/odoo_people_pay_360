@@ -11,9 +11,7 @@ import { PayrollReportsService } from './payroll-reports.service';
  *
  * `@AuditResource` is declared even though every route here is a GET, which the
  * audit interceptor skips: it costs nothing today and means the first mutating
- * route somebody adds is audited on arrival rather than landing untracked. The
- * same reasoning as `LoanReportsController`, and the same reason it is worth
- * copying.
+ * route somebody adds is audited on arrival rather than landing untracked.
  */
 @ApiTags('Payroll — reports')
 @ApiBearerAuth('JWT-auth')

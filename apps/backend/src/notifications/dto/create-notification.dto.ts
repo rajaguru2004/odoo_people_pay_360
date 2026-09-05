@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsUUID, IsObject, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsUUID, IsObject } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type { NotificationDecision } from '../notification-channel.sink';
 
@@ -64,46 +64,11 @@ export class CreateNotificationDto {
   @IsOptional()
   link?: string;
 
-  // ---------------------------------------------------------------- WhatsApp
-  // The three fields below are TRANSIENT. NotificationsService reads them to
-  // decide whether to tee this notification to WhatsApp and never writes them
-  // to Prisma. They exist here rather than as a separate call so that the ~60
-  // existing notification call sites can opt in with one extra property.
-
   /**
-   * Explicit WhatsApp template key from templates/whatsapp-template.registry.ts.
-   * Required for any site that passes a generic INFO/SUCCESS/WARNING type,
-   * which is most of them. No template resolved = no WhatsApp message.
-   */
-  @ApiPropertyOptional({ description: 'Transient. WhatsApp template key.' })
-  @IsString()
-  @IsOptional()
-  waTemplate?: string;
-
-  /** Structured context for the WhatsApp template. Transient. */
-  @ApiPropertyOptional({ description: 'Transient. Template data for WhatsApp.' })
-  @IsObject()
-  @IsOptional()
-  waData?: Record<string, unknown>;
-
-  /** Opt this one notification out of WhatsApp entirely. Transient. */
-  @ApiPropertyOptional({ description: 'Transient. Skip the WhatsApp channel.' })
-  @IsBoolean()
-  @IsOptional()
-  suppressWhatsApp?: boolean;
-
-  /**
-   * Idempotency key for the WhatsApp outbox. Callers that already have a stable
-   * identity for the event (e.g. the reminders engine) should pass one; others
-   * get a content hash bucketed by hour. Transient.
-   */
-  @ApiPropertyOptional({ description: 'Transient. WhatsApp outbox dedupe key.' })
-  @IsString()
-  @IsOptional()
-  waDedupeKey?: string;
-
-  /**
-   * What this notification is asking the recipient to DECIDE. Transient.
+   * What this notification is asking the recipient to DECIDE.
+   *
+   * TRANSIENT: NotificationsService reads it when teeing to delivery channels
+   * and never writes it to Prisma.
    *
    * Carries no authority — see NotificationDecision. Channels that can render
    * a tappable decision mint their own capability from it; channels that
@@ -117,9 +82,5 @@ export class CreateNotificationDto {
 
 /** Optional trailing argument for notifyUser / notifyUsers. */
 export interface NotifyOptions {
-  waTemplate?: string;
-  waData?: Record<string, unknown>;
-  suppressWhatsApp?: boolean;
-  waDedupeKey?: string;
   decision?: NotificationDecision;
 }

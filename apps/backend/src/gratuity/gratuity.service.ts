@@ -429,10 +429,9 @@ export class GratuityService {
   /**
    * Undo the provision a run wrote.
    *
-   * Flips to REVERSED and stamps the time; it never deletes. Same reasoning as
-   * the loan ledger this sits beside: after a reversal there must still be a
-   * record that the provision was once made, or the audit trail says the money
-   * never moved.
+   * Flips to REVERSED and stamps the time; it never deletes: after a reversal
+   * there must still be a record that the provision was once made, or the audit
+   * trail says the money never moved.
    */
   async reverseForPayroll(
     tx: Prisma.TransactionClient,
@@ -450,8 +449,7 @@ export class GratuityService {
    *
    * Checked BEFORE a transaction opens, because unlocking a run whose provision
    * a settlement has already consumed would leave the settlement standing on a
-   * reversed accrual. Mirrors the existing "a later run already recovered
-   * against these loans" guard on unlock.
+   * reversed accrual.
    */
   async settledAccrualCount(payrollId: string): Promise<number> {
     return this.prisma.gratuityAccrual.count({

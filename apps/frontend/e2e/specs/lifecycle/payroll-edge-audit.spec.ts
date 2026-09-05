@@ -5,7 +5,6 @@ import {
   edgePeriod,
   ensureCarrier,
   ensurePayrollEdgeBranch,
-  ensureWpsConfig,
   historyOf,
   lockPayroll,
   marker,
@@ -46,10 +45,10 @@ import {
  *
  * ## The contrast that proves it is fixable here
  *
- * `WpsEmployerProfile` rows in the SAME audit table carry
- * `WPS_EMPLOYER_PROFILE_CREATED` — a named verb, from a direct `audit.log()` call
- * in `wps-configuration.service.ts`. The pattern exists, in this codebase, one
- * module away. That is asserted below, because "we cannot do that here" is the
+ * `CountryBankingField` rows in the SAME audit table carry
+ * `BANKING_FIELDS_SEEDED` — a named verb, from a direct `audit.log()` call in
+ * `banking-config.service.ts`. The pattern exists, in this codebase, one module
+ * away. That is asserted below, because "we cannot do that here" is the
  * objection this case exists to answer.
  */
 
@@ -300,8 +299,9 @@ test.describe('the payroll audit trail', () => {
     test('G34 FIXED: the reversal is append-only — the lock survives an unlock', async () => {
       // ── The most compliance-relevant finding in this phase.
       //
-      // A lock is the event that moves money: it settles reimbursements and writes
-      // the loan ledger. `getApprovalHistory()` derives its LOCKED step from
+      // A lock is the event that moves money: it settles leave encashment,
+      // gratuity accrual and garnishment collections.
+      // `getApprovalHistory()` derives its LOCKED step from
       // `Payroll.lockedAt`, and `unlockPayroll` sets `lockedAt` back to NULL. So
       // after a reversal the trail the product shows contains no evidence the run
       // was ever locked — and therefore none that the money ever moved.
@@ -337,8 +337,8 @@ test.describe('the payroll audit trail', () => {
       // unlock is recorded after it, so the trail shows both.
       expect(
         afterUnlock,
-        'the LOCKED step SURVIVES the reversal — a lock that settled reimbursements and ' +
-          'wrote loan ledger rows is still evidenced after the run is unlocked (G34)',
+        'the LOCKED step SURVIVES the reversal — a lock that settled money is ' +
+          'still evidenced after the run is unlocked (G34)',
       ).toContain('LOCKED');
       expect(
         afterUnlock,
@@ -370,29 +370,33 @@ test.describe('the payroll audit trail', () => {
 
     test('named audit verbs already exist in this codebase, one module away', async () => {
       // The objection this case answers is "the interceptor cannot know the verb".
-      // It does not have to: `wps-configuration.service.ts` calls `audit.log()`
-      // directly and writes `WPS_EMPLOYER_PROFILE_CREATED`. The same eight calls in
+      // It does not have to: `banking-config.service.ts` calls `audit.log()`
+      // directly and writes `BANKING_FIELDS_SEEDED`. The same calls in
       // `payrolls.service.ts` would close the whole Audit & Compliance section.
-      // Create the profile HERE rather than relying on another spec having run.
-      // A case that answers an objection is worthless if it skips on a fresh
-      // database — which is exactly what it did in the first run of this file.
-      await ensureWpsConfig(admin, branchId, { profileName: `${MARK} audit-contrast employer` });
+      // Write the row HERE rather than relying on another spec having run. A case
+      // that answers an objection is worthless if it skips on a fresh database —
+      // which is exactly what it did in the first run of this file. The seed
+      // route is idempotent and audits unconditionally, so a re-run costs a row
+      // and changes nothing else.
+      await admin.post('/banking-config/seed', {});
 
-      const raw = await admin.get<unknown>('/audit-logs?resourceType=WpsEmployerProfile&limit=50');
+      const raw = await admin.get<unknown>(
+        '/audit-logs?resourceType=CountryBankingField&limit=50',
+      );
       const rows = (Array.isArray(raw) ? raw : ((raw as { data?: AuditRow[] })?.data ?? [])) as AuditRow[];
       expect(
         rows.length,
-        'creating a WPS employer profile writes an audit row — if not, this contrast ' +
+        'seeding the banking fields writes an audit row — if not, this contrast ' +
           'cannot be drawn and the case needs rewriting rather than skipping',
       ).toBeGreaterThan(0);
 
       const actions = [...new Set(rows.map((r) => r.action))];
       expect(
         actions.some((a) => !GENERIC_ACTIONS.includes(a)),
-        `WPS writes named verbs (${actions.join(', ')}), so the pattern is available to ` +
-          'payroll — G1 is a gap, not a platform limitation',
+        `banking config writes named verbs (${actions.join(', ')}), so the pattern is ` +
+          'available to payroll — G1 is a gap, not a platform limitation',
       ).toBe(true);
-      expect(actions.join(','), 'and they read as domain events').toMatch(/WPS_[A-Z_]+/);
+      expect(actions.join(','), 'and they read as domain events').toMatch(/BANKING_[A-Z_]+/);
     });
   });
 });

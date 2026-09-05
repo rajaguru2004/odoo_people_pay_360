@@ -3,8 +3,6 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../../src/prisma/prisma.module';
 import { AuthModule } from '../../src/auth/auth.module';
-import { TelegramModule } from '../../src/telegram/telegram.module';
-import { TelegramInboundModule } from '../../src/telegram/telegram-inbound.module';
 import { BranchesModule } from '../../src/branches/branches.module';
 import { DepartmentsModule } from '../../src/departments/departments.module';
 import { OrganizationHubModule } from '../../src/organization-hub/organization-hub.module';
@@ -13,7 +11,6 @@ import { TalentModule } from '../../src/talent/talent.module';
 import { WorkplaceModule } from '../../src/workplace/workplace.module';
 import { EmployeesModule } from '../../src/employees/employees.module';
 import { AttendancesModule } from '../../src/attendances/attendances.module';
-import { AttendanceIntegrationsModule } from '../../src/attendance-integrations/attendance-integrations.module';
 import { ContractsModule } from '../../src/contracts/contracts.module';
 import { RemindersModule } from '../../src/reminders/reminders.module';
 import { AssetsModule } from '../../src/assets/assets.module';
@@ -24,9 +21,7 @@ import { LettersModule } from '../../src/letters/letters.module';
 import { GrievancesModule } from '../../src/grievances/grievances.module';
 import { DocumentVaultModule } from '../../src/document-vault/document-vault.module';
 import { DocumentsModule } from '../../src/documents/documents.module';
-import { AdvanceLoansModule } from '../../src/advance-loans/advance-loans.module';
 import { GarnishmentsModule } from '../../src/garnishments/garnishments.module';
-import { AccountingModule } from '../../src/accounting/accounting.module';
 import { SystemSettingsModule } from '../../src/system-settings/system-settings.module';
 import { AuditModule } from '../../src/audit/audit.module';
 import { AuditInterceptor } from '../../src/audit/audit.interceptor';
@@ -94,14 +89,9 @@ import { PayrollReportsModule } from '../../src/payroll-reports/payroll-reports.
     EmployeesModule,
     AttendancesModule,
     // Was never mounted, so every /attendance-corrections/* request 404'd
-    // rather than failing honestly (Phase 3, WP-0). Pulls NotificationsModule
-    // -> WhatsAppModule + DiscordModule, both of which import only
-    // PrismaModule + AuditModule by design, so the edge is cheap. The outbox
-    // scheduler's @Cron is inert for the same reason as the line below.
+    // rather than failing honestly (Phase 3, WP-0). Pulls NotificationsModule,
+    // which imports only PrismaModule, so the edge is cheap.
     AttendanceCorrectionsModule,
-    // Its @Cron is inert here: ScheduleModule.forRoot() is deliberately not
-    // registered in this slice, so no scheduler ever fires during a test run.
-    AttendanceIntegrationsModule,
     ContractsModule,
     RemindersModule,
     AssetsModule,
@@ -112,9 +102,7 @@ import { PayrollReportsModule } from '../../src/payroll-reports/payroll-reports.
     GrievancesModule,
     DocumentVaultModule,
     DocumentsModule,
-    AdvanceLoansModule,
     GarnishmentsModule,
-    AccountingModule,
     SystemSettingsModule,
     AuditModule,
     CopilotSettingsModule,
@@ -160,10 +148,10 @@ import { PayrollReportsModule } from '../../src/payroll-reports/payroll-reports.
     // now (the "schedule crons" in the note above), which is why the module had
     // no e2e coverage at all: every request to /calendar/* answered 404 rather
     // than failing honestly. Its ShiftNotificationScheduler carries a
-    // @Cron('*/1 * * * *') that stays inert here for the same reason
-    // AttendanceIntegrationsModule's does — ScheduleModule.forRoot() is not
-    // registered in this slice — so the reminder rules have to be asserted by
-    // calling the scheduler directly, never by waiting on a tick.
+    // @Cron('*/1 * * * *') that stays inert here because ScheduleModule.forRoot()
+    // is deliberately not registered in this slice — so the reminder rules have
+    // to be asserted by calling the scheduler directly, never by waiting on a
+    // tick.
     CalendarModule,
     // Payroll extensions. Gratuity and leave encashment reach the router
     // anyway, because PayrollsModule imports them for the lock seam — but
@@ -174,14 +162,6 @@ import { PayrollReportsModule } from '../../src/payroll-reports/payroll-reports.
     EmployeeRecoveriesModule,
     EmployeeTransfersModule,
     GradesModule,
-    // Telegram channel. The outbound half arrives transitively through
-    // NotificationsModule, but its ADMIN and self-service controllers do not —
-    // and the webhook lives in the inbound leaf, so without these two lines
-    // every /telegram/* route 404s and the cases asserting a refusal pass for
-    // the wrong reason. Its @Cron is inert here, like every other scheduler in
-    // this slice.
-    TelegramModule,
-    TelegramInboundModule,
   ],
   providers: [
     // Resolve + validate the effective branch BEFORE audit runs (same order as prod).

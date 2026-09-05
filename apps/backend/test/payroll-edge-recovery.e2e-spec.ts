@@ -8,8 +8,6 @@ import { bearer } from './utils/payroll-fixtures';
 /**
  * `PE-REC` — what happens when deductions exceed the pay they come out of.
  *
- * The LOAN rungs of the recovery ladder are owned by
- * `loan-advances-v2.e2e-spec.ts` and `finance-loan-*`; they are not rebuilt.
  * The GARNISHMENT rung is owned by `payroll-edge-garnishment.e2e-spec.ts`
  * (`PE-GARN`) — when this file was written that rung could not be driven at all,
  * because `PayrollItem.garnishment` had exactly one writer in the codebase, the
@@ -100,10 +98,9 @@ describe('Payroll edge — recoveries (PE-REC)', () => {
 
     const gross = (i: any) =>
       num(i.baseSalary) + num(i.allowances) + num(i.bonus) + num(i.overtimePay) +
-      num(i.foodAllowance) + num(i.reimbursement);
+      num(i.foodAllowance);
     const deductions = (i: any) =>
-      num(i.deduction) + num(i.insurance) + num(i.tax) + num(i.advanceLoanDeduction) +
-      num(i.garnishment);
+      num(i.deduction) + num(i.insurance) + num(i.tax) + num(i.garnishment);
 
     // Control: an ordinary item DOES reconcile. Without this the assertion below
     // could pass because the arithmetic never held.

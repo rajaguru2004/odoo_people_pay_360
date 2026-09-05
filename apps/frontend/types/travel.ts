@@ -41,10 +41,7 @@ export interface TravelItineraryLeg {
   notes?: string | null;
 }
 
-/**
- * A trip owns the *request*. Its money lives on `reimbursements` rows tagged
- * sourceType='TRAVEL' — see `claims` on the detail response.
- */
+/** A trip owns the *request*: dates, destination, per-diem snapshot and approval. */
 export interface TravelRequest {
   id: string;
   employeeId: string;
@@ -59,8 +56,6 @@ export interface TravelRequest {
   perDiemDays: number | null;
   estimatedCost: string | number;
   advanceAmount: string | number | null;
-  /** Set when the trip raised an advance in the loans ledger. */
-  advanceLoanId: string | null;
   status: TravelStatus;
   approverId: string | null;
   approvedAt: string | null;
@@ -71,15 +66,6 @@ export interface TravelRequest {
   employee?: TravelEmployeeRef;
   approver?: { id: string; email: string } | null;
   itinerary?: TravelItineraryLeg[];
-  /** Only on the detail endpoint: the reimbursement rows this trip spawned. */
-  claims?: Array<{
-    id: string;
-    type: string;
-    amount: string | number;
-    status: string;
-    expenseDate: string;
-    payrollItemId: string | null;
-  }>;
 }
 
 export interface OnTripRow {

@@ -4,16 +4,13 @@ import { AuditModule } from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SystemSettingsModule } from '../system-settings/system-settings.module';
 import { ApprovalsModule } from '../approvals/approvals.module';
-import { ReimbursementsModule } from '../reimbursements/reimbursements.module';
-import { AdvanceLoansModule } from '../advance-loans/advance-loans.module';
 import { BudgetsModule } from '../budgets/budgets.module';
 import { TravelController } from './travel.controller';
 import { TravelService } from './travel.service';
 
 /**
- * Travel is an extension of reimbursements: it imports that module rather than
- * modelling its own expenses, and imports AdvanceLoansModule so a travel
- * advance is recovered by the ledger that already exists.
+ * Travel requests and their approval flow. Travel models its own trip costs;
+ * nothing here creates a claim or an advance in another ledger.
  */
 @Module({
   imports: [
@@ -22,8 +19,6 @@ import { TravelService } from './travel.service';
     NotificationsModule,
     SystemSettingsModule,
     ApprovalsModule,
-    ReimbursementsModule,
-    AdvanceLoansModule,
     // Approved travel commits budget before the money is spent.
     BudgetsModule,
   ],

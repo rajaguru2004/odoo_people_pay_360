@@ -36,14 +36,14 @@ test.describe('the approvals inbox', () => {
        * FIXED — the `test.fail()` annotation that used to sit here is gone,
        * which is what it existed for.
        *
-       * The backend routed six kinds and `APPROVAL_KIND_UI` covered four:
-       * `TRAINING` and `ADVANCE_LOAN` had no entry, so configuring an approval
-       * chain for either drew a row whose Approve button answered "Unsupported
-       * request type" and the request could not be actioned from the inbox at all.
+       * The backend routed more kinds than `APPROVAL_KIND_UI` covered — `TRAINING`
+       * among them — so configuring an approval chain for one of the uncovered
+       * kinds drew a row whose Approve button answered "Unsupported request type"
+       * and the request could not be actioned from the inbox at all.
        *
        * The root cause was one line up the stack. `APPROVAL_KIND_UI` is a total
        * `Record<ApprovalRequestType, …>`, and `ApprovalRequestType` in
-       * `services/approvalWorkflowService.ts` itself omitted the two kinds — so a
+       * `services/approvalWorkflowService.ts` itself omitted those kinds — so a
        * type that did not know about a kind could not be missing an entry for it,
        * and the compiler had nothing to complain about. Widening that union is
        * what makes this assertion enforceable rather than merely aspirational:

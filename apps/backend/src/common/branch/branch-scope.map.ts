@@ -29,11 +29,6 @@ export const BRANCH_SCOPE: Record<string, BranchScopeRule> = {
   Attendance: 'direct',
   Payroll: 'direct', // per-branch payroll (branchId added via migration)
   PayrollBatch: 'direct', // per-branch payroll batches
-  AttendanceIntegration: 'direct', // external attendance provider wired to a branch
-  // Wage files. NOT NULL branchId on purpose (a wage file always has one
-  // employer), so plain 'direct' is safe — there is no company-wide row to hide.
-  WpsConfiguration: 'direct',
-  WpsFile: 'direct',
   AssetItem: 'direct', // assets belong to the branch that holds them
   // Sessions may be branch-specific or open to all (branchId null). A null
   // branchId is intentionally NOT filtered out — a company-wide session must
@@ -42,13 +37,6 @@ export const BRANCH_SCOPE: Record<string, BranchScopeRule> = {
   // "visible everywhere" rather than "visible nowhere".
   TrainingSession: 'direct-or-global',
   Budget: 'direct',
-  // A loan product with no branch is offered company-wide, so NULL must read as
-  // "available everywhere" rather than "available nowhere" — same rule as
-  // Holiday and TrainingSession.
-  LoanType: 'direct-or-global',
-  // The branch_id NULL row is the deliberate GLOBAL fallback in the policy
-  // resolution chain, so it must stay readable from every branch.
-  LoanPolicy: 'direct-or-global',
   // The COMPANY template carries branch_id NULL and is the fallback every
   // branch resolves to when it has no override of its own. Plain 'direct' would
   // hide it from every branch and leave the employee form with no fields at all.
@@ -76,7 +64,6 @@ export const BRANCH_SCOPE: Record<string, BranchScopeRule> = {
   LeaveTypeBalance: 'relation',
   LeaveAccrualHistory: 'relation',
   OvertimeRequest: 'relation',
-  Reimbursement: 'relation',
   Reward: 'relation',
   Discipline: 'relation',
   SalaryComponent: 'relation',
@@ -88,14 +75,13 @@ export const BRANCH_SCOPE: Record<string, BranchScopeRule> = {
   EmployeeProfile: 'relation',
   EmployeeDocument: 'relation',
   FaceDescriptor: 'relation',
-  AdvanceLoanRequest: 'relation',
   // A court order has no branch of its own — it follows the employee, so a
   // transfer moves it without a data migration.
   GarnishmentOrder: 'relation',
   // What one order took in one cycle. Scoped through the order, so a collection
   // can never be visible to a branch the order itself is not.
   GarnishmentDeduction: { path: ['order', 'employee'] },
-  // The carry-forward ledger DOES carry a branchId: the run that opened the
+  // The carry-forward row DOES carry a branchId: the run that opened the
   // balance belonged to one branch, and a branch-scoped payroll officer must
   // see what their own runs left owing.
   PayrollCarryForward: 'direct',
@@ -133,7 +119,6 @@ export const BRANCH_SCOPE: Record<string, BranchScopeRule> = {
   // Reference data, like a library item: a grade can be company-wide, and a
   // branch-scoped one still has to be readable to compare bands across a move.
   Grade: 'direct-or-global',
-  LoanSettlement: 'relation',
   PayrollBatchMember: 'relation',
   EmployeeLegalDocument: 'relation',
   // Scoped by the HOLDER, not the asset's branch: an asset lent across branches
@@ -152,12 +137,6 @@ export const BRANCH_SCOPE: Record<string, BranchScopeRule> = {
   BankChangeRequest: 'relation',
 
   // Scoped via a nested to-one relation chain (child records)
-  AdvanceLoanDeduction: { path: ['request', 'employee'] },
-  AdvanceLoanAttachment: { path: ['request', 'employee'] },
-  LoanSchedule: { path: ['request', 'employee'] },
-  LoanTransaction: { path: ['request', 'employee'] },
-  LoanRateChange: { path: ['request', 'employee'] },
-  AdvanceLoanNotificationLog: { path: ['request', 'employee'] },
   TerminationRequest: { path: ['contract', 'employee'] },
   ContractAppendix: { path: ['contract', 'employee'] },
   LeaveApproval: { path: ['leaveRequest', 'employee'] },
@@ -166,13 +145,11 @@ export const BRANCH_SCOPE: Record<string, BranchScopeRule> = {
   // branch-scoped caller could list and upload them for a leave request whose
   // parent record they are correctly refused.
   LeaveAttachment: { path: ['leaveRequest', 'employee'] },
-  ReimbursementAttachment: { path: ['reimbursement', 'employee'] },
   TravelItinerary: { path: ['travel', 'employee'] },
   BudgetLine: { path: ['budget'] },
   BudgetCommitment: { path: ['line', 'budget'] },
   GrievanceEvent: { path: ['grievance', 'employee'] },
   LegalDocumentAttachment: { path: ['legalDocument', 'employee'] },
-  AttendanceSyncRun: { path: ['integration'] },
   // Scoped through the template so a section/field is exactly as visible as the
   // template owning it — including the company template's NULL branch_id, which
   // `direct-or-global` on the parent already resolves correctly.
@@ -182,12 +159,6 @@ export const BRANCH_SCOPE: Record<string, BranchScopeRule> = {
   // template it belongs to, and a batch item never with its batch.
   DocumentTemplateVersion: { path: ['template'] },
   DocumentBatchItem: { path: ['batch'] },
-  // Scoped through the file, not the employee: a row's visibility must follow the
-  // file it belongs to, so a branch can never read another branch's payment rows.
-  WpsFileRow: { path: ['wpsFile'] },
-  // WpsEmployerProfile is deliberately NOT scoped — one Ministry registration may
-  // cover several branches. It is reachable only via ADMIN endpoints and via the
-  // branch-scoped WpsConfiguration that points at it.
 };
 
 /**

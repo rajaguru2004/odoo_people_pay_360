@@ -16,7 +16,7 @@ import type { PayrollHubSummary, PayrollTrendMonths } from '@/types/payrollHub';
 
 // ── Shared shapes ──────────────────────────────────────────────────────────
 
-/** The finding shape, shared with the WPS pre-flight so one component renders both. */
+/** The finding shape every pre-flight check answers with, so one component renders them all. */
 export interface PayrollFinding {
   code: string;
   severity: 'BLOCKING' | 'WARNING';

@@ -152,7 +152,6 @@ export class SystemSettingsController {
           g('leave_approval_hierarchy_enabled', 'false') === 'true',
         supervisor_approval_enabled:
           g('supervisor_approval_enabled', 'false') === 'true',
-        reimbursement_enabled: g('reimbursement_enabled', 'true') === 'true',
 
         // Payroll extensions. Every one defaults to the string 'false', so an
         // instance that has never heard of them reads them off. Emitted as real
@@ -199,33 +198,6 @@ export class SystemSettingsController {
         document_live_preview_enabled:
           g('document_live_preview_enabled', 'false') === 'true',
         document_bulk_enabled: g('document_bulk_enabled', 'false') === 'true',
-        reimbursement_approver_roles: g(
-          'reimbursement_approver_roles',
-          'HR_MANAGER,ADMIN',
-        ),
-        reimbursement_types: g(
-          'reimbursement_types',
-          'Travel,Per Diem,Training,Medical,Food,Office Supplies,Other',
-        ),
-        advance_loan_enabled: g('advance_loan_enabled', 'true') === 'true',
-        advance_loan_approver_roles: g(
-          'advance_loan_approver_roles',
-          'HR_MANAGER,ADMIN',
-        ),
-        // Published so the UI can hide the write-off action for roles that
-        // cannot use it. Money CEILINGS deliberately stay server-side — they
-        // are enforced there and there is no reason to publish them.
-        advance_loan_writeoff_roles: g('advance_loan_writeoff_roles', 'ADMIN'),
-        advance_loan_max_installments: g('advance_loan_max_installments', '12'),
-        // Published so the request form can offer interest terms only where
-        // they will be honoured. It is a capability, not a ceiling: with the
-        // switch off the server refuses a rate outright, and a form that still
-        // offered the field would collect a term and then reject it.
-        loan_interest_enabled: g('loan_interest_enabled', 'false') === 'true',
-        advance_max_percent_of_salary: g(
-          'advance_max_percent_of_salary',
-          '100',
-        ),
         strict_attendance_mode: g('strict_attendance_mode', 'false') === 'true',
         attendance_day_end_time: g('attendance_day_end_time', '23:59'),
         geofencing_enabled: g('geofencing_enabled', 'false') === 'true',
@@ -258,7 +230,7 @@ export class SystemSettingsController {
   async getSettings(@CurrentUser() user: any, @Req() req: any) {
     const list = await this.settingsService.getSettingsList();
 
-    // Operator-owned keys (SMTP, copilot.*, whatsapp.*) are REMOVED rather than
+    // Operator-owned keys (SMTP, copilot.*) are REMOVED rather than
     // masked when the caller has not stepped up into developer mode. Masking
     // would still disclose that they exist, and the point of developer mode is
     // that an admin cannot tell the hidden surface is there at all.

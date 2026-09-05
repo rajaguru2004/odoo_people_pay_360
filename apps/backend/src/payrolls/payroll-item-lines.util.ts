@@ -15,9 +15,8 @@
  * The reconciliation invariant is per-bucket, not per-category, and that is the
  * reason this field exists at all. The twelve columns are not "earnings and
  * deductions": `deduction`, `insurance` and `tax` are three separate deduction
- * columns computed by three different rules, and `reimbursement` is an earning
- * that is deliberately outside gross. Grouping only by category would let a
- * PF line reconcile against a loan instalment and the invariant would pass
+ * columns computed by three different rules. Grouping only by category would
+ * let a PF line reconcile against a garnishment and the invariant would pass
  * while the payslip lied.
  */
 export type LineBucket =
@@ -27,10 +26,8 @@ export type LineBucket =
   | 'overtimePay'
   | 'foodAllowance'
   | 'siteAllowance'
-  | 'reimbursement'
   | 'leaveEncashment'
   | 'deduction'
-  | 'advanceLoanDeduction'
   | 'garnishment'
   | 'otherRecovery'
   | 'insurance'
@@ -51,10 +48,8 @@ export const BUCKET_CATEGORY: Readonly<Record<LineBucket, LineCategory>> = {
   overtimePay: 'EARNING',
   foodAllowance: 'EARNING',
   siteAllowance: 'EARNING',
-  reimbursement: 'EARNING',
   leaveEncashment: 'EARNING',
   deduction: 'DEDUCTION',
-  advanceLoanDeduction: 'DEDUCTION',
   garnishment: 'DEDUCTION',
   otherRecovery: 'DEDUCTION',
   insurance: 'DEDUCTION',
@@ -68,13 +63,11 @@ export type LineSourceType =
   | 'OVERTIME'
   | 'REWARD'
   | 'DISCIPLINE'
-  | 'LOAN'
   | 'GARNISHMENT'
   | 'RECOVERY'
   | 'ENCASHMENT'
   | 'LOP'
   | 'STATUTORY'
-  | 'REIMBURSEMENT'
   | 'CARRY_FORWARD'
   | 'MANUAL';
 

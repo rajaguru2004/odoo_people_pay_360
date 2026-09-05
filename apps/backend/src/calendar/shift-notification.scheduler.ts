@@ -127,12 +127,9 @@ export class ShiftNotificationScheduler {
             );
           }
 
-          // Send In-App Notification if user has an account. `waTemplate` is
-          // what also puts this on WhatsApp: the type here is a plain 'INFO',
-          // so without an explicit key the outbox could only match the
-          // catch-all `generic` template — and only if an admin had switched
-          // that on. The dedupe key is per schedule row, so a replayed cron
-          // tick cannot message the same person twice about one shift.
+          // Send In-App Notification if user has an account. `priorEmailSent`
+          // below is what stops a replayed cron tick telling the same person
+          // twice about one shift.
           if (employee.user?.id) {
             await this.notificationsService.notifyUser(
               employee.user.id,
@@ -140,17 +137,6 @@ export class ShiftNotificationScheduler {
               `Your ${schedule.shiftType.toLowerCase()} shift starts in ${priorOffset} minutes at ${startTimeStr}.`,
               'INFO',
               '/dashboard/schedules',
-              {
-                waTemplate: 'shift_reminder',
-                waDedupeKey: `shift_reminder:prior:${schedule.id}`,
-                waData: {
-                  phase: 'prior',
-                  shiftType: schedule.shiftType,
-                  startTime: startTimeStr,
-                  endTime: endTimeStr,
-                  offsetMins: priorOffset,
-                },
-              },
             );
           }
 
@@ -247,8 +233,7 @@ export class ShiftNotificationScheduler {
             );
           }
 
-          // Send In-App Warning if user has an account. See the prior-reminder
-          // block above for why `waTemplate` has to be explicit.
+          // Send In-App Warning if user has an account.
           if (employee.user?.id) {
             await this.notificationsService.notifyUser(
               employee.user.id,
@@ -256,17 +241,6 @@ export class ShiftNotificationScheduler {
               `Your ${schedule.shiftType.toLowerCase()} shift started ${postOffset} minutes ago at ${startTimeStr}.`,
               'WARNING',
               '/dashboard/schedules',
-              {
-                waTemplate: 'shift_reminder',
-                waDedupeKey: `shift_reminder:post:${schedule.id}`,
-                waData: {
-                  phase: 'post',
-                  shiftType: schedule.shiftType,
-                  startTime: startTimeStr,
-                  endTime: endTimeStr,
-                  offsetMins: postOffset,
-                },
-              },
             );
           }
 

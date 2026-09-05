@@ -13,8 +13,7 @@ export type ApprovalRequestType =
   | 'OVERTIME'
   | 'BANK_CHANGE'
   | 'TRAVEL'
-  | 'TRAINING'
-  | 'ADVANCE_LOAN';
+  | 'TRAINING';
 
 /** One row in the approver's inbox, already hydrated from its domain table. */
 export interface InboxRequest {
@@ -160,32 +159,6 @@ export const APPROVAL_KINDS: Record<ApprovalRequestType, ApprovalKind> = {
               course: { select: { code: true, title: true } },
             },
           },
-          employee: { select: empSelect },
-        },
-      }) as unknown as Promise<InboxRequest[]>,
-  },
-
-  ADVANCE_LOAN: {
-    type: 'ADVANCE_LOAN',
-    link: '/dashboard/advance-loans',
-    label: 'Advance & Loan',
-    requesterOf: employeeIdOf((p) => p.advanceLoanRequest as any),
-    hydrate: (prisma, ids, opts) =>
-      prisma.advanceLoanRequest.findMany({
-        where: { id: { in: ids }, ...statusFilter(opts) },
-        select: {
-          id: true,
-          status: true,
-          type: true,
-          amount: true,
-          installments: true,
-          interestMethod: true,
-          interestRate: true,
-          reason: true,
-          referenceNo: true,
-          currency: true,
-          createdAt: true,
-          loanType: { select: { code: true, name: true } },
           employee: { select: empSelect },
         },
       }) as unknown as Promise<InboxRequest[]>,

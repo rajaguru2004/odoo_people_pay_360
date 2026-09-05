@@ -41,7 +41,7 @@ export enum ComponentType {
 /**
  * An uppercase slug, bounded by the `VarChar(50)` column. Constrained rather
  * than free text so the value stays a stable machine key that reports and the
- * WPS/payslip formatters can group on — a label change must not fork history.
+ * payslip formatters can group on — a label change must not fork history.
  */
 export const COMPONENT_TYPE_PATTERN = /^[A-Z][A-Z0-9_]{0,49}$/;
 

@@ -82,10 +82,6 @@ describe('EmployeesService — pay basis derived from employment type', () => {
       // ClearanceService — no-op here; clearance behaviour is covered by
       // clearance.service.spec.ts and asset-clearance.e2e-spec.ts.
       { assertCleared: jest.fn().mockResolvedValue(undefined) } as any,
-      // WhatsAppOutboxService stub — not exercised in pay-basis tests.
-      {} as any,
-      // WhatsAppSettingsService stub — not exercised in pay-basis tests.
-      {} as any,
       // Profile template resolver. These cases never send customFields, so the
       // resolver is never consulted; a disabled template is the honest stand-in.
       {

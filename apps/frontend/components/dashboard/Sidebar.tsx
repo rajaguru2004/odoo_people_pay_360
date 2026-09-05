@@ -246,7 +246,6 @@ export default function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarP
     [
       user?.role,
       branding?.overtime_enabled,
-      branding?.reimbursement_enabled,
       // One derived scalar rather than one entry per flag.
       //
       // Enumerating them individually is the trap: adding a flag and forgetting

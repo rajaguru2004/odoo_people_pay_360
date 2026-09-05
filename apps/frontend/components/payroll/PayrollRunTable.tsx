@@ -38,10 +38,10 @@ import type { PayrollItem } from '@/types/payroll';
  *    printed as red text with nowhere to go. Each one now names the screen that
  *    explains or fixes it.
  *  - **A row that does not reconcile says so.** Earnings − deductions is net,
- *    always; four earning columns (`siteAllowance`, `leaveEncashment`,
- *    `gratuityPayout`, `reimbursement`) are absent from most gross formulas in
- *    this codebase, so a row where the sum disagrees with the stored net is a
- *    real defect and is flagged rather than rounded away.
+ *    always; three earning columns (`siteAllowance`, `leaveEncashment`,
+ *    `gratuityPayout`) are absent from most gross formulas in this codebase, so
+ *    a row where the sum disagrees with the stored net is a real defect and is
+ *    flagged rather than rounded away.
  */
 
 /** A payslip amount that is an earning. Order is the order the panel lists them. */
@@ -54,7 +54,6 @@ const EARNING_KEYS = [
   'siteAllowance',
   'leaveEncashment',
   'gratuityPayout',
-  'reimbursement',
 ] as const;
 
 /** A payslip amount that comes off. `deduction` is discipline + loss of pay. */
@@ -62,7 +61,6 @@ const DEDUCTION_KEYS = [
   'deduction',
   'insurance',
   'tax',
-  'advanceLoanDeduction',
   'garnishment',
   'otherRecovery',
 ] as const;
@@ -77,9 +75,7 @@ const LINE_LINKS: Partial<Record<string, string>> = {
   siteAllowance: '/dashboard/overtime',
   leaveEncashment: '/dashboard/payroll/encashment',
   gratuityPayout: '/dashboard/payroll/settlements',
-  reimbursement: '/dashboard/reimbursements',
   deduction: '/dashboard/attendance',
-  advanceLoanDeduction: '/dashboard/advance-loans',
   garnishment: '/dashboard/garnishments',
   otherRecovery: '/dashboard/payroll/recoveries',
 };
@@ -163,8 +159,6 @@ export function runTotals(rows: RunRow[]) {
     net: sum((r) => r.net),
     statutory: column('insurance'),
     tax: column('tax'),
-    reimbursement: column('reimbursement'),
-    loanRecovery: column('advanceLoanDeduction'),
     lop: column('deduction'),
     /** How many rows carry at least one exception — the filter's badge. */
     withExceptions: rows.filter((r) => r.exceptions.length > 0).length,

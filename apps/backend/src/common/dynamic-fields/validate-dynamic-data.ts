@@ -27,7 +27,7 @@ import { FieldDef } from './field-def';
 /**
  * ISO 3166-1 alpha-2, restricted to countries libphonenumber knows — the same
  * test `normalisePhoneRegion` applies on the bound-column path. Kept here rather
- * than imported from `whatsapp/utils` so this module stays free of feature-module
+ * than imported from a feature module so this module stays free of feature-module
  * dependencies, which is the whole point of `common/dynamic-fields`.
  */
 function isValidCountryCode(v: string): boolean {

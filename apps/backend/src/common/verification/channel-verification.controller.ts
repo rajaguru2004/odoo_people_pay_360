@@ -13,8 +13,6 @@ import {
   imageFingerprint,
 } from './channel-verification-token.service';
 import { ChannelFaceVerificationService } from './channel-face-verification.service';
-import { WhatsAppOutboxService } from '../../whatsapp/whatsapp-outbox.service';
-import { DiscordOutboxService } from '../../discord/discord-outbox.service';
 import { TimezoneService } from '../timezone/timezone.service';
 import { latestPunchAt } from '../../attendances/attendance-punch.util';
 
@@ -50,11 +48,11 @@ export class ChannelVerifyDto {
  * The browser half of a verified punch, for any channel.
  *
  * Public by necessity: the link opens on a phone that has no HR session, which
- * is the entire reason it exists. What makes that acceptable is unchanged from
- * the Discord original — the token is the only credential AND the only
- * instruction. The tool name and its arguments come from the row, so this
- * endpoint cannot be steered into doing anything other than completing the one
- * action it was minted for, for the one employee it belongs to.
+ * is the entire reason it exists. What makes that acceptable is that the token
+ * is the only credential AND the only instruction. The tool name and its
+ * arguments come from the row, so this endpoint cannot be steered into doing
+ * anything other than completing the one action it was minted for, for the one
+ * employee it belongs to.
  */
 @ApiExcludeController()
 @Controller('channel/verify')
@@ -67,8 +65,6 @@ export class ChannelVerificationController {
     private readonly principals: ChannelPrincipalService,
     private readonly caller: ToolCallerService,
     private readonly prisma: PrismaService,
-    private readonly whatsappOutbox: WhatsAppOutboxService,
-    private readonly discordOutbox: DiscordOutboxService,
     private readonly tzSvc: TimezoneService,
   ) {}
 
@@ -95,15 +91,6 @@ export class ChannelVerificationController {
     }
     const row = claim.row;
 
-    const identity = await this.resolveIdentity(row);
-    if (!identity) {
-      await this.tokens.release(token);
-      return {
-        success: false,
-        data: { ok: false, message: 'This account is no longer linked to an HR profile.' },
-      };
-    }
-
     // Proofs first, in one submit, because the capability is single-use: two
     // round trips would need two of them, and the second could be answered by
     // somebody standing somewhere else.
@@ -113,10 +100,6 @@ export class ChannelVerificationController {
         const attempts = await this.tokens.bumpAttempts(row.id);
         const retryable = attempts < row.maxAttempts;
         if (retryable) await this.tokens.release(token);
-        // Terminal only: with attempts left, the person is looking at the page
-        // and retrying live — echoing every blurry photo into the chat would
-        // turn five retries into five notifications.
-        if (!retryable) this.notifyChat(row, identity.address, 'failed', proof.message);
         return {
           success: false,
           data: { ok: false, message: proof.message, retryable },
@@ -139,7 +122,7 @@ export class ChannelVerificationController {
     try {
       return await this.principals.runAs(
         row.channel as ActorChannelName,
-        identity.ref,
+        row.identityId,
         row.userId,
         async (user) => {
           const payload = await this.caller.call(user, row.toolName, {
@@ -170,10 +153,6 @@ export class ChannelVerificationController {
             const message = actionable
               ? String(err.message || 'That was not accepted.')
               : 'Something went wrong at our end.';
-            // "Not checked in, and its reason" — the punch itself was refused,
-            // which is exactly the outcome the chat has to hear about even if
-            // the page tab is already closed.
-            if (actionable) this.notifyChat(row, identity.address, 'failed', message);
             return {
               success: false,
               data: { ok: false, message, retryable: true },
@@ -187,7 +166,6 @@ export class ChannelVerificationController {
           const at = latestPunchAt(payload, row.purpose === 'CHECKOUT' ? 'out' : 'in');
           const label = await this.punchTimeLabel(row, at);
 
-          this.notifyChat(row, identity.address, 'ok', label ? `Time: ${label}` : '');
           return {
             success: true,
             data: {
@@ -226,83 +204,6 @@ export class ChannelVerificationController {
       return { ok: false, message: 'This account is not linked to an employee record.' };
     }
     return this.faces.verifyAndRecord(row, image, imageFingerprint(image));
-  }
-
-  /**
-   * The identity behind the row, and a short non-sensitive actor ref for the
-   * audit trail. Which table to look in comes from the row's own channel.
-   */
-  private async resolveIdentity(row: VerificationRow): Promise<{
-    ref: string;
-    /** Raw channel address, used ONLY to send the confirmation. Never logged. */
-    address: string;
-  } | null> {
-    if (row.channel === 'discord') {
-      const d = await this.prisma.discordIdentity
-        .findUnique({ where: { id: row.identityId }, select: { discordUserId: true, status: true } })
-        .catch(() => null);
-      return d && d.status === 'ACTIVE'
-        ? { ref: d.discordUserId, address: d.discordUserId }
-        : null;
-    }
-
-    const w = await this.prisma.whatsAppIdentity
-      .findUnique({ where: { id: row.identityId }, select: { phoneE164: true, status: true } })
-      .catch(() => null);
-    // The masked form is what reaches audit_logs; the raw number stays here.
-    return w && w.status === 'ACTIVE'
-      ? { ref: maskRef(w.phoneE164), address: w.phoneE164 }
-      : null;
-  }
-
-  /**
-   * Tell the employee, in the chat they started from, how it ended.
-   *
-   * The page already showed the result, but the chat is where the conversation
-   * lives — "tap Check in, open the link, get the ✅ back in the thread" is the
-   * loop the whole flow promises. Best-effort and deduplicated on the token
-   * row id, so a retried POST cannot double-message, and a sink failure never
-   * turns a successful punch into an error.
-   *
-   * Sent on success and on TERMINAL failure only. A retryable failure (out of
-   * range, blurry photo with attempts left) is being handled live on the page
-   * the person is looking at; echoing every attempt into the chat would turn
-   * five face retries into five notifications.
-   */
-  private notifyChat(
-    row: VerificationRow,
-    address: string,
-    outcome: 'ok' | 'failed',
-    detail: string,
-  ): void {
-    const verb = PURPOSE_VERBS[row.purpose] ?? 'completed';
-    const body =
-      outcome === 'ok'
-        ? `✅ *${cap(verb)}*${detail ? `\n${detail}` : ''}`
-        : `❌ *Not ${verb}*\n${detail}\n\nTap the button in the chat to try again, or use the HR app.`;
-    const dedupeKey = `verify:${row.id}:${outcome}`;
-
-    const send =
-      row.channel === 'discord'
-        ? this.discordOutbox.enqueueDirect({
-            userId: row.userId,
-            discordUserId: address,
-            employeeId: row.employeeId,
-            branchId: null,
-            templateKey: 'verification_result',
-            body,
-            dedupeKey,
-          })
-        : this.whatsappOutbox.enqueueDirect({
-            toE164: address,
-            templateKey: 'verification_result',
-            body,
-            userId: row.userId,
-            dedupeKey,
-          });
-    void Promise.resolve(send).catch((e) =>
-      this.logger.warn(`Verification confirmation not sent: ${(e as Error).message}`),
-    );
   }
 
   /** "14:32" in the employee's own zone, or '' when unknowable. */
@@ -347,18 +248,3 @@ function claimMessage(reason: 'unknown' | 'expired' | 'replay' | 'exhausted'): s
   }
 }
 
-const PURPOSE_VERBS: Record<string, string> = {
-  CHECKIN: 'checked in',
-  CHECKOUT: 'checked out',
-  LUNCH_IN: 'back from lunch',
-  LUNCH_OUT: 'on lunch break',
-};
-
-function cap(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function maskRef(phone: string | null): string {
-  if (!phone) return 'unknown';
-  return `${phone.slice(0, 3)}***${phone.slice(-3)}`;
-}

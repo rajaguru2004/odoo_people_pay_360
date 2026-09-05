@@ -1,6 +1,5 @@
 import {
   Injectable,
-  Optional,
   UnauthorizedException,
   ConflictException,
   BadRequestException,
@@ -15,11 +14,6 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { ConfigService } from '@nestjs/config';
-import { RequestMeta } from '../common/utils/request-meta.util';
-import { LoginAlertService } from '../telegram/login-alerts/login-alert.service';
-
-/** Nothing was recorded about a login before; an unknown caller stays unknown. */
-const NO_META: RequestMeta = { ip: null, userAgent: null };
 
 @Injectable()
 export class AuthService {
@@ -28,13 +22,6 @@ export class AuthService {
     private jwtService: JwtService,
     private mailService: MailService,
     private configService: ConfigService,
-    /**
-     * @Optional so the many specs that construct AuthService directly keep
-     * working, and so a deployment can drop TelegramModule without breaking
-     * authentication — which is exactly the property an alerting side-channel
-     * on the login path has to have.
-     */
-    @Optional() private loginAlerts?: LoginAlertService,
   ) {}
 
   /**
@@ -42,9 +29,9 @@ export class AuthService {
    *
    * This is what `req.user` is, and it was previously inlined in
    * JwtStrategy.validate — which made it unreachable from any non-HTTP entry
-   * point. The WhatsApp channel needs exactly the same object (a tool call must
-   * not have weaker scope because it arrived over a different transport), so
-   * the query lives here and the strategy delegates.
+   * point. Every non-HTTP entry point needs exactly the same object (a tool
+   * call must not have weaker scope because it arrived over a different
+   * transport), so the query lives here and the strategy delegates.
    *
    * Everything scope-related is derived from the DB on every call and never
    * trusted from a token: revoking a branch grant or a department takes effect
@@ -187,12 +174,7 @@ export class AuthService {
     };
   }
 
-  /**
-   * @param meta where the request came from. Trailing and optional so every
-   *   existing caller — and every spec — compiles unchanged; it feeds the ops
-   *   alert only and is never an authorisation input.
-   */
-  async login(dto: LoginDto, meta: RequestMeta = NO_META) {
+  async login(dto: LoginDto) {
     // Find user
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
@@ -223,17 +205,11 @@ export class AuthService {
       },
     });
 
-    // Every alert call below is fire-and-forget and swallows its own errors.
-    // The refusal must reach the caller at exactly the speed it did before this
-    // feature existed: a messaging side-channel that can slow down or break a
-    // login is worse than no alerting at all.
     if (!user) {
-      this.loginAlerts?.onLoginFailure(dto.email, 'UNKNOWN_EMAIL', meta);
       throw new UnauthorizedException('Email does not exist in the system');
     }
 
     if (!user.isActive) {
-      this.loginAlerts?.onLoginFailure(dto.email, 'ACCOUNT_DISABLED', meta);
       throw new UnauthorizedException('Account has been disabled');
     }
 
@@ -244,25 +220,10 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
-      this.loginAlerts?.onLoginFailure(dto.email, 'BAD_PASSWORD', meta);
       throw new UnauthorizedException('Incorrect password');
     }
 
     const token = this.generateToken(user);
-
-    this.loginAlerts?.onLoginSuccess(
-      {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        employeeId: user.employeeId,
-        fullName: user.employee?.fullName ?? null,
-        employeeCode: user.employee?.employeeCode ?? null,
-        branchName: user.employee?.branch?.name ?? null,
-        branchId: user.employee?.branchId ?? null,
-      },
-      meta,
-    );
 
     return {
       success: true,

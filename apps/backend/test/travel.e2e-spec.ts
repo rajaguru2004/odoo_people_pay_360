@@ -9,16 +9,14 @@ import {
 /**
  * Travel management, proved against the real DB.
  *
- * The design claim under test: travel is an EXTENSION of reimbursements, not a
- * second expense system. So the tests that matter are not "a trip row exists" —
- * they are:
- *   1. approving a trip spawns exactly ONE ordinary `reimbursements` row tagged
- *      sourceType='TRAVEL';
- *   2. that row is picked up by the UNCHANGED payroll path and flips to PAID at
- *      lock, landing in PayrollItem.reimbursement;
- *   3. a travel advance lands in the EXISTING loans ledger;
- *   4. an international trip with no covering visa alerts HR;
- *   5. cancelling withdraws unspent claims but never touches paid money.
+ * The design claim under test: a trip is a REQUEST, not a second attendance or
+ * leave system. So the tests that matter are not "a trip row exists" — they are:
+ *   1. the per-diem rate and day count are snapshotted at submit and a later
+ *      rate edit cannot move an already-submitted trip;
+ *   2. with no chain governing TRAVEL the request WAITS for a human rather than
+ *      applying itself;
+ *   3. an international trip with no covering visa alerts HR;
+ *   4. a trip writes neither attendance nor leave.
  */
 describe('Travel management (e2e)', () => {
   let ctx: E2EContext;
@@ -45,7 +43,6 @@ describe('Travel management (e2e)', () => {
   let adminToken: string;
   let travellerToken: string;
   let adminUserId: string;
-  let travellerEmpId: string;
   let intlEmpId: string;
 
   const PER_DIEM_RATE = 50;
@@ -114,7 +111,7 @@ describe('Travel management (e2e)', () => {
     });
     adminUserId = adminUser.id;
 
-    travellerEmpId = await makeEmployee(emails.traveller, `TRV-A-${runId}`);
+    await makeEmployee(emails.traveller, `TRV-A-${runId}`);
     intlEmpId = await makeEmployee(emails.intl, `TRV-B-${runId}`);
 
     // Per-diem destination with a rate; the trip snapshots it at submit.
@@ -141,18 +138,10 @@ describe('Travel management (e2e)', () => {
 
   afterAll(async () => {
     const { prisma } = ctx;
-    await prisma.reimbursement.deleteMany({ where: { employee: { branchId } } });
-    await prisma.advanceLoanDeduction.deleteMany({
-      where: { request: { employee: { branchId } } },
-    });
-    await prisma.advanceLoanRequest.deleteMany({ where: { employee: { branchId } } });
     await prisma.travelItinerary.deleteMany({
       where: { travel: { employee: { branchId } } },
     });
     await prisma.travelRequest.deleteMany({ where: { employee: { branchId } } });
-    await prisma.attendance.deleteMany({ where: { branchId } });
-    await prisma.payrollItem.deleteMany({ where: { employee: { branchId } } });
-    await prisma.payroll.deleteMany({ where: { branchId } });
     await prisma.requestApproval.deleteMany({ where: { requestType: 'TRAVEL' } });
     await prisma.libraryItem.deleteMany({
       where: { libraryType: 'PER_DIEM_DESTINATION', label: DESTINATION },
@@ -231,24 +220,17 @@ describe('Travel management (e2e)', () => {
     });
   });
 
-  it('waits for a human when no chain governs TRAVEL, then spawns ONE per-diem claim', async () => {
+  it('waits for a human when no chain governs TRAVEL', async () => {
     // CHANGED: this used to assert that the request applied ITSELF on submit.
     // `initiate` still returns engaged:false with no ApprovalWorkflow and the
     // master switch off — but that answer means "no CHAIN governs this", not
-    // "nobody needs to approve it". Approving a trip is what spends money: a
-    // per-diem claim, a real advance in the loans ledger, a budget commitment.
-    // Falling back to no approval at all was the defect. Travel now matches
-    // Advances & Loans, which always read the same answer as "a human still
-    // decides". See docs/TEST-PLAN-FINANCE.md F9.
+    // "nobody needs to approve it". Approving a trip is what commits money
+    // against a budget. Falling back to no approval at all was the defect. See
+    // docs/TEST-PLAN-FINANCE.md F9.
     const pending = await ctx.prisma.travelRequest.findUnique({
       where: { id: tripId },
     });
     expect(pending?.status).toBe('PENDING');
-    expect(
-      await ctx.prisma.reimbursement.findMany({
-        where: { sourceType: 'TRAVEL', sourceId: tripId },
-      }),
-    ).toEqual([]);
 
     await ctx
       .http()
@@ -259,113 +241,6 @@ describe('Travel management (e2e)', () => {
 
     const trip = await ctx.prisma.travelRequest.findUnique({ where: { id: tripId } });
     expect(trip?.status).toBe('APPROVED');
-
-    const claims = await ctx.prisma.reimbursement.findMany({
-      where: { sourceType: 'TRAVEL', sourceId: tripId },
-    });
-    expect(claims).toHaveLength(1);
-    expect(claims[0].status).toBe('APPROVED');
-    expect(Number(claims[0].amount)).toBe(PER_DIEM_RATE * PER_DIEM_DAYS);
-    expect(claims[0].budgetCategory).toBe('Travel');
-    // Dated at departure, not approval — so it lands in the right payroll month.
-    expect(claims[0].expenseDate.toISOString().slice(0, 10)).toBe('2026-09-01');
-    // Never linked to payroll at creation.
-    expect(claims[0].payrollItemId).toBeNull();
-  });
-
-  it('surfaces the spawned claim on the trip detail', async () => {
-    const res = await ctx
-      .http()
-      .get(`/travel-requests/${tripId}`)
-      .set(bearer(adminToken))
-      .expect(200);
-    expect(res.body.data.claims).toHaveLength(1);
-  });
-
-  it('the per-diem claim is paid out by the UNCHANGED payroll path', async () => {
-    // The whole point of building travel as a reimbursement extension: nothing
-    // in payroll knows travel exists, and the money still arrives.
-    // Payroll refuses to run for a period with no attendance captured — without
-    // that guard everyone counts as absent and LOP wipes the salary. Seed a
-    // working month so the run reflects a real period.
-    const days = Array.from({ length: 22 }, (_, i) => i + 1);
-    await ctx.prisma.attendance.createMany({
-      data: days.map((d) => ({
-        employeeId: travellerEmpId,
-        date: new Date(Date.UTC(2026, 8, d)),
-        checkIn: new Date(Date.UTC(2026, 8, d, 9, 0)),
-        checkOut: new Date(Date.UTC(2026, 8, d, 18, 0)),
-        workHours: 8,
-        status: 'PRESENT',
-        branchId,
-      })),
-      skipDuplicates: true,
-    });
-
-    // Branch comes from the X-Branch-Id header, not the body — CreatePayrollDto
-    // has no branchId and the global pipe is forbidNonWhitelisted.
-    const run = await ctx
-      .http()
-      .post('/payrolls')
-      .set(bearer(adminToken))
-      .set('X-Branch-Id', branchId)
-      .send({ month: 9, year: 2026, employeeIds: [travellerEmpId] })
-      .expect(201);
-
-    const payrollId = run.body.data?.id ?? run.body.data?.payroll?.id;
-    expect(payrollId).toBeTruthy();
-
-    const item = await ctx.prisma.payrollItem.findFirst({
-      where: { payrollId, employeeId: travellerEmpId },
-    });
-    expect(item).toBeTruthy();
-    expect(Number(item!.reimbursement)).toBe(PER_DIEM_RATE * PER_DIEM_DAYS);
-
-    // Back-linked, so it can never be picked up by a second payroll run.
-    const claim = await ctx.prisma.reimbursement.findFirst({
-      where: { sourceType: 'TRAVEL', sourceId: tripId },
-    });
-    expect(claim!.payrollItemId).toBe(item!.id);
-
-    // Locking the payroll is what marks the money actually paid.
-    await ctx.prisma.payroll.update({
-      where: { id: payrollId },
-      data: { status: 'APPROVED' },
-    });
-    await ctx
-      .http()
-      .post(`/payrolls/${payrollId}/lock`)
-      .set(bearer(adminToken))
-      .set('X-Branch-Id', branchId)
-      .expect(201);
-
-    const paid = await ctx.prisma.reimbursement.findFirst({
-      where: { sourceType: 'TRAVEL', sourceId: tripId },
-    });
-    expect(paid!.status).toBe('PAID');
-    expect(paid!.paidAt).toBeTruthy();
-  });
-
-  it('routes a travel advance through the existing loans ledger', async () => {
-    // The advance is raised on APPROVAL, not on submit.
-    const id = await submitAndApprove(travellerToken, {
-      purpose: 'Conference',
-      travelType: 'DOMESTIC',
-      destination: DESTINATION,
-      departureDate: '2026-10-01',
-      returnDate: '2026-10-02',
-      estimatedCost: 300,
-      advanceAmount: 200,
-    });
-    const trip = await ctx.prisma.travelRequest.findUnique({ where: { id } });
-    expect(trip?.advanceLoanId).toBeTruthy();
-
-    const loan = await ctx.prisma.advanceLoanRequest.findUnique({
-      where: { id: trip!.advanceLoanId! },
-    });
-    expect(loan?.type).toBe('ADVANCE');
-    expect(Number(loan?.amount)).toBe(200);
-    expect(loan?.installments).toBe(1);
   });
 
   it('alerts HR when an approved international trip has no covering visa', async () => {
@@ -427,37 +302,6 @@ describe('Travel management (e2e)', () => {
     });
     expect(leaves).toBe(0);
     expect(attendance).toBe(0);
-  });
-
-  it('cancelling withdraws unspent claims but never paid money', async () => {
-    // A fresh trip whose claim has NOT been through payroll.
-    // Approved, so it HAS a claim to withdraw — an unapproved trip has none.
-    const freshId = await submitAndApprove(travellerToken, {
-      purpose: 'Training visit',
-      travelType: 'DOMESTIC',
-      destination: DESTINATION,
-      departureDate: '2026-12-01',
-      returnDate: '2026-12-02',
-      estimatedCost: 150,
-    });
-
-    await ctx
-      .http()
-      .delete(`/travel-requests/${freshId}`)
-      .set(bearer(travellerToken))
-      .expect(200);
-
-    const cancelled = await ctx.prisma.reimbursement.findFirst({
-      where: { sourceType: 'TRAVEL', sourceId: freshId },
-    });
-    expect(cancelled?.status).toBe('CANCELLED');
-
-    // The first trip's claim is already PAID and linked to a payroll item —
-    // cancelling must not be able to reach it.
-    const paid = await ctx.prisma.reimbursement.findFirst({
-      where: { sourceType: 'TRAVEL', sourceId: tripId },
-    });
-    expect(paid?.status).toBe('PAID');
   });
 
   it('rejects a return date before departure', async () => {

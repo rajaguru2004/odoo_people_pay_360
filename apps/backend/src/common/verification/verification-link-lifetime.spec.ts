@@ -33,7 +33,7 @@ describe('verification link lifetime', () => {
   };
 
   const args = (over: Record<string, any> = {}) => ({
-    channel: 'whatsapp' as const,
+    channel: 'web' as const,
     deliveryMode: 'LINK' as const,
     identityId: 'idn-1',
     userId: 'user-1',

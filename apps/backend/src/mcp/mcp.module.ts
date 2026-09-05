@@ -23,10 +23,8 @@ import { McpServerFactory } from './mcp-server.factory';
 import { ToolExecutorService } from './tool-executor.service';
 import { ToolCallerService } from './tool-caller.service';
 import { OvertimeTools } from './tools/overtime.tools';
-import { ReimbursementTools } from './tools/reimbursements.tools';
 import { ChannelVerificationModule } from '../common/verification/channel-verification.module';
 import { OvertimeModule } from '../overtime/overtime.module';
-import { ReimbursementsModule } from '../reimbursements/reimbursements.module';
 import { ToolRegistryService } from './tool-registry.service';
 import { DomainToolProvider, MCP_TOOL_PROVIDERS } from './tool.types';
 import { AnalyticsTools } from './tools/analytics.tools';
@@ -47,8 +45,6 @@ import { BudgetsTools } from './tools/budgets.tools';
 import { SupervisorTools } from './tools/supervisor.tools';
 import { ApprovalsTools } from './tools/approvals.tools';
 import { OvertimePolicyTools } from './tools/overtime-policy.tools';
-import { LoanTools } from './tools/loans.tools';
-import { AdvanceLoansModule } from '../advance-loans/advance-loans.module';
 import { BankDetailsTools } from './tools/bank-details.tools';
 import { SupervisorsModule } from '../supervisors/supervisors.module';
 import { ApprovalsModule } from '../approvals/approvals.module';
@@ -58,8 +54,6 @@ import { BankDetailsModule } from '../bank-details/bank-details.module';
 @Module({
   imports: [
     AuditModule,
-    // Loan tools delegate to the loan services, which own the ACL.
-    AdvanceLoansModule,
     EmployeesModule,
     ProfileTemplatesModule,
     LeaveRequestsModule,
@@ -82,7 +76,6 @@ import { BankDetailsModule } from '../bank-details/bank-details.module';
     OvertimePolicyModule,
     BankDetailsModule,
     OvertimeModule,
-    ReimbursementsModule,
     // Prisma-only, so importing it cannot introduce a cycle. The attendance
     // tools need spendFaceProof to turn a verification receipt into `byFace`.
     ChannelVerificationModule,
@@ -113,14 +106,11 @@ import { BankDetailsModule } from '../bank-details/bank-details.module';
     SupervisorTools,
     ApprovalsTools,
     OvertimePolicyTools,
-    LoanTools,
     BankDetailsTools,
-    ReimbursementTools,
     {
       provide: MCP_TOOL_PROVIDERS,
       useFactory: (...providers: DomainToolProvider[]) => providers,
       inject: [
-        ReimbursementTools,
         EmployeeTools,
         LeaveTools,
         PayrollTools,
@@ -138,15 +128,13 @@ import { BankDetailsModule } from '../bank-details/bank-details.module';
         SupervisorTools,
         ApprovalsTools,
         OvertimePolicyTools,
-        LoanTools,
         BankDetailsTools,
         OvertimeTools,
       ],
     },
   ],
-  // Exported so in-process callers (the copilot transport, the WhatsApp
-  // channel) can invoke tools directly without a loopback HTTP hop. External
-  // /mcp is unaffected.
+  // Exported so in-process callers (the copilot transport) can invoke tools
+  // directly without a loopback HTTP hop. External /mcp is unaffected.
   exports: [ToolRegistryService, ToolExecutorService, ToolCallerService],
 })
 export class McpModule {}

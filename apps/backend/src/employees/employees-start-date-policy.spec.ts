@@ -73,12 +73,9 @@ describe('EmployeesService — employment start date policy', () => {
       settings as any,
       {} as any,
       { assertCleared: jest.fn().mockResolvedValue(undefined) } as any,
-      // whatsappOutbox, whatsappSettings
-      {} as any,
-      {} as any,
       // templates, supervisors — appended to the ctor after this spec was
       // written. Positional construction is why the ctor's own comment says
-      // "append only": a missing pair here shifts every later stub by two.
+      // "append only": a missing stub here shifts every later one along.
       {} as any,
       {} as any,
       // GarnishmentsService — appended when court orders became a real model;

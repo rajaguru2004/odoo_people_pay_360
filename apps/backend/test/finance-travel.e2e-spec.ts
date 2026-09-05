@@ -3,26 +3,23 @@ import {
   setupFinanceFixtures,
   FinanceFixtures,
   RATED_DESTINATION,
-  ZERO_RATE_DESTINATION,
 } from './utils/finance-fixtures';
 import { bearer, withSetting } from './utils/settings';
 
 /**
  * Travel, end to end — the SURFACE suite.
  *
- * `travel.e2e-spec.ts` already proves the integrations: that a per-diem claim is
- * paid by the unchanged payroll path, that a travel advance lands in the loans
- * ledger, that a rate edit does not rewrite an approved trip. This file covers
- * what that one does not: who may reach each of the eight routes, what the
- * server refuses and in which words, how branch and department narrow the view,
- * and — the part with teeth — that approving a trip fires each of its FOUR side
- * effects exactly once.
+ * `travel.e2e-spec.ts` already proves the basics: that a per-diem rate is
+ * snapshotted at submit and that a later rate edit does not rewrite an approved
+ * trip. This file covers what that one does not: who may reach each of the eight
+ * routes, what the server refuses and in which words, how branch and department
+ * narrow the view, and — the part with teeth — that approving a trip fires each
+ * of its side effects exactly once.
  *
  * The behaviour worth knowing before reading anything else: on create, Travel
  * used to treat "no approval chain governs this" as **approve immediately**,
- * while Advances & Loans treated the identical condition as **wait for a
- * human**. Same engine, opposite defaults — and approving a trip is what spends
- * money. Travel now matches the loan default; TRV-API-30 holds the line.
+ * rather than as **wait for a human** — and approving a trip is what commits
+ * money against a budget. TRV-API-30 holds the line.
  */
 describe('Finance — Travel (e2e)', () => {
   let ctx: E2EContext;
@@ -94,11 +91,6 @@ describe('Finance — Travel (e2e)', () => {
         status: 'PENDING',
         ...over,
       },
-    });
-
-  const claimsFor = (travelId: string) =>
-    ctx.prisma.reimbursement.findMany({
-      where: { sourceType: 'TRAVEL', sourceId: travelId },
     });
 
   const commitmentsFor = (travelId: string) =>
@@ -411,7 +403,7 @@ describe('Finance — Travel (e2e)', () => {
       expect(unknown.body.message).toBe('Travel request not found');
 
       // `travel.controller.ts` puts a `ParseUUIDPipe` on `:id`, which is why
-      // this one answers 400 where reimbursements answer 500 (F25).
+      // this one answers 400 rather than faulting on an unparseable key (F25).
       const malformed = await ctx
         .http()
         .get('/travel-requests/not-a-uuid')
@@ -424,8 +416,8 @@ describe('Finance — Travel (e2e)', () => {
 
       // `findOne` used to assert the BRANCH and nothing else — no owner check,
       // no manager-scope check, the two that `decide` performs on the same row
-      // — so any employee holding a UUID read a colleague's purpose, cost,
-      // destination and the claims the trip raised.
+      // — so any employee holding a UUID read a colleague's purpose, cost and
+      // destination.
       const stranger = await ctx
         .http()
         .get(`/travel-requests/${other.id}`)
@@ -553,7 +545,6 @@ describe('Finance — Travel (e2e)', () => {
       expect(row!.rejectedReason).toBe('Client meeting moved');
 
       // Rejected money was never going to be spent.
-      expect(await claimsFor(t.id)).toEqual([]);
       const open = (await commitmentsFor(t.id)).filter(
         (c) => c.status === 'OPEN',
       );
@@ -588,89 +579,6 @@ describe('Finance — Travel (e2e)', () => {
 
   // ── Approval side effects ─────────────────────────────────────────────────
   describe('what approval actually does', () => {
-    it('TRV-API-23 approval raises exactly ONE per-diem claim, dated at departure', async () => {
-      const t = await pendingTrip();
-      const res = await ctx
-        .http()
-        .post(`/travel-requests/${t.id}/approve`)
-        .set(bearer(fx.admin.token))
-        .send({});
-      expectStatus(res, 201);
-
-      const claims = await claimsFor(t.id);
-      // Counted, not merely observed — the double-count guard is the whole
-      // point of an idempotent side effect.
-      expect(claims).toHaveLength(1);
-      expect(claims[0].type).toBe('Per Diem');
-      expect(claims[0].status).toBe('APPROVED');
-      expect(Number(claims[0].amount)).toBe(75); // 25/day × 3 days
-      expect(claims[0].budgetCategory).toBe('Travel');
-      // Dated at departure so it lands in the month it was earned, not the
-      // month it was approved.
-      expect(claims[0].expenseDate.toISOString().slice(0, 10)).toBe(
-        t.departureDate.toISOString().slice(0, 10),
-      );
-      expect(claims[0].approverId).toBe(fx.admin.userId);
-    });
-
-    it('TRV-API-24 a zero-rate destination raises NO claim', async () => {
-      // A Prisma Decimal is an object, so `if (rate)` is true at 0.00 and a
-      // junk zero-value claim would enter every payroll run. The service
-      // compares numerically; this is the case that proves it still does.
-      const t = await pendingTrip({
-        destination: ZERO_RATE_DESTINATION,
-        perDiemRate: 0,
-      });
-      const res = await ctx
-        .http()
-        .post(`/travel-requests/${t.id}/approve`)
-        .set(bearer(fx.admin.token))
-        .send({});
-      expectStatus(res, 201);
-      expect(await claimsFor(t.id)).toEqual([]);
-    });
-
-    it('TRV-API-25 an advance becomes a real loan-ledger row, back-linked once', async () => {
-      const t = await pendingTrip({ advanceAmount: 200 });
-      const res = await ctx
-        .http()
-        .post(`/travel-requests/${t.id}/approve`)
-        .set(bearer(fx.admin.token))
-        .send({});
-      expectStatus(res, 201);
-
-      const row = await ctx.prisma.travelRequest.findUnique({
-        where: { id: t.id },
-      });
-      expect(row!.advanceLoanId).toBeTruthy();
-
-      const loan = await ctx.prisma.advanceLoanRequest.findUnique({
-        where: { id: row!.advanceLoanId! },
-      });
-      expect(loan!.type).toBe('ADVANCE');
-      expect(Number(loan!.amount)).toBe(200);
-      expect(loan!.installments).toBe(1);
-
-      // One advance, not one per approval attempt.
-      const advances = await ctx.prisma.advanceLoanRequest.findMany({
-        where: { employeeId: fx.earnerId, reason: { contains: t.destination } },
-      });
-      expect(advances).toHaveLength(1);
-    });
-
-    it('TRV-API-26 a trip with no advance creates no loan', async () => {
-      const t = await pendingTrip();
-      await ctx
-        .http()
-        .post(`/travel-requests/${t.id}/approve`)
-        .set(bearer(fx.admin.token))
-        .send({});
-      const row = await ctx.prisma.travelRequest.findUnique({
-        where: { id: t.id },
-      });
-      expect(row!.advanceLoanId).toBeNull();
-    });
-
     it('TRV-API-27 approval commits the estimated cost against the department’s budget line', async () => {
       const t = await pendingTrip({ estimatedCost: 450 });
       await ctx
@@ -711,8 +619,8 @@ describe('Finance — Travel (e2e)', () => {
     it('TRV-API-29 budgeting never blocks an approval', async () => {
       // A trip whose department and category match no budget line at all. The
       // commitment ledger swallows the miss and logs it; the approval must
-      // still succeed, because a budgeting gap is an accounting problem and
-      // not a reason to strand a traveller.
+      // still succeed, because a budgeting gap is a reporting problem and not
+      // a reason to strand a traveller.
       const t = await pendingTrip({ destination: 'Atlantis', perDiemRate: null });
       await ctx.prisma.budget.update({
         where: { id: fx.budgetId },
@@ -735,20 +643,16 @@ describe('Finance — Travel (e2e)', () => {
     });
 
     it('TRV-API-30 F9 — with no chain configured, a trip WAITS for a human and spends nothing', async () => {
-      // `create` used to treat `!engaged` as "approve now", while a loan in the
-      // identical situation stayed PENDING. Approving a trip is what spends
-      // money — a per-diem claim, a real advance in the loans ledger and a
-      // budget commitment — so an admin who deactivated a TRAVEL workflow was
-      // not falling back to manual approval, they were falling back to NO
-      // approval. Travel now matches the loan default.
-      const res = await trip(fx.employee.token, { advanceAmount: 50 });
+      // `create` used to treat `!engaged` as "approve now". Approving a trip is
+      // what commits money against a budget, so an admin who deactivated a
+      // TRAVEL workflow was not falling back to manual approval, they were
+      // falling back to NO approval.
+      const res = await trip(fx.employee.token);
       expectStatus(res, 201);
       const id = dataOf(res).id;
 
       const row = await ctx.prisma.travelRequest.findUnique({ where: { id } });
       expect(row!.status).toBe('PENDING');
-      expect(await claimsFor(id)).toEqual([]);
-      expect(row!.advanceLoanId).toBeNull();
       expect(await commitmentsFor(id)).toEqual([]);
 
       // ...and an approver can still settle it through the legacy path.
@@ -764,7 +668,7 @@ describe('Finance — Travel (e2e)', () => {
         (await ctx.prisma.travelRequest.findUniqueOrThrow({ where: { id } }))
           .status,
       ).toBe('APPROVED');
-      expect((await claimsFor(id)).length).toBe(1);
+      expect((await commitmentsFor(id)).length).toBe(1);
     });
   });
 
@@ -797,14 +701,14 @@ describe('Finance — Travel (e2e)', () => {
       );
     });
 
-    it('TRV-API-32 cancelling an approved trip withdraws its unpaid claims and releases the budget', async () => {
+    it('TRV-API-32 cancelling an approved trip releases the budget it committed', async () => {
       const t = await pendingTrip();
       await ctx
         .http()
         .post(`/travel-requests/${t.id}/approve`)
         .set(bearer(fx.admin.token))
         .send({});
-      expect((await claimsFor(t.id)).length).toBe(1);
+      expect((await commitmentsFor(t.id)).length).toBe(1);
 
       const res = await ctx
         .http()
@@ -812,46 +716,10 @@ describe('Finance — Travel (e2e)', () => {
         .set(bearer(fx.employee.token));
       expectStatus(res, 200);
 
-      const claims = await claimsFor(t.id);
-      expect(claims.map((c) => c.status)).toEqual(['CANCELLED']);
       const open = (await commitmentsFor(t.id)).filter(
         (c) => c.status === 'OPEN',
       );
       expect(open).toEqual([]);
-    });
-
-    it('TRV-API-33 a claim already attached to a payroll item is NOT withdrawn', async () => {
-      const t = await pendingTrip();
-      await ctx
-        .http()
-        .post(`/travel-requests/${t.id}/approve`)
-        .set(bearer(fx.admin.token))
-        .send({});
-      const [claim] = await claimsFor(t.id);
-
-      // Stand in for payroll having picked the claim up. Reversing money that
-      // has already entered a run belongs to payroll, not to trip cancellation.
-      await ctx.prisma.reimbursement.update({
-        where: { id: claim.id },
-        data: { payrollItemId: '00000000-0000-0000-0000-000000000000' },
-      }).catch(async () => {
-        // payrollItemId is an FK; if it is enforced, mark the row PAID instead,
-        // which `cancelBySource` also refuses to touch.
-        await ctx.prisma.reimbursement.update({
-          where: { id: claim.id },
-          data: { status: 'PAID', paidAt: new Date() },
-        });
-      });
-
-      await ctx
-        .http()
-        .delete(`/travel-requests/${t.id}`)
-        .set(bearer(fx.employee.token));
-
-      const after = await ctx.prisma.reimbursement.findUnique({
-        where: { id: claim.id },
-      });
-      expect(after!.status).not.toBe('CANCELLED');
     });
 
     it('TRV-API-34 a settled request cannot be cancelled', async () => {
@@ -900,9 +768,6 @@ describe('Finance — Travel (e2e)', () => {
         .post(`/travel-requests/${t.id}/approve`)
         .set(bearer(fx.admin.token))
         .send({});
-      const [claim] = await claimsFor(t.id);
-      const amountAtApproval = Number(claim.amount);
-
       await ctx.prisma.libraryItem.update({
         where: { id: fx.ratedDestinationId },
         data: { perDiemRate: 999 },
@@ -912,8 +777,6 @@ describe('Finance — Travel (e2e)', () => {
           where: { id: t.id },
         });
         expect(Number(row!.perDiemRate)).toBe(25);
-        const [again] = await claimsFor(t.id);
-        expect(Number(again.amount)).toBe(amountAtApproval);
       } finally {
         await ctx.prisma.libraryItem.update({
           where: { id: fx.ratedDestinationId },

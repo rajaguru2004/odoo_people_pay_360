@@ -994,9 +994,9 @@ describe('Organization — Department change requests (e2e)', () => {
     });
 
     it('CR-API-26 refuses to let the requester review their own request', async () => {
-      // Leave, overtime and reimbursement all refuse self-approval. This flow
-      // decides who holds managerial authority, so it was the last one that
-      // should have allowed it.
+      // Leave and overtime both refuse self-approval. This flow decides who
+      // holds managerial authority, so it was the last one that should have
+      // allowed it.
       const dept = await seedDept();
       const created = await createCR(fx.hr.token, dept.id, {
         requestType: 'CHANGE_MANAGER',

@@ -1,8 +1,6 @@
 'use client';
 
-import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { ChevronRight } from 'lucide-react';
 import {
   MeterList,
   PanelHeader,
@@ -15,14 +13,12 @@ import type { PayrollHubSummary } from '@/types/payrollHub';
  * Can the people in this run actually be paid?
  *
  * Nothing in the product answered this before. The figure comes from the same
- * validator the bank-details screens and the wage-file builder use, so a bank
- * record that exists but carries a malformed IBAN counts as NOT ready — the
- * case a plain "has a bank record" count cannot see.
+ * validator the bank-details screens use, so a bank record that exists but
+ * carries a malformed IBAN counts as NOT ready — the case a plain "has a bank
+ * record" count cannot see.
  *
- * It stops short of the WPS identifier checks (labour card, civil ID), which
- * are wage-file-format specific and live in the generator. So this is **not**
- * the WPS verdict, and the panel says so rather than letting a reader take it
- * as clearance to file.
+ * It checks bank records and nothing else, and the panel says so rather than
+ * letting a reader take it as clearance to pay.
  *
  * The honesty trap it exists to avoid: a branch with no banking country has no
  * required fields, so everybody under it would validate as ready. Those people
@@ -31,12 +27,10 @@ import type { PayrollHubSummary } from '@/types/payrollHub';
  */
 export default function PaymentReadinessPanel({
   readiness,
-  wps,
   loading = false,
   failed = false,
 }: {
   readiness?: PayrollHubSummary['readiness'];
-  wps?: PayrollHubSummary['wps'];
   loading?: boolean;
   failed?: boolean;
 }) {
@@ -163,28 +157,6 @@ export default function PaymentReadinessPanel({
           </div>
 
           <MeterList rows={rows} trackHeight={12} />
-
-          {/* Only once a wage file has ever existed: an install that does not
-              use WPS should not be told about a feature it has never touched. */}
-          {wps?.lastFileAt && (
-            <Link
-              href="/dashboard/payroll/manage"
-              className="block pt-3 border-t border-surface-border group rounded-lg hover:bg-surface-page transition-colors"
-            >
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-                {t('wpsLastFile')}
-              </p>
-              <p className="mt-1 text-[12px] text-text-body inline-flex items-center gap-1 group-hover:text-brand-primary transition-colors">
-                {new Date(wps.lastFileAt).toLocaleDateString()} · {wps.lastFileStatus}
-                <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity rtl:rotate-180" />
-              </p>
-              {wps.rejected > 0 && (
-                <p className="mt-1 text-[12px] font-semibold text-status-error">
-                  {t('wpsRejected', { count: wps.rejected })}
-                </p>
-              )}
-            </Link>
-          )}
 
           <p className="text-[11px] text-text-muted leading-relaxed">{t('readinessCaveat')}</p>
         </div>

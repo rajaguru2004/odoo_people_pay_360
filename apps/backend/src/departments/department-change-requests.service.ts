@@ -363,9 +363,9 @@ export class DepartmentChangeRequestsService {
       throw new BadRequestException('Change request has already been reviewed');
     }
 
-    // Whoever asked for the change does not get to grant it. Leave, overtime
-    // and reimbursement have always refused self-approval; this flow decides who
-    // holds managerial authority, so it is the last one that should not.
+    // Whoever asked for the change does not get to grant it. Leave and overtime
+    // have always refused self-approval; this flow decides who holds managerial
+    // authority, so it is the last one that should not.
     if (request.requestedBy === userId) {
       throw new ForbiddenException(
         'You cannot review a change request you raised yourself.',
@@ -696,7 +696,7 @@ export class DepartmentChangeRequestsService {
    * R18: both notifiers were `console.log` stubs, so a request that
    * reorganises the company hierarchy sat in a queue nobody was told about and
    * its raiser never learned the outcome — while every other request-shaped
-   * flow in the app (letters, leave, loans, travel) writes a real Notification
+   * flow in the app (letters, leave, travel) writes a real Notification
    * row. Same shape as `LettersService.notifyHr`: one row per recipient, each
    * failure swallowed, because the request has already committed and a
    * notification outage must not turn a successful raise into a 500.

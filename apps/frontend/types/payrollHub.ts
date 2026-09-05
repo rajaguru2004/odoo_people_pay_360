@@ -35,16 +35,14 @@ export const PAYROLL_EARNING_KEYS = [
   'overtimePay',
   'foodAllowance',
   'siteAllowance',
-  'reimbursement',
   'leaveEncashment',
 ] as const;
 
-/** The deduction columns. The first six are `register`'s definition verbatim. */
+/** The deduction columns. The five are `register`'s definition verbatim. */
 export const PAYROLL_DEDUCTION_KEYS = [
   'deduction',
   'insurance',
   'tax',
-  'advanceLoanDeduction',
   'garnishment',
   'otherRecovery',
 ] as const;
@@ -201,12 +199,6 @@ export interface PayrollHubSummary {
   };
   carryForward: { outstanding: number };
   settlements: { draft: number; awaitingPayment: number; openPayout: number } | null;
-  wps: {
-    lastFileAt: string | null;
-    lastFileStatus: string | null;
-    lastFileName: string | null;
-    rejected: number;
-  } | null;
   /**
    * Legacy company-wide runs (`branchId = null`). `Payroll` is `'direct'` in the
    * branch scope map, so these are invisible to every scoped query — including

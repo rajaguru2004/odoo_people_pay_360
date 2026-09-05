@@ -473,12 +473,10 @@ describe('AttendanceCorrectionsService', () => {
         'requester-user',
         expect.stringContaining('approved'),
         expect.any(String),
-        // Discriminating type, not 'INFO': this is what routes the decision to
-        // WhatsApp. 'INFO' resolves to no template, so the employee got the
-        // email and the in-app bell and nothing on their phone.
+        // Discriminating type, not 'INFO': the recipient's list has to tell an
+        // attendance decision apart from every other message in the system.
         'ATTENDANCE_CORRECTION_APPROVED',
         '/dashboard/attendance/corrections',
-        expect.objectContaining({ waData: expect.objectContaining({ status: 'Approved' }) }),
       );
     });
   });
@@ -534,13 +532,10 @@ describe('AttendanceCorrectionsService', () => {
       expect(notifications.notifyUser).toHaveBeenCalledWith(
         'requester-user',
         expect.stringContaining('rejected'),
+        // The reason must survive into the notification body, not just the email.
         expect.stringContaining('nope'),
         'ATTENDANCE_CORRECTION_REJECTED',
         '/dashboard/attendance/corrections',
-        // The reason must survive into the WhatsApp body, not just the email.
-        expect.objectContaining({
-          waData: expect.objectContaining({ rejectionReason: 'nope' }),
-        }),
       );
     });
   });

@@ -10,12 +10,8 @@ import { SalaryComponentsService } from '../salary-components/salary-components.
 import { SystemSettingsService } from '../system-settings/system-settings.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationDispatcher } from '../notifications/notification-dispatcher.service';
-import { LoanPolicyService, DEFAULT_LOAN_POLICY } from '../advance-loans/loan-policy.service';
-import { LoanRecoveryService } from '../advance-loans/loan-recovery.service';
 import { AuditService } from '../audit/audit.service';
 import { GarnishmentsService } from '../garnishments/garnishments.service';
-import { LoanNotificationService } from '../advance-loans/loan-notification.service';
-import { LoanScheduleService } from '../advance-loans/loan-schedule.service';
 import { GratuityService } from '../gratuity/gratuity.service';
 import { LeaveEncashmentService } from '../leave-encashment/leave-encashment.service';
 import { EmployeeRecoveriesService } from '../employee-recoveries/employee-recoveries.service';
@@ -115,9 +111,7 @@ describe('PayrollsService — payslip itemisation (feature ON)', () => {
     Number(row.foodAllowance) -
     Number(row.deduction) -
     Number(row.insurance) -
-    Number(row.tax) +
-    Number(row.reimbursement) -
-    Number(row.advanceLoanDeduction);
+    Number(row.tax);
 
   /** True when `n` needs no more than 2 decimal places. */
   const isAtStoredPrecision = (n: unknown) =>
@@ -159,19 +153,6 @@ describe('PayrollsService — payslip itemisation (feature ON)', () => {
       employee: { findMany: jest.fn() },
       salaryComponent: { findMany: jest.fn().mockResolvedValue([]) },
       overtimeRequest: { findMany: jest.fn().mockResolvedValue([]) },
-      reimbursement: {
-        findMany: jest.fn().mockResolvedValue([]),
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-      },
-      advanceLoanRequest: {
-        findMany: jest.fn().mockResolvedValue([]),
-        update: jest.fn().mockResolvedValue({}),
-      },
-      advanceLoanDeduction: {
-        findMany: jest.fn().mockResolvedValue([]),
-        createMany: jest.fn().mockResolvedValue({}),
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-      },
       attendance: {
         groupBy: jest.fn().mockImplementation(async (args: any) =>
           (args?.where?.employeeId?.in ?? []).map((employeeId: string) => ({
@@ -240,18 +221,6 @@ describe('PayrollsService — payslip itemisation (feature ON)', () => {
             settledAccrualCount: jest.fn().mockResolvedValue(0),
           },
         },
-        // Both reached from the loan ladder, which every payroll run walks
-        // whether or not these fixtures hold a loan.
-        {
-          provide: LoanNotificationService,
-          useValue: { notifyOnce: jest.fn().mockResolvedValue(true) },
-        },
-        {
-          // Only reached when deferralMode is EXTEND_TENURE, which these
-          // fixtures leave at the CARRY_FORWARD default.
-          provide: LoanScheduleService,
-          useValue: { regenerate: jest.fn().mockResolvedValue(undefined) },
-        },
         {
           provide: GarnishmentsService,
           useValue: {
@@ -274,14 +243,6 @@ describe('PayrollsService — payslip itemisation (feature ON)', () => {
         },
         // The REAL service, so the reconciliation gate actually runs.
         PayrollItemLinesService,
-        // Loan recovery is planned inside create(). The policy is stubbed to the
-        // hardcoded defaults (v2 kill-switch OFF) so these suites assert the
-        // LEGACY recovery behaviour, unchanged.
-        {
-          provide: LoanPolicyService,
-          useValue: { resolve: jest.fn().mockResolvedValue(DEFAULT_LOAN_POLICY) },
-        },
-        { provide: LoanRecoveryService, useValue: new LoanRecoveryService(prisma as any) },
         { provide: PrismaService, useValue: prisma },
         {
           provide: HolidaysService,

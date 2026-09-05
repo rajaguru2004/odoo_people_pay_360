@@ -45,10 +45,9 @@ export function useModuleHub<T>(name: string, path: string) {
  *
  * Returns `undefined` — so no badge is drawn — when the server could not
  * establish a baseline, and when the change is exactly zero. Some hub figures
- * genuinely have no history to reconstruct from (asset status, and the
- * pending queues, since neither `Reimbursement` nor `LetterRequest` carries a
- * `rejectedAt`). Those cards say so in their footnote rather than showing a
- * badge that reads as "unchanged".
+ * genuinely have no history to reconstruct from (asset status, and the pending
+ * letter queue, since `LetterRequest` carries no `rejectedAt`). Those cards say
+ * so in their footnote rather than showing a badge that reads as "unchanged".
  */
 export function toDelta(
   delta: HubDelta | null | undefined,

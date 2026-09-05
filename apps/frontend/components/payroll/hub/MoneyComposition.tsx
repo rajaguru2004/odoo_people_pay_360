@@ -25,11 +25,11 @@ import type { PayrollHubSummary } from '@/types/payrollHub';
  * are worth having as composition, which is a question about the shape of the
  * payroll rather than about what to do next.
  *
- * `residual` is printed rather than hidden. Four earning columns
- * (`siteAllowance`, `reimbursement`, `leaveEncashment`, `gratuityPayout`) are in
- * no gross formula anywhere in the codebase, so earnings minus deductions can
- * legitimately fail to equal net — and a panel that quietly rounded that away
- * would be the reason nobody ever found out.
+ * `residual` is printed rather than hidden. Three earning columns
+ * (`siteAllowance`, `leaveEncashment`, `gratuityPayout`) are in no gross formula
+ * anywhere in the codebase, so earnings minus deductions can legitimately fail
+ * to equal net — and a panel that quietly rounded that away would be the reason
+ * nobody ever found out.
  */
 /**
  * Where each payslip column is decided, so a figure that looks wrong is one
@@ -46,12 +46,10 @@ const COLUMN_LINKS: Partial<Record<string, string>> = {
   overtimePay: '/dashboard/overtime',
   foodAllowance: '/dashboard/overtime',
   siteAllowance: '/dashboard/payroll/salary-structure',
-  reimbursement: '/dashboard/reimbursements',
   leaveEncashment: '/dashboard/payroll/encashment',
   deduction: '/dashboard/attendance',
   insurance: '/dashboard/payroll/reports',
   tax: '/dashboard/payroll/reports',
-  advanceLoanDeduction: '/dashboard/advance-loans',
   garnishment: '/dashboard/garnishments',
   otherRecovery: '/dashboard/payroll/recoveries',
 };

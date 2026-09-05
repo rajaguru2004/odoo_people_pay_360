@@ -1,5 +1,5 @@
 /**
- * DEV-ONLY sample bank data, for exercising the bank/WPS screens by hand.
+ * DEV-ONLY sample bank data, for exercising the bank screens by hand.
  *
  * Why this exists: bank details are now validated properly — IBANs must pass the
  * ISO 7064 mod-97 checksum AND carry the selected bank's code in the right

@@ -16,9 +16,9 @@ import {
  * ## What a face proof does and does not prove
  *
  * A saved photo and a live capture are INDISTINGUISHABLE at this layer.
- * WhatsApp strips EXIF, Evolution re-encodes, and `viewOnce` is a display hint
- * set by the sender rather than a provenance claim. Even the browser path's
- * getUserMedia frame is defeatable by a virtual camera.
+ * Uploads arrive stripped of EXIF and re-encoded, so nothing in the bytes is a
+ * provenance claim. Even the browser path's getUserMedia frame is defeatable
+ * by a virtual camera.
  *
  * So this proves possession of the enrolled account plus possession of a photo
  * that matches the employee. It does not prove presence. What it adds on top,

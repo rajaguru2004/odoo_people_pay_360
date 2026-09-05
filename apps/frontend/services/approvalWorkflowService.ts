@@ -7,12 +7,12 @@ export type ApproverType = 'SUPERVISOR' | 'MANAGER' | 'HR_MANAGER' | 'ADMIN';
  * Must mirror `ApprovalRequestType` in the backend's
  * `src/approvals/approval-kind.registry.ts`.
  *
- * This union used to omit `ADVANCE_LOAN` and `TRAINING`, which the backend has
- * always been willing to govern. `GET /approval-workflows/kinds` returned them,
- * an admin could configure a chain over either, and the shared inbox then drew a
- * row whose Approve button answered "Unsupported request type" — because
- * `APPROVAL_KIND_UI` is a total `Record` over this type, and a type that does
- * not know about a kind cannot be missing an entry for it.
+ * This union used to omit `TRAINING`, which the backend has always been willing
+ * to govern. `GET /approval-workflows/kinds` returned it, an admin could
+ * configure a chain over it, and the shared inbox then drew a row whose Approve
+ * button answered "Unsupported request type" — because `APPROVAL_KIND_UI` is a
+ * total `Record` over this type, and a type that does not know about a kind
+ * cannot be missing an entry for it.
  *
  * Widening it is the fix: the compiler now refuses `approvalKinds.tsx` unless
  * every governable kind has an inbox entry.
@@ -22,8 +22,7 @@ export type ApprovalRequestType =
   | 'OVERTIME'
   | 'BANK_CHANGE'
   | 'TRAVEL'
-  | 'TRAINING'
-  | 'ADVANCE_LOAN';
+  | 'TRAINING';
 /**
  * SEQUENTIAL — a step is actionable only after the previous approver accepts.
  * PARALLEL   — every step is actionable at once; all must approve.

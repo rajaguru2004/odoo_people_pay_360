@@ -302,7 +302,7 @@ test('people', async ({ page }) => {
     callouts: [
       { selector: 'testid=term-stat-pending', label: 'How many are waiting', pad: 8 },
       { selector: 'testid=term-tab-pending', label: 'The queue, and the decided history beside it' },
-      { selector: 'testid=clearance-banner', label: 'Clearance — outstanding loans and assets block a leaver', pad: 8, optional: true },
+      { selector: 'testid=clearance-banner', label: 'Clearance — unreturned company assets block a leaver', pad: 8, optional: true },
       { selector: 'text=Approve', label: 'Approves the termination', badge: 'left' },
       { selector: 'text=Reject', label: 'Sends it back', badge: 'left' },
     ],
@@ -544,7 +544,7 @@ test('payroll', async ({ page }) => {
     callouts: [
       { selector: 'text=Run pipeline', label: 'Where each run has reached', pad: 10 },
       { selector: 'text=Payment readiness', label: 'What still blocks payment', pad: 10 },
-      { selector: 'testid=oman-compliance', label: 'Oman compliance — WPS, PASI, overtime and end-of-service', pad: 8 },
+      { selector: 'testid=oman-compliance', label: 'Oman compliance — PASI, overtime and end-of-service', pad: 8 },
       { selector: 'text=Manage runs', label: 'Go to the runs themselves', badge: 'left' },
     ],
   });
@@ -708,7 +708,7 @@ test('payroll', async ({ page }) => {
     callouts: [
       { selector: 'testid=bank-country-picker', label: 'Which country’s banks are listed' },
       { selector: 'testid=bank-name', label: 'Bank name' },
-      { selector: 'testid=bank-swift', label: 'SWIFT / BIC — used by the WPS file' },
+      { selector: 'testid=bank-swift', label: 'SWIFT / BIC — how the bank is identified internationally' },
       { selector: 'testid=bank-add', label: 'Adds the bank', badge: 'left' },
       { selector: 'testid=bank-field-config', label: 'Which account fields staff must supply', badge: 'left' },
     ],
@@ -728,23 +728,7 @@ test('finance', async ({ page }) => {
     url: '/dashboard/finance',
     height: 1400,
     callouts: [
-      { selector: 'text=Employee expense', label: 'What staff have claimed', pad: 10 },
-      { selector: 'text=Reimbursement health', label: 'How quickly claims are being settled', pad: 10 },
-      { selector: 'text=Loans & advances', label: 'What is outstanding', pad: 10 },
       { selector: 'text=Budget health', label: 'Spend against budget', pad: 10 },
-    ],
-  });
-
-  await shot(page, {
-    name: 'reimbursements-admin',
-    caption: 'Reimbursement claims',
-    url: '/dashboard/reimbursements',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=reimb-tab-pending', label: 'Claims waiting for a decision' },
-      { selector: 'testid=reimb-tab-all', label: 'Every claim, whatever its state' },
-      { selector: 'testid=reimb-approve', label: 'Approves the claim for payment', badge: 'left', optional: true },
-      { selector: 'testid=reimb-reject', label: 'Sends it back with a reason', badge: 'left', optional: true },
     ],
   });
 
@@ -760,34 +744,6 @@ test('finance', async ({ page }) => {
       { selector: 'testid=travel-new', label: 'Opens the trip request form' },
       { selector: 'testid=travel-filter-status', label: 'Filter by state' },
       { selector: 'testid=travel-approve', label: 'Approves the trip', badge: 'left', optional: true },
-    ],
-  });
-
-  await shot(page, {
-    name: 'loans-admin',
-    caption: 'Advances and loans',
-    url: '/dashboard/advance-loans',
-    height: 1300,
-    callouts: [
-      { selector: 'testid=loan-tab-pending', label: 'Requests waiting for a decision' },
-      { selector: 'testid=loan-products', label: 'The loan types and their rules' },
-      { selector: 'testid=loan-settlement', label: 'Settle a loan early' },
-      { selector: 'testid=loan-reports', label: 'Outstanding, overdue and portfolio reports' },
-      { selector: 'testid=loan-approve', label: 'Approves the request', badge: 'left', optional: true },
-    ],
-  });
-
-  await shot(page, {
-    name: 'loan-reports',
-    caption: 'Loan reports',
-    url: '/dashboard/advance-loans/reports',
-    height: 1200,
-    callouts: [
-      { selector: 'testid=loan-report-tab-outstanding', label: 'What is still owed' },
-      { selector: 'testid=loan-report-tab-emiDue', label: 'Instalments due this cycle' },
-      { selector: 'testid=loan-report-tab-overdue', label: 'Instalments that were missed' },
-      { selector: 'testid=loan-report-asof', label: 'The date the report is drawn to' },
-      { selector: 'testid=loan-report-export', label: 'Export to CSV', badge: 'left' },
     ],
   });
 
@@ -933,7 +889,7 @@ test('system administration', async ({ page }) => {
       { selector: 'testid=settings-tab-holidays', label: 'The public holiday calendar' },
       { selector: 'testid=settings-tab-approvals', label: 'Who approves what, and in what order' },
       { selector: 'testid=settings-tab-payroll', label: 'Payroll rules and the country preset' },
-      { selector: 'testid=settings-tab-wps', label: 'Wage Protection System configuration' },
+      { selector: 'testid=settings-tab-libraries', label: 'The pick-lists the rest of the product reads' },
       { selector: 'testid=settings-save', label: 'Saves the tab you are on — and only that tab', badge: 'left' },
     ],
   });
@@ -956,8 +912,8 @@ test('system administration', async ({ page }) => {
       'Who decides each kind of request, and in what order'],
     ['settings-payroll', 'settings-tab-payroll', 'Settings — Payroll',
       'Currency, overtime multipliers and statutory rules'],
-    ['settings-wps', 'settings-tab-wps', 'Settings — Salary payment files',
-      'The employer profile the wage file is built from'],
+    ['settings-libraries', 'settings-tab-libraries', 'Settings — Libraries',
+      'The pick-lists every other screen chooses from'],
   ];
 
   for (const [name, tab, caption, what] of TABS) {

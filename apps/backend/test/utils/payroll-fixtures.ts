@@ -25,7 +25,7 @@ import { E2EContext } from './e2e-app';
  * Everything is tagged with a unique `runId` so `cleanup()` can bulk-delete
  * without touching a shared database's real rows. The two exceptions are called
  * out at `cleanup()`: `CountryBankingField` rows for real countries are SHARED
- * with `bank-change` / `banking-config` / `wps-flow` and are upserted, never
+ * with `bank-change` / `banking-config` and are upserted, never
  * deleted.
  */
 
@@ -79,7 +79,7 @@ export interface PayrollFixtures {
   secondMonthlyEmpId: string;
   /** DAILY-wage earner in branch A — `baseSalary` is a per-DAY rate. */
   dailyEmpId: string;
-  /** ACTIVE, in branch A, with NO bank detail — the WPS blocker. */
+  /** ACTIVE, in branch A, with NO bank detail — the payability blocker. */
   noBankEmpId: string;
   /** ACTIVE, legacy `EmployeeProfile.bankName`, no active detail — migratable. */
   migrationCandidateId: string;
@@ -445,7 +445,7 @@ export async function setupPayrollFixtures(
     },
   });
 
-  // Shared with bank-change / banking-config / wps-flow: UPSERTED, never created
+  // Shared with bank-change / banking-config: UPSERTED, never created
   // outright, and never deleted in cleanup. A suite that owns these rows would
   // break every sibling that assumes they exist.
   const upsertField = (
@@ -501,8 +501,8 @@ export async function setupPayrollFixtures(
     isSensitive: false,
   });
 
-  // The Oman employee starts with a bank detail already in place, so WPS and the
-  // freeze guard both have a payable employee to work with from the first case.
+  // The Oman employee starts with a bank detail already in place, so the freeze
+  // guard has a payable employee to work with from the first case.
   await prisma.employeeBankDetail.create({
     data: {
       employeeId: omEmp.id,
@@ -636,13 +636,10 @@ export async function setupPayrollFixtures(
     periodAt,
 
     cleanup: async () => {
-      // FK-ordered, children first. Two edges dictate most of this:
-      //   - AdvanceLoan* is onDelete: RESTRICT on the employee (loan history has
-      //     to outlive the person for statutory audit), so the whole loan graph
-      //     goes before the employees do.
-      //   - RequestApproval has NO foreign key to the request it describes, so
-      //     approval trails have to be removed by requestId explicitly or they
-      //     outlive everything.
+      // FK-ordered, children first. One edge dictates most of this:
+      // RequestApproval has NO foreign key to the request it describes, so
+      // approval trails have to be removed by requestId explicitly or they
+      // outlive everything.
       const empWhere = {
         OR: [
           { employeeCode: { contains: runId } },
@@ -657,21 +654,6 @@ export async function setupPayrollFixtures(
       ).map((e: { id: string }) => e.id);
       const empIn = { employeeId: { in: employeeIds } };
       const branchIds = [branchA.id, branchB.id, branchOm.id];
-
-      // WPS: rows -> files -> per-branch config. Employer profiles are global and
-      // tagged by name.
-      await prisma.wpsFileRow.deleteMany({
-        where: { wpsFile: { branchId: { in: branchIds } } },
-      });
-      await prisma.wpsFile.deleteMany({
-        where: { branchId: { in: branchIds } },
-      });
-      await prisma.wpsConfiguration.deleteMany({
-        where: { branchId: { in: branchIds } },
-      });
-      await prisma.wpsEmployerProfile.deleteMany({
-        where: { name: { contains: runId } },
-      });
 
       // Approval trails for every bank-change request this run raised.
       const bankChangeIds = (
@@ -704,20 +686,6 @@ export async function setupPayrollFixtures(
         where: { branchId: { in: branchIds } },
       });
 
-      // Loans, children first (all RESTRICT on the employee).
-      const loanWhere = { request: { employee: empWhere } };
-      await prisma.advanceLoanNotificationLog.deleteMany({ where: loanWhere });
-      await prisma.loanTransaction.deleteMany({ where: loanWhere });
-      await prisma.loanRateChange.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanDeduction.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanAttachment.deleteMany({ where: loanWhere });
-      await prisma.loanSchedule.deleteMany({ where: loanWhere });
-      await prisma.advanceLoanRequest.deleteMany({
-        where: { employee: empWhere },
-      });
-      await prisma.loanSettlement.deleteMany({ where: { employee: empWhere } });
-
-      await prisma.reimbursement.deleteMany({ where: empIn });
       await prisma.salaryComponent.deleteMany({ where: empIn });
       await prisma.leaveRequest.deleteMany({ where: empIn });
       await prisma.overtimeRequest.deleteMany({ where: empIn });

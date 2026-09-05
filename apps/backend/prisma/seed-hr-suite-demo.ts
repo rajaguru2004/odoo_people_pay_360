@@ -55,10 +55,8 @@ async function cleanup() {
   await prisma.trainingNomination.deleteMany({ where: { employee: { branchId } } });
   await prisma.trainingSession.deleteMany({ where: { branchId } });
   await prisma.course.deleteMany({ where: { code: { startsWith: `${TAG}-` } } });
-  await prisma.reimbursement.deleteMany({ where: { employee: { branchId } } });
   await prisma.travelItinerary.deleteMany({ where: { travel: { employee: { branchId } } } });
   await prisma.travelRequest.deleteMany({ where: { employee: { branchId } } });
-  await prisma.advanceLoanRequest.deleteMany({ where: { employee: { branchId } } });
   await prisma.assetAssignment.deleteMany({ where: { asset: { branchId } } });
   await prisma.assetItem.deleteMany({ where: { branchId } });
   await prisma.employeeLegalDocument.deleteMany({ where: { employee: { branchId } } });

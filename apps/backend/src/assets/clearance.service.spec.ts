@@ -4,7 +4,6 @@ import { ClearanceService } from './clearance.service';
 function makeService(opts: {
   openAssets?: any[];
   blockingEnabled?: string;
-  outstandingLoans?: any[];
   /** `null` => the employee does not exist. */
   employee?: any;
 } = {}) {
@@ -22,11 +21,6 @@ function makeService(opts: {
     },
     assetAssignment: {
       findMany: jest.fn().mockResolvedValue(opts.openAssets ?? []),
-    },
-    // Clearance now covers loans as well as assets: an employee must not walk
-    // with an unrecovered balance.
-    advanceLoanRequest: {
-      findMany: jest.fn().mockResolvedValue(opts.outstandingLoans ?? []),
     },
   } as any;
   const audit = { log: jest.fn().mockResolvedValue(undefined) } as any;
@@ -55,9 +49,7 @@ describe('ClearanceService', () => {
       await expect(service.getClearanceStatus('emp-1')).resolves.toEqual({
         cleared: true,
         assetCleared: true,
-        loanCleared: true,
         openAssets: [],
-        outstandingLoans: [],
       });
     });
 
@@ -72,8 +64,8 @@ describe('ClearanceService', () => {
     });
 
     it('404s an employeeId that belongs to nobody, instead of clearing it', async () => {
-      // R27 — the projection queries assignments and loans by a raw id, so an
-      // id belonging to nobody matched nothing and read as "owes nothing".
+      // R27 — the projection queries assignments by a raw id, so an id
+      // belonging to nobody matched nothing and read as "owes nothing".
       const { service } = makeService({ employee: null });
       await expect(service.getClearanceStatus('ghost')).rejects.toBeInstanceOf(
         NotFoundException,

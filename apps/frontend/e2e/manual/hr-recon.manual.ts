@@ -90,10 +90,7 @@ const SCREENS: Array<{ name: string; path: string; group: string }> = [
   { group: 'Payroll', name: '76-bank-countries', path: '/dashboard/banks/branch-countries' },
 
   { group: 'Finance', name: '80-hub', path: '/dashboard/finance' },
-  { group: 'Finance', name: '81-reimbursements', path: '/dashboard/reimbursements' },
   { group: 'Finance', name: '82-travel', path: '/dashboard/travel' },
-  { group: 'Finance', name: '83-loans', path: '/dashboard/advance-loans' },
-  { group: 'Finance', name: '84-loan-reports', path: '/dashboard/advance-loans/reports' },
   { group: 'Finance', name: '85-budgets', path: '/dashboard/budgets' },
 
   { group: 'Talent', name: '90-hub', path: '/dashboard/talent' },

@@ -56,7 +56,6 @@ export interface RouteSpec {
 }
 
 const EVERYONE: Role[] = ALL_ROLES;
-const ADMIN: Role[] = ['admin'];
 const ADMIN_HR: Role[] = ['admin', 'hr'];
 const ADMIN_HR_MANAGER: Role[] = ['admin', 'hr', 'manager'];
 
@@ -311,33 +310,16 @@ export const ROUTES: RouteSpec[] = [
 
   // ── Money and claims ──────────────────────────────────────────────────────
   //
-  // Two Finance screens are deliberately absent rather than forgotten:
-  // `/dashboard/budgets/[id]` and `/dashboard/advance-loans/[id]` are DYNAMIC
-  // routes, and this matrix only walks static paths — it has no id to open one
-  // with. They are covered by the Finance journeys instead, which arrive at a
-  // detail screen from the list that owns the record. `routes.test.ts` does not
-  // count them as missing for the same reason.
-  { path: '/dashboard/reimbursements', guarded: false, allowed: EVERYONE },
-  { path: '/dashboard/advance-loans', guarded: false, allowed: EVERYONE },
-  { path: '/dashboard/advance-loans/reports', guarded: false, allowed: ADMIN_HR },
-  // The product catalogue decides what every future loan costs. The page is
-  // not wrapped in <ProtectedRoute> — like its two siblings — so a non-admin
-  // reaches the shell and is told the rule instead of being bounced.
-  { path: '/dashboard/advance-loans/products', guarded: false, allowed: ADMIN },
-  // Deciding a leaver's outstanding loans moves company money, so HR and ADMIN
-  // only. Not <ProtectedRoute>-wrapped, like its siblings: a manager reaches
-  // the shell and is told the rule.
-  { path: '/dashboard/advance-loans/settlement', guarded: false, allowed: ADMIN_HR },
-  // A borrower's own ledger. Open to everyone: the server answers with the
-  // caller's own loans, and an account with no employee record is told so.
-  { path: '/dashboard/my-loan-statement', guarded: false, allowed: EVERYONE },
-  // Court orders take pay ahead of every loan, so HR and ADMIN only. Like its
-  // loan siblings it is not <ProtectedRoute>-wrapped: a manager reaches the
-  // shell and is told the rule.
+  // One Finance screen is deliberately absent rather than forgotten:
+  // `/dashboard/budgets/[id]` is a DYNAMIC route, and this matrix only walks
+  // static paths — it has no id to open one with. It is covered by the Finance
+  // journeys instead, which arrive at a detail screen from the list that owns
+  // the record. `routes.test.ts` does not count it as missing for the same
+  // reason.
+  //
+  // Court orders take pay ahead of everything else, so HR and ADMIN only. Not
+  // <ProtectedRoute>-wrapped: a manager reaches the shell and is told the rule.
   { path: '/dashboard/garnishments', guarded: false, allowed: ADMIN_HR },
-  // The loan ledger. Readable by HR, changeable by ADMIN — the accounts decide
-  // how company money is reported.
-  { path: '/dashboard/accounting', guarded: false, allowed: ADMIN_HR },
   { path: '/dashboard/travel', guarded: true, allowed: ADMIN_HR_MANAGER },
   { path: '/dashboard/my-travel', guarded: false, allowed: EVERYONE },
   { path: '/dashboard/budgets', guarded: true, allowed: ADMIN_HR },

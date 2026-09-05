@@ -3,7 +3,7 @@
  *
  * A manager (user.role === 'MANAGER') may head more than one department. Their
  * managerial authority — approving leave/overtime/attendance, viewing dashboards,
- * timesheets, reimbursements, loans, tasks, etc. — must cover EVERY department
+ * timesheets, tasks, etc. — must cover EVERY department
  * they manage, not just their own home department.
  *
  * `req.user.managedDepartmentIds` is populated per request by the JWT strategy

@@ -138,11 +138,11 @@ describe('buildMenu — group hrefs', () => {
 
 describe('buildMenu — pruning', () => {
   it('drops a flag-disabled leaf wherever it appears', () => {
-    const off = hrefsOf('ADMIN', branding({ reimbursement_enabled: false }));
-    expect(off).not.toContain('/dashboard/reimbursements');
-    // Grouping the route under Finance must not stop its kill switch working,
-    // and the rest of Finance survives.
-    expect(off).toContain('/dashboard/travel');
+    const off = hrefsOf('ADMIN', branding({ overtime_enabled: false }));
+    expect(off).not.toContain('/dashboard/overtime');
+    // Grouping the route under Leave & Overtime must not stop its kill switch
+    // working, and the rest of the group survives.
+    expect(off).toContain('/dashboard/leaves');
   });
 
   it('drops a group whose children all filtered away', () => {
@@ -229,11 +229,6 @@ describe('findGroupForPathname — basePath', () => {
     expect(at?.group.labelKey).toBe('payroll');
     // No nav child owns a run, so the page's own title has to name it.
     expect(at?.child).toBeUndefined();
-  });
-
-  it('claims a route nested deeper than any nav entry', () => {
-    const at = findGroupForPathname(menu, '/dashboard/payroll/run-123/wps');
-    expect(at?.group.labelKey).toBe('payroll');
   });
 
   it('claims the payslip screen the hub deliberately does not point at', () => {

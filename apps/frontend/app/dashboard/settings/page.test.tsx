@@ -64,19 +64,8 @@ vi.mock('@/lib/axios', () => ({
 }));
 vi.mock('@/components/holidays/HolidaysManager', () => ({ default: () => null }));
 vi.mock('@/components/settings/CopilotSettingsSection', () => ({ default: () => null }));
-// Rendered as markers rather than null: the Messages tab has to be shown to
-// hold BOTH channels, and a null mock cannot tell the two apart.
-vi.mock('@/components/settings/WhatsAppSettingsSection', () => ({
-  default: () => <div>WhatsApp panel</div>,
-}));
-vi.mock('@/components/settings/TelegramSettingsSection', () => ({
-  default: () => <div>Telegram panel</div>,
-}));
 vi.mock('@/components/settings/SupervisorHierarchySection', () => ({ default: () => null }));
 vi.mock('@/components/settings/OvertimePolicySection', () => ({ default: () => null }));
-vi.mock('@/components/settings/EmployeeTemplateSection', () => ({ default: () => null }));
-vi.mock('@/components/settings/AttendanceIntegrationsSection', () => ({ default: () => null }));
-vi.mock('@/components/settings/WpsSection', () => ({ default: () => null }));
 vi.mock('@/components/dev-mode/DevModeToggle', () => ({ default: () => null }));
 
 import systemSettingsService from '@/services/systemSettingsService';
@@ -190,14 +179,13 @@ describe('Settings page — developer-key write gate', () => {
 });
 
 /**
- * The messaging tab.
+ * The developer-only tabs.
  *
- * It was called "WhatsApp" while WhatsApp was the only channel. Telegram
- * delivers the same HR updates through the same template allowlist, so an admin
- * switching an update off expects it off everywhere — two vendor-named tabs
- * would have made that two screens and invited them to drift.
+ * Hidden outright rather than greyed out, so an admin cannot tell they exist.
+ * The backend refuses the matching routes with a flat 403, which is the actual
+ * boundary — but a tab the server would refuse must never be offered either.
  */
-describe('Settings page — Messages tab', () => {
+describe('Settings page — developer-only tabs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     respondWith(TENANT_ROWS);
@@ -211,31 +199,20 @@ describe('Settings page — Messages tab', () => {
     });
   });
 
-  it('is labelled "Messages", not after any one vendor', async () => {
+  it('offers HR Copilot to an admin who has unlocked developer mode', async () => {
     renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
     await waitFor(() => expect(getAll).toHaveBeenCalled());
 
-    expect(await screen.findByTestId('settings-tab-messages')).toHaveTextContent('Messages');
-    expect(screen.queryByTestId('settings-tab-whatsapp')).toBeNull();
+    expect(await screen.findByTestId('settings-tab-copilot')).toHaveTextContent('HR Copilot');
   });
 
-  it('holds both channels on the one tab', async () => {
-    renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
-    await waitFor(() => expect(getAll).toHaveBeenCalled());
-
-    await userEvent.click(await screen.findByTestId('settings-tab-messages'));
-
-    expect(await screen.findByText('WhatsApp panel')).toBeInTheDocument();
-    expect(await screen.findByText('Telegram panel')).toBeInTheDocument();
-  });
-
-  it('offers no footer save bar — each channel saves through its own controls', async () => {
-    // `messages` is in SELF_SAVING_TABS. Without that the footer renders and
+  it('offers no footer save bar — the panel saves through its own controls', async () => {
+    // `copilot` is in SELF_SAVING_TABS. Without that the footer renders and
     // handleSave does nothing except report success.
     renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
     await waitFor(() => expect(getAll).toHaveBeenCalled());
 
-    await userEvent.click(await screen.findByTestId('settings-tab-messages'));
+    await userEvent.click(await screen.findByTestId('settings-tab-copilot'));
 
     expect(screen.queryByRole('button', { name: /^save changes$/i })).toBeNull();
   });
@@ -245,6 +222,6 @@ describe('Settings page — Messages tab', () => {
     renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
     await waitFor(() => expect(getAll).toHaveBeenCalled());
 
-    expect(screen.queryByTestId('settings-tab-messages')).toBeNull();
+    expect(screen.queryByTestId('settings-tab-copilot')).toBeNull();
   });
 });

@@ -5,11 +5,10 @@ import { captureScreens } from '../../screens';
  * The Finance hub, driven from a real browser.
  *
  * Rebuilt in Phase G onto the finalised Time & Attendance template, and moved
- * off five browser-side requests onto one aggregate. The case worth reading is
- * the arrears one: the page this replaces read `overdueAmount`/`daysOverdue`
- * off the overdue report, and the server sends `amountDue`/`overdueDays` — so
- * the Overdue figure rendered a formatted **zero** and every aging pill said
- * "overdue by 0 days". Nothing failed; the page just quietly lied.
+ * off five browser-side requests onto one aggregate. The hub answers ONE
+ * question — how the budget is doing — and the cases below hold that line: one
+ * request, a KPI row that all points at the budget it reports on, and no payroll
+ * figure borrowed from the module that owns it.
  *
  * Read-only: nothing here writes, so it can run beside the route matrix.
  */
@@ -47,48 +46,23 @@ test.describe('as admin', () => {
     settle(problems, 'the finance hub aggregate');
   });
 
-  test('leads with five cards, each linking somewhere', async ({ page, problems }) => {
+  test('leads with a KPI row that opens what it reports on', async ({ page, problems }) => {
     await open(page);
 
     const hrefs = await page
       .locator('a.stat-card')
       .evaluateAll((els) => els.map((e) => e.getAttribute('href')));
-    expect(hrefs.length, 'the KPI row is not five cards').toBe(5);
-    for (const h of [
-      '/dashboard/reimbursements',
-      '/dashboard/travel',
-      '/dashboard/advance-loans/reports',
-      '/dashboard/budgets',
-    ]) {
-      expect(hrefs, `no KPI card opens ${h}`).toContain(h);
+    expect(hrefs.length, 'the KPI row is empty').toBeGreaterThan(0);
+    // Every card states a budget figure, so every card has to open the budget
+    // screen. A card that reports one thing and navigates to another is how a
+    // reader ends up checking a number against the wrong page.
+    for (const h of hrefs) {
+      expect(h, `a KPI card opens ${h}, which is not the screen it reports on`).toBe(
+        '/dashboard/budgets',
+      );
     }
 
     settle(problems, 'the finance KPI row');
-  });
-
-  test('says out loud that travel is per diem only', async ({ page, problems }) => {
-    // There is no travel-actuals column, no expense table and no trip
-    // settlement step in this schema. A card labelled "travel spend" with no
-    // qualifier would be claiming something the data cannot support.
-    await open(page);
-
-    const body = await page.locator('main').innerText();
-    expect(body).toContain('Travel spend (per diem)');
-    expect(body).toContain('flights and hotels come in as claims');
-
-    settle(problems, 'the travel qualifier');
-  });
-
-  test('never prints an arrears row at zero days', async ({ page, problems }) => {
-    // The exact defect this rebuild closes. If the page ever reads a field the
-    // server does not send again, every overdue row collapses to 0 and this
-    // fails.
-    await open(page);
-
-    const body = await page.locator('main').innerText();
-    expect(body, 'an arrears row is reporting 0 days overdue').not.toMatch(/\b0\s*d(ays)?\s*overdue/i);
-
-    settle(problems, 'the arrears field names');
   });
 
   test('draws no period filter — the header is gone, not decorative', async ({
@@ -110,9 +84,8 @@ test.describe('as admin', () => {
 
   test('carries no payroll figure — that is Payroll’s job', async ({ page, problems }) => {
     // Phase C's one-question-per-hub rule, checked where the reader sees it.
-    // Payroll owns cost by department, and `budget-actuals` deliberately
-    // subtracts reimbursement out of the payroll figure so the two are never
-    // added together — two hubs drawing both is how that guard gets undone.
+    // Payroll owns cost by department; this hub owns the budget. Two hubs
+    // drawing both is how a reader ends up adding the same money twice.
     await open(page);
 
     const body = await page.locator('main').innerText();

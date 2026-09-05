@@ -75,7 +75,7 @@ export class TravelController {
   @Roles('ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE')
   @ApiOperation({
     summary:
-      'Raise a trip request. On final approval this spawns a per-diem reimbursement, an advance in the loans ledger, and a visa alert for uncovered international travel.',
+      'Raise a trip request. On final approval this commits the estimated cost against the budget and raises a visa alert for uncovered international travel.',
   })
   create(
     @CurrentUser() user: any,

@@ -24,10 +24,10 @@ const MONTHS = [
 /**
  * "Is this run safe to generate?", answered BEFORE the run exists.
  *
- * The WPS pre-flight answers the same shape of question about a wage file, but
- * only once a payroll has been generated and locked — by which point the
- * expensive mistakes have already been made. This runs first, and writes
- * nothing, so it can be run as often as somebody wants reassurance.
+ * Every other check in the module answers this once a payroll has been
+ * generated and locked — by which point the expensive mistakes have already
+ * been made. This runs first, and writes nothing, so it can be run as often as
+ * somebody wants reassurance.
  */
 function PayrollValidatePageContent() {
   const features = usePayrollFeatures();

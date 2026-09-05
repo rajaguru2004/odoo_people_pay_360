@@ -36,7 +36,6 @@ export interface PayslipRow {
 export interface PayslipGroups {
   income: PayslipRow[];
   deductions: PayslipRow[];
-  reimbursement: PayslipRow[];
 }
 
 export interface PayslipItemLike {
@@ -47,9 +46,7 @@ export interface PayslipItemLike {
   overtimePay: unknown;
   foodAllowance: unknown;
   siteAllowance?: unknown;
-  reimbursement: unknown;
   deduction: unknown;
-  advanceLoanDeduction: unknown;
   insurance: unknown;
   tax: unknown;
   actualWorkDays?: unknown;
@@ -91,7 +88,6 @@ const DEDUCTION_BUCKETS = [
   'insurance',
   'tax',
   'deduction',
-  'advanceLoanDeduction',
   'garnishment',
   'otherRecovery',
 ] as const;
@@ -119,10 +115,9 @@ export function bucketReconciles(
  * Build the two sections.
  *
  * With `item.lines` empty or absent, the output is exactly the rows the payslip
- * has always shown, in the order it has always shown them — including the three
- * that are conditional on being non-zero (food allowance, other deductions,
- * loan recovery) and the reimbursement block that only appears when there is
- * one.
+ * has always shown, in the order it has always shown them — including the ones
+ * that are conditional on being non-zero, such as food allowance and other
+ * deductions.
  */
 export function buildPayslipLines(
   item: PayslipItemLike,
@@ -139,9 +134,7 @@ export function buildPayslipLines(
     overtimePay: num(item.overtimePay),
     foodAllowance: num(item.foodAllowance),
     siteAllowance: num(item.siteAllowance),
-    reimbursement: num(item.reimbursement),
     deduction: num(item.deduction),
-    advanceLoanDeduction: num(item.advanceLoanDeduction),
     insurance: num(item.insurance),
     tax: num(item.tax),
     garnishment: 0,
@@ -241,32 +234,14 @@ export function buildPayslipLines(
                   ? 'deductionOther'
                   : 'deductionsAbsenceAndOther',
               }
-            : bucket === 'advanceLoanDeduction'
-              ? { label: 'Salary advance / loan recovery' }
-              : bucket === 'garnishment'
-                ? { label: 'Court-ordered deduction' }
-                : { label: 'Recovery' }),
+            : bucket === 'garnishment'
+              ? { label: 'Court-ordered deduction' }
+              : { label: 'Recovery' }),
       amount: column,
       sign: 'minus',
       source: 'COLUMN',
     });
   }
 
-  // ── Reimbursement ──────────────────────────────────────────────────────
-  const reimbursement: PayslipRow[] =
-    columns.reimbursement > 0
-      ? bucketReconciles(lines, 'reimbursement', columns.reimbursement)
-        ? itemised('reimbursement', 'plus')
-        : [
-            {
-              key: 'reimbursement',
-              label: 'Approved expense reimbursements (non-taxable)',
-              amount: columns.reimbursement,
-              sign: 'plus',
-              source: 'COLUMN',
-            },
-          ]
-      : [];
-
-  return { income, deductions, reimbursement };
+  return { income, deductions };
 }

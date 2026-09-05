@@ -21,9 +21,9 @@ import {
  *    in. Also deliberately unscoped: it manages every branch, including ones the
  *    caller cannot otherwise see.
  *
- * The shipped IN and OM field schemas are SHARED with `bank-change`,
- * `banking-config` and `wps-flow`, so every destructive field-config case here
- * uses the sandbox country instead of disturbing them.
+ * The shipped IN and OM field schemas are SHARED with `bank-change` and
+ * `banking-config`, so every destructive field-config case here uses the
+ * sandbox country instead of disturbing them.
  */
 describe('Bank Master and banking configuration (e2e)', () => {
   let ctx: E2EContext;

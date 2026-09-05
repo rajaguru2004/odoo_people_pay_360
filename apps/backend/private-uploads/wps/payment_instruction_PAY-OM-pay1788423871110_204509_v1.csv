@@ -1,3 +1,0 @@
-sequence,employee_code,employee_name,bank_name,bank_code,account,basic,allowances,deductions,net,currency
-1,PAY-pay1788423871110-OMAN,Payroll OMAN,Payroll Test Bank OM pay1788423871110,018,OM810180000001299123456,900.000,0.000,6.750,893.250,OMR
-TOTAL,1,,,,,,,,893.250,OMR

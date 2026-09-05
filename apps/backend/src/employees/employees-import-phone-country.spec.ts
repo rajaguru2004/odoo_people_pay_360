@@ -105,8 +105,6 @@ describe('EmployeesService — phone country through bulk import', () => {
       } as any,
       {} as any,
       { assertCleared: jest.fn() } as any,
-      {} as any,
-      {} as any,
       // Profile template resolver. generateImportTemplate() now calls
       // templates.resolve(null) to decide which custom columns to append —
       // a bare {} crashes at runtime even though it typechecks. Default is the

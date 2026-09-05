@@ -2,9 +2,9 @@
  * Settings keys that belong to the developer/operator, not to the tenant admin.
  *
  * These are the keys behind the settings surfaces hidden by developer mode:
- * SMTP transport, the HR Copilot LLM configuration, the WhatsApp/Evolution
- * integration, and the employee-field template kill switch. An ADMIN who has
- * not stepped up must neither read them back nor write them.
+ * SMTP transport, the HR Copilot LLM configuration, and the employee-field
+ * template kill switch. An ADMIN who has not stepped up must neither read them
+ * back nor write them.
  *
  * This is a SEPARATE axis from `isProtectedSettingKey`:
  *
@@ -41,23 +41,14 @@ export const DEVELOPER_SETTING_KEYS: readonly string[] = [
 ];
 
 /**
- * Prefix rules, so a new `copilot.*` or `whatsapp.*` key is covered the day it
- * is added rather than the day someone remembers this file.
- *
- * `discord.` and `telegram.` were added with the Telegram channel. Discord had
- * been missing since it shipped — the same class of operator-owned integration
- * keys as `whatsapp.`, so a non-elevated ADMIN could read `discord.publicKey`
- * and `discord.announceChannelId` out of the generic settings dump. The bot
- * tokens themselves were never exposed (`*Enc` is caught by
- * `isProtectedSettingKey`), which is why this was a gap rather than an incident.
+ * Prefix rules, so a new `copilot.*` key is covered the day it is added rather
+ * than the day someone remembers this file. Any future operator-owned
+ * integration namespace belongs here for the same reason: without it a
+ * non-elevated ADMIN can read its non-secret configuration out of the generic
+ * settings dump, which is a gap even when the credentials themselves are caught
+ * by `isProtectedSettingKey`.
  */
-const DEVELOPER_PREFIXES: readonly string[] = [
-  'copilot.',
-  'whatsapp.',
-  'discord.',
-  'telegram.',
-  'mail_',
-];
+const DEVELOPER_PREFIXES: readonly string[] = ['copilot.', 'mail_'];
 
 export function isDeveloperSettingKey(key: string): boolean {
   if (DEVELOPER_SETTING_KEYS.includes(key)) return true;

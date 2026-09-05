@@ -19,10 +19,6 @@ import ProfileCompletionBar from '@/components/employees/ProfileCompletionBar';
 import DocumentUpload from '@/components/employees/DocumentUpload';
 import DocumentList from '@/components/employees/DocumentList';
 import PaymentInformationSection from '@/components/profile/PaymentInformationSection';
-import WhatsAppOptInSection from '@/components/profile/WhatsAppOptInSection';
-import WhatsAppLinkSection from '@/components/profile/WhatsAppLinkSection';
-import DiscordLinkSection from '@/components/profile/DiscordLinkSection';
-import TelegramLinkSection from '@/components/profile/TelegramLinkSection';
 import { toast } from 'sonner';
 
 /**
@@ -583,20 +579,6 @@ export default function ProfilePage() {
 
                 {/* Payment Information — bank details via approval workflow */}
                 <PaymentInformationSection />
-
-                {/* WhatsApp notification opt-in (anchor: /dashboard/profile#notifications) */}
-                <WhatsAppOptInSection />
-                <WhatsAppLinkSection />
-
-                {/* Discord account link (anchor: /dashboard/profile#discord).
-                    Renders nothing unless the channel and employee linking are both on. */}
-                <DiscordLinkSection />
-
-                {/* Telegram account link (anchor: /dashboard/profile#telegram).
-                    Renders nothing unless the channel, employee linking and the
-                    inbound webhook are all on — the code is redeemed on that
-                    webhook, so with it off there is nothing to redeem against. */}
-                <TelegramLinkSection />
             </motion.div>
 
             {/* Documents */}

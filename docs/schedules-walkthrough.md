@@ -357,7 +357,7 @@ What the tests actually pin down, rather than restate:
 | `Employee.fullName` column | `firstName` + `lastName` | Joined at the edge, in one helper. |
 | Branch-context middleware (`getBranchContext`, `assertInBranch`) | Not present here | Scope is role-derived instead: manager departments read from `Department.managerId`, branch narrowing offered as an explicit filter. |
 | `HolidaysService.getHolidaysInRange` / `getWeeklyOffDays` / `getWorkingDatesBetween` | `AttendanceCalendarService` | This repo already resolves a branch's working day there. Re-deriving it would give the two hubs different answers to "was the office open". |
-| `ShiftNotificationScheduler` (email + WhatsApp shift reminders) | **Not migrated** | It needs `MailModule`, `NotificationsModule`, `SystemSettingsService.getSetting` and `TimezoneService`, plus `priorEmailSent` / `postEmailSent` columns. None exist here. Recorded as pending. |
+| `ShiftNotificationScheduler` (email + in-app shift reminders) | **Not migrated** | It needs `MailModule`, `NotificationsModule`, `SystemSettingsService.getSetting` and `TimezoneService`, plus `priorEmailSent` / `postEmailSent` columns. None exist here. Recorded as pending. |
 | FullCalendar (`@fullcalendar/*`) | Hand-built `ShiftCalendar.tsx` | Three reasons: every calendar library wants an *instant*, and synthesising one re-introduces exactly the drift the wall-clock column avoids; the portal is RTL in Arabic and a grid of logical CSS properties flips for nothing; and the interactions needed are "click a day" and "click a shift" — a drag-and-drop scheduler is a large dependency for two click handlers. |
 | Three screens (`schedules`, `overview`, `shifts`) | Four | HRM's `shifts` page combined a per-employee calendar with management. Split into **Shift calendar** and **Shift management**, matching the four names the module is described by. |
 | `sonner` toasts for shift details | Inline detail and a real modal | A toast is not a place to read a shift window. |
@@ -382,7 +382,7 @@ Every one, with the minimum edit:
 
 | Not migrated | Reason |
 | --- | --- |
-| Shift email / WhatsApp reminders | No `MailModule`, `NotificationsModule` or notification columns in this repo. Documented in the interconnection doc as pending. |
+| Shift email / in-app reminders | No `MailModule`, `NotificationsModule` or notification columns in this repo. Documented in the interconnection doc as pending. |
 | The overtime lane on the calendar | No `OvertimeRequest` model. |
 | Approved-but-unrecorded leave | No `LeaveRequest` model. The leave lane shows days already written to `Attendance`; a leave approved but never posted to a day does not appear. |
 | Lunch-break deduction in scheduled hours | HRM read `lunch_break_start` and `lunch_break_duration_minutes` from system settings. Those keys do not exist here, and inventing a default would silently change every hours figure on the page. |

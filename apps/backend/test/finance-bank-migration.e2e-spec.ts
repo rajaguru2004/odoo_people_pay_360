@@ -624,7 +624,7 @@ describe('Finance — Bank master, config & migration (e2e)', () => {
     });
   });
 
-  // ── The payroll and WPS locks ─────────────────────────────────────────────
+  // ── The payroll edit locks ────────────────────────────────────────────────
   describe('the edit locks', () => {
     let payrollId: string | null = null;
 

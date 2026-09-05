@@ -5,14 +5,12 @@ import {
   Clock,
   Landmark,
   Plane,
-  Wallet,
   LucideIcon,
 } from 'lucide-react';
 import leaveService from '@/services/leaveService';
 import overtimeService from '@/services/overtimeService';
 import bankChangeService from '@/services/bankChangeService';
 import travelService from '@/services/travelService';
-import advanceLoanService from '@/services/advanceLoanService';
 import trainingService from '@/services/trainingService';
 import type { ApprovalRequestType } from '@/services/approvalWorkflowService';
 import type { ApproveOvertimeData } from '@/types/overtime';
@@ -126,25 +124,6 @@ export const APPROVAL_KIND_UI: Record<ApprovalRequestType, ApprovalKindUi> = {
         {req.travelType === 'INTERNATIONAL' && req.country ? ` (${req.country})` : ''} ·{' '}
         {fmtDate(req.departureDate)} → {fmtDate(req.returnDate)}
         {req.estimatedCost ? ` · est. ${Number(req.estimatedCost).toLocaleString()}` : ''}
-      </>
-    ),
-  },
-
-  ADVANCE_LOAN: {
-    label: 'Advance & Loan',
-    icon: Wallet,
-    badgeClass: 'bg-emerald-50 text-emerald-700',
-    approve: (id) => advanceLoanService.approve(id),
-    reject: (id, reason) => advanceLoanService.reject(id, reason),
-    summary: (req) => (
-      <>
-        <span className="font-medium">
-          {req.type === 'ADVANCE' ? 'Salary advance' : 'Loan'}
-        </span>{' '}
-        · {req.currency ?? ''}
-        {Number(req.amount ?? 0).toLocaleString()}
-        {req.installments ? ` · ${req.installments} instalment${req.installments === 1 ? '' : 's'}` : ''}
-        {req.referenceNo ? ` · ${req.referenceNo}` : ''}
       </>
     ),
   },

@@ -88,8 +88,6 @@ describe('EmployeesService — start date through bulk import', () => {
       settings as any,
       {} as any,
       { assertCleared: jest.fn() } as any,
-      {} as any,
-      {} as any,
       // Profile template resolver. generateImportTemplate() and previewImport()
       // both call templates.resolve(null) to decide which custom columns exist,
       // so a bare {} throws at runtime even though it typechecks. The kill

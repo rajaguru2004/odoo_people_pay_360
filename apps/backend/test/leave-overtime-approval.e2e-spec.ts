@@ -31,9 +31,9 @@ import { bearer, withSetting } from './utils/settings';
  * Both switches this file flips are SHARED, ENVIRONMENT-WIDE configuration:
  *
  *   - `supervisor_approval_enabled` is pinned `'false'` in the e2e baseline
- *     seed, and every other suite in the repo — leave, overtime, reimbursement,
- *     loans — assumes the legacy single-approver path. Left on, their approve
- *     calls would start being refused by an engine they never configured.
+ *     seed, and every other suite in the repo — leave, overtime, travel —
+ *     assumes the legacy single-approver path. Left on, their approve calls
+ *     would start being refused by an engine they never configured.
  *   - `PUT /approval-workflows` DEACTIVATES the previous active workflow for
  *     that request type, and these databases are also used for demos.
  *

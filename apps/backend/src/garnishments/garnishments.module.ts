@@ -9,7 +9,7 @@ import { GarnishmentsService } from './garnishments.service';
   controllers: [GarnishmentsController],
   providers: [GarnishmentsService],
   // PayrollsModule consumes this to fill the garnishment rung of the recovery
-  // ladder. One-way, like AdvanceLoansModule.
+  // ladder. One-way: this module never imports PayrollsModule.
   exports: [GarnishmentsService],
 })
 export class GarnishmentsModule {}

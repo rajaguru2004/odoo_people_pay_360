@@ -9,8 +9,7 @@ import { PayrollFeaturesService } from '../payrolls/payroll-features.service';
 /**
  * Payroll reporting.
  *
- * Three rules, taken from `LoanReportsService` because they were right there and
- * for the same reasons:
+ * Three rules:
  *
  *  1. Money-moved figures read **LOCKED** payrolls only. A figure sitting in a
  *     DRAFT run has not been paid to anybody, and reporting it as cost makes
@@ -117,7 +116,6 @@ export class PayrollReportsService {
           Number(i.deduction) +
           Number(i.insurance) +
           Number(i.tax) +
-          Number(i.advanceLoanDeduction) +
           Number(i.garnishment) +
           Number(i.otherRecovery),
         netSalary: Number(i.netSalary),
@@ -227,7 +225,6 @@ export class PayrollReportsService {
       select: {
         insurance: true,
         tax: true,
-        advanceLoanDeduction: true,
         garnishment: true,
         otherRecovery: true,
         lines: { where: { bucket: { in: ['insurance', 'tax'] } } },
@@ -250,9 +247,6 @@ export class PayrollReportsService {
         combined: {
           insurance: round2(items.reduce((a, i) => a + Number(i.insurance), 0)),
           tax: round2(items.reduce((a, i) => a + Number(i.tax), 0)),
-          loanRecovery: round2(
-            items.reduce((a, i) => a + Number(i.advanceLoanDeduction), 0),
-          ),
           garnishment: round2(items.reduce((a, i) => a + Number(i.garnishment), 0)),
           otherRecovery: round2(items.reduce((a, i) => a + Number(i.otherRecovery), 0)),
         },

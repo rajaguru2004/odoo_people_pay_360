@@ -5,8 +5,9 @@ import { BankMigrationPage, selectBranch } from '../../pages';
  * The bank migration screen — legacy free-text to Bank Master.
  *
  * Employees onboarded before the Bank Master carry their bank as loose text on
- * `EmployeeProfile`. Nothing can be paid from that: WPS needs a `Bank` row, a
- * validated account and a country whose field schema it can check against. This
+ * `EmployeeProfile`. Nothing can be paid from that: a payable account needs a
+ * `Bank` row, a validated number and a country whose field schema it can be
+ * checked against. This
  * screen is where HR converts one, verifying the legacy record rather than
  * accepting a new instruction — so it bypasses the approval chain entirely and
  * writes `source: 'MIGRATION'`.

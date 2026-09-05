@@ -51,16 +51,15 @@ against a running server, so one green run means the whole engine works:
 4. **Corrections** — employee files a correction, admin approves (upserts the row).
 5. **Leave** — balance auto-init, employee requests UNPAID leave, admin approves.
 6. **Overtime** — admin files OT (outside work hours) for the employee, approves.
-7. **Reimbursement** — employee files, admin approves.
-8. **Rewards & discipline** — admin grants a reward, records a discipline note.
-9. **Org admin** — department create/update/read, holiday create + public list.
-10. **Payroll** — batch → run (synchronous, 1 item) → submit → approve → lock → payslip.
+7. **Rewards & discipline** — admin grants a reward, records a discipline note.
+8. **Org admin** — department create/update/read, holiday create + public list.
+9. **Payroll** — batch → run (synchronous, 1 item) → submit → approve → lock → payslip.
 
 Seeds one admin + one employee (+ dept + geofence-off branch), toggles feature
 flags deterministically and **restores them after**, then bulk-deletes by `runId`.
-Handles the response-envelope inconsistency (overtime/reimbursement/corrections
-return raw entities; the rest wrap in `{ success, data }`). OT/reimbursement steps
-degrade to a logged skip if disabled by config rather than failing.
+Handles the response-envelope inconsistency (overtime/corrections return raw
+entities; the rest wrap in `{ success, data }`). OT steps degrade to a logged
+skip if disabled by config rather than failing.
 
 ## What's covered — `multi-branch.e2e-spec.ts` (27 cases)
 

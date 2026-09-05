@@ -20,8 +20,8 @@ import {
  *
  * `bank-change.e2e-spec.ts` already covers the happy 2-step SUPERVISOR→HR chain
  * and the core guards on its own fixture. This file is the depth pass on top,
- * built on the shared payroll fixtures so the payroll freeze and the WPS seam
- * are reachable from the same set.
+ * built on the shared payroll fixtures so the payroll freeze and the payability
+ * seam are reachable from the same set.
  *
  * The engine engages only when `supervisor_approval_enabled === 'true'` **AND**
  * an active `ApprovalWorkflow` exists for BANK_CHANGE. Both halves are switched

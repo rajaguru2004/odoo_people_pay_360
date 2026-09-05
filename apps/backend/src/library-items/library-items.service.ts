@@ -48,11 +48,6 @@ export class LibraryItemsService implements OnModuleInit {
       createLibraryItemDto.perDiemRate,
       createLibraryItemDto.libraryType,
     );
-    this.assertLoanPolicyAllowed(
-      createLibraryItemDto.loanDeductionPolicy,
-      createLibraryItemDto.libraryType,
-    );
-
     return this.prisma.libraryItem.create({
       data: createLibraryItemDto,
     });
@@ -89,22 +84,6 @@ export class LibraryItemsService implements OnModuleInit {
     ) {
       throw new BadRequestException(
         `perDiemRate applies to PER_DIEM_DESTINATION items only, not ${libraryType}.`,
-      );
-    }
-  }
-
-  /**
-   * Same reasoning again: payroll reads `loanDeductionPolicy` only off the
-   * LEAVE_TYPE of an approved leave, so setting it on a Position or an
-   * Employment Type would change nothing and imply that it had.
-   */
-  private assertLoanPolicyAllowed(
-    policy: string | null | undefined,
-    libraryType: LibraryType,
-  ) {
-    if (policy && libraryType !== LibraryType.LEAVE_TYPE) {
-      throw new BadRequestException(
-        `loanDeductionPolicy applies to LEAVE_TYPE items only, not ${libraryType}.`,
       );
     }
   }
@@ -148,11 +127,6 @@ export class LibraryItemsService implements OnModuleInit {
       updateLibraryItemDto.perDiemRate,
       updateLibraryItemDto.libraryType ?? current.libraryType,
     );
-    this.assertLoanPolicyAllowed(
-      updateLibraryItemDto.loanDeductionPolicy,
-      updateLibraryItemDto.libraryType ?? current.libraryType,
-    );
-
     // Only a label change can collide. Guarding on libraryType alone would run
     // the check with `label: undefined` — a PATCH that only sets payBasis would
     // then match any other row in the same library and 409 spuriously.

@@ -174,7 +174,7 @@ export class LeaveEncashmentService {
 
     // An explicit employeeId that HR may set, derived from the token when it is
     // absent, and refused on mismatch for anyone who is not HR. This is what
-    // lets HR file for a leaver — the thing the reimbursement DTO cannot do.
+    // lets HR file for a leaver, who has no token of their own.
     const requestedFor = (dto.employeeId as string | undefined) ?? user?.employeeId;
     if (!requestedFor) {
       throw new BadRequestException('employeeId is required');
@@ -371,8 +371,8 @@ export class LeaveEncashmentService {
   /**
    * Approved requests the next run should pay.
    *
-   * `payrollItemId: null` is the double-inclusion guard, exactly as it is for
-   * reimbursements: a request already carried by a run is invisible to the next.
+   * `payrollItemId: null` is the double-inclusion guard: a request already
+   * carried by a run is invisible to the next.
    */
   async loadForPayroll(
     employeeIds: string[],

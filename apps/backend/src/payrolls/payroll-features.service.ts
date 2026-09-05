@@ -5,10 +5,10 @@ import { SystemSettingsService } from '../system-settings/system-settings.servic
  * Which payroll extensions are switched on.
  *
  * Deliberately NOT part of `PayrollConfig`. `PayrollConfig` is the *calculation*
- * config, and six spec fixtures build it as an object literal
- * (`payrolls-money-invariants`, `payrolls-advance-loan`, `payrolls-daily-wage`,
- * `overtime-cycle`, `payrolls-reimbursement`, `payrolls-overtime`). Adding a
- * required field there breaks all six at compile time; adding an optional one
+ * config, and four spec fixtures build it as an object literal
+ * (`payrolls-money-invariants`, `payrolls-daily-wage`, `overtime-cycle`,
+ * `payrolls-overtime`). Adding a
+ * required field there breaks all four at compile time; adding an optional one
  * gives every existing test a silent default, which is worse — the fixture would
  * stop describing what the engine actually runs with.
  *
@@ -16,8 +16,6 @@ import { SystemSettingsService } from '../system-settings/system-settings.servic
  * makes this whole phase safe: `calculateSalaryOptimized`'s signature never
  * changes, so the arithmetic that produces today's payslips cannot be altered by
  * anything here.
- *
- * Shaped after `ResolvedLoanPolicy` / `DEFAULT_LOAN_POLICY`.
  */
 export interface PayrollFeatureFlags {
   /** Write an itemised breakdown alongside each payslip total. */
@@ -63,7 +61,6 @@ export interface PayrollFeatureFlags {
   preflightEnabled: boolean;
 
   employeeRecoveryEnabled: boolean;
-  recoveryLadderPosition: 'AFTER_LOAN' | 'BEFORE_LOAN';
   /** A recovery is bounded by the minimum-take-home floor. */
   recoveryRespectsMinNet: boolean;
 
@@ -103,7 +100,6 @@ export const DEFAULT_PAYROLL_FEATURES: PayrollFeatureFlags = {
   preflightEnabled: false,
 
   employeeRecoveryEnabled: false,
-  recoveryLadderPosition: 'AFTER_LOAN',
   recoveryRespectsMinNet: true,
 
   employeeTransferEnabled: false,
@@ -197,11 +193,6 @@ export function resolvePayrollFeatures(
     employeeRecoveryEnabled: bool(
       raw.payroll_employee_recovery_enabled,
       d.employeeRecoveryEnabled,
-    ),
-    recoveryLadderPosition: oneOf(
-      raw.payroll_recovery_ladder_position,
-      ['AFTER_LOAN', 'BEFORE_LOAN'] as const,
-      d.recoveryLadderPosition,
     ),
     recoveryRespectsMinNet: bool(
       raw.payroll_recovery_respects_min_net,

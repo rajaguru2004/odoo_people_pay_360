@@ -132,43 +132,11 @@ function buildRows(
   const period = summary?.anchor.label ?? 'this period';
   const unread = failed || !summary;
 
-  const wps = summary?.wps;
   const runs = summary?.runs;
   const readiness = summary?.readiness;
   const settlements = summary?.settlements;
 
   const rows: ComplianceRow[] = [];
-
-  // ── WPS ──────────────────────────────────────────────────────────────────
-  rows.push({
-    key: 'wps',
-    area: 'WPS (Wage Protection System)',
-    status: unread
-      ? 'unknown'
-      : !wps?.lastFileAt
-      ? 'monitoring'
-      : wps.rejected > 0
-      ? 'review'
-      : 'compliant',
-    metric: unread
-      ? '—'
-      : !wps?.lastFileAt
-      ? 'No file generated yet'
-      : wps.rejected > 0
-      ? `${wps.rejected} rejected`
-      : `${wps.lastFileStatus ?? 'Generated'} · ${new Date(wps.lastFileAt).toLocaleDateString()}`,
-    description:
-      'Salaries must be transferred through an approved WPS bank inside the mandated period.',
-    action:
-      unread || !wps
-        ? undefined
-        : !wps.lastFileAt
-        ? 'Generate the wage file from the locked run.'
-        : wps.rejected > 0
-        ? 'The bank refused rows — open the run and re-file.'
-        : undefined,
-    href: '/dashboard/payroll/manage',
-  });
 
   // ── SPF ──────────────────────────────────────────────────────────────────
   const spf = summary?.money.statutory ?? null;
@@ -271,7 +239,7 @@ function buildRows(
   const blocked = readiness ? readiness.noBankRecord + readiness.incompleteFields : null;
   rows.push({
     key: 'readiness',
-    area: 'Bank Details for WPS',
+    area: 'Bank Details',
     status: unread || !readiness ? 'unknown' : blocked! > 0 ? 'review' : 'compliant',
     metric:
       unread || !readiness
@@ -280,7 +248,7 @@ function buildRows(
         ? 'Nothing could be checked'
         : `${readiness.readyRate.toFixed(0)}% ready`,
     description:
-      'A wage file cannot be filed for an employee with a missing or malformed bank record.',
+      'An employee with a missing or malformed bank record cannot be paid by transfer.',
     action: blocked ? `${blocked} employee(s) cannot be paid.` : undefined,
     href: '/dashboard/banks',
   });
@@ -348,8 +316,8 @@ export function OmanCompliancePanel({
               </h3>
               <p className="text-xs text-text-muted mt-0.5">
                 {summary && !failed
-                  ? `Labour Law 2003 · WPS · SPF · EOSB · PIT 2028 · scored on ${summary.anchor.label}`
-                  : 'Labour Law 2003 · WPS · SPF · EOSB · PIT 2028'}
+                  ? `Labour Law 2003 · SPF · EOSB · PIT 2028 · scored on ${summary.anchor.label}`
+                  : 'Labour Law 2003 · SPF · EOSB · PIT 2028'}
               </p>
             </div>
           </div>

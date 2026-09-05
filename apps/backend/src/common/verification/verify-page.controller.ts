@@ -15,7 +15,7 @@ import { renderVerifyPage } from './verify-page.html';
  *
  * Serving it here removes the question entirely. The page's calls are
  * same-origin, so the link is correct wherever the API is deployed, driven only
- * by the API address configured in WhatsApp settings.
+ * by the API address configured in settings.
  *
  * Kept at `/verify/:token` rather than under the JSON controller's prefix so
  * the link stays short enough to read in a chat.

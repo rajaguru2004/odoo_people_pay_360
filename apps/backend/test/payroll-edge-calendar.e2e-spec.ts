@@ -10,7 +10,7 @@ import { withSettings } from './utils/settings';
  * `PE-CAL` — the payroll calendar, and `PE-VAL` — the pre-run checklist.
  *
  * A new prefix for the calendar because it is not a RUN: it is a configuration
- * object with its own lifecycle, the same reason `PE-BANK` owns the WPS
+ * object with its own lifecycle, the same reason `PE-BANK` owns the banking
  * pre-flight matrix rather than `PE-RUN`.
  *
  * The property that matters most is the one asserted first: a branch with no

@@ -15,11 +15,7 @@
  */
 
 /** Exact keys that are always protected. */
-export const PROTECTED_SETTING_KEYS: readonly string[] = [
-  'whatsapp.apiKeyEnc',
-  'whatsapp.adminNumber',
-  'copilot.llmApiKeyEnc',
-];
+export const PROTECTED_SETTING_KEYS: readonly string[] = ['copilot.llmApiKeyEnc'];
 
 /**
  * Suffix rules, so a future integration that follows the `*Enc` convention is

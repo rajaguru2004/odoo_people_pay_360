@@ -291,9 +291,9 @@ export class LeaveRequestsService {
         });
         const hrEmails = hrUsers.map((u) => u.email);
 
-        // The applicant's own confirmation, on every channel they have. The
-        // manager and HR copies below stay email-only: they are a work queue,
-        // and the approver already gets APPROVAL_REQUESTED on WhatsApp.
+        // The applicant's own confirmation. The manager and HR copies below
+        // stay email-only: they are a work queue, and the approver already
+        // gets an APPROVAL_REQUESTED notification of their own.
         if (leaveRequest.employee.user?.id) {
           await this.notifications
             .notifyUser(
@@ -302,16 +302,6 @@ export class LeaveRequestsService {
               `Your ${leaveRequest.leaveType} leave request has been submitted and is awaiting approval.`,
               'LEAVE_APPLIED',
               '/dashboard/leaves',
-              {
-                waData: {
-                  employeeName: leaveRequest.employee.fullName,
-                  leaveType: leaveRequest.leaveType,
-                  startDate: leaveRequest.startDate.toISOString(),
-                  endDate: leaveRequest.endDate.toISOString(),
-                  totalDays: leaveRequest.totalDays,
-                },
-                waDedupeKey: `leave:${leaveRequest.id}:applied`,
-              },
             )
             .catch(() => undefined);
         }
@@ -865,17 +855,6 @@ export class LeaveRequestsService {
           `Your ${request.leaveType} leave request was approved.`,
           'LEAVE_APPROVED',
           '/dashboard/leaves',
-          // No waTemplate needed: LEAVE_APPROVED is a discriminating type, so
-          // the WhatsApp registry selects on it. waData only enriches the body.
-          {
-            waData: {
-              leaveType: request.leaveType,
-              startDate: request.startDate.toISOString(),
-              endDate: request.endDate.toISOString(),
-              totalDays: request.totalDays,
-            },
-            waDedupeKey: `leave:${request.id}:approved`,
-          },
         )
         .catch(() => undefined);
     }
@@ -996,15 +975,6 @@ export class LeaveRequestsService {
           `Your ${request.leaveType} leave request was rejected.`,
           'LEAVE_REJECTED',
           '/dashboard/leaves',
-          {
-            waData: {
-              leaveType: request.leaveType,
-              startDate: request.startDate.toISOString(),
-              endDate: request.endDate.toISOString(),
-              rejectionReason: reason,
-            },
-            waDedupeKey: `leave:${request.id}:rejected`,
-          },
         )
         .catch(() => undefined);
     }

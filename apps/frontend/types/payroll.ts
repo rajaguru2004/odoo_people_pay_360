@@ -47,8 +47,6 @@ export interface PayrollItem {
   overtimeHours: number;
   overtimePay: number;
   foodAllowance: number;
-  reimbursement: number; // Non-taxable, added to net after deductions
-  advanceLoanDeduction?: number; // Salary advance / loan recovery, subtracted from net
   insurance: number; // Total insurance (BHXH + BHYT + BHTN)
   tax: number; // Personal income tax
   /**
@@ -60,7 +58,7 @@ export interface PayrollItem {
   siteAllowance?: number; // Site allowance granted on an overtime request. Earning, taxable.
   leaveEncashment?: number; // Leave paid out instead of taken. Earning.
   gratuityPayout?: number; // EOSB paid through this run. Only on a FINAL_SETTLEMENT run.
-  garnishment?: number; // Court-ordered attachment. Deducted before loan recovery.
+  garnishment?: number; // Court-ordered attachment. Post-tax employer deduction.
   otherRecovery?: number; // Asset damage, training bonds. Post-tax employer recovery.
   netSalary: number;
   notes?: string;

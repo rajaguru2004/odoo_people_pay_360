@@ -48,7 +48,7 @@ describe('EmployeesService.lifecycleStats', () => {
   // is exercised by this method.
   const service = new EmployeesService(
     prisma, {} as any, {} as any, {} as any, {} as any, {} as any,
-    {} as any, {} as any, {} as any, {} as any, {} as any,
+    {} as any, {} as any, {} as any,
   );
 
   // The clock is PINNED, because these fixtures describe positions relative to

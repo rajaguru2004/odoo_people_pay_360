@@ -8,8 +8,8 @@ import { HrmPrincipal } from '../../mcp/tool.types';
 /**
  * Run work as a real authenticated user from a non-HTTP channel.
  *
- * Extracted from the WhatsApp implementation so a second channel cannot get
- * this subtly wrong. The ORDER is the whole job, and it mirrors HTTP exactly:
+ * Extracted from the first channel implementation so a second channel cannot
+ * get this subtly wrong. The ORDER is the whole job, and it mirrors HTTP exactly:
  *
  *  1. Build the principal FIRST, with a null branch context — otherwise the
  *     Prisma `$use` middleware would scope the very lookup that establishes
@@ -27,7 +27,7 @@ export class ChannelPrincipalService {
 
   /**
    * @param ref short, non-sensitive actor id for the audit trail (a masked
-   *            phone, a Discord user id) — never a full phone number.
+   *            phone, an external account id) — never a full phone number.
    * @throws UnauthorizedException when the user is missing or deactivated.
    */
   async runAs<T>(

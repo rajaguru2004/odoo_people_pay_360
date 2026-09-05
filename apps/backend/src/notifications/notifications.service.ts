@@ -11,7 +11,7 @@ export class NotificationsService {
   constructor(
     private prisma: PrismaService,
     /**
-     * Every registered delivery channel (WhatsApp, Discord, …).
+     * Every registered delivery channel.
      *
      * @Optional so `new NotificationsService(prisma)` keeps working in the specs
      * that construct it directly, and so a deployment can drop any or all
@@ -86,19 +86,14 @@ export class NotificationsService {
    * call sites.
    */
   private teeToChannels(dtos: CreateNotificationDto[]): void {
-    if (!this.channels?.length) return;
-    const eligible = dtos.filter((d) => !d.suppressWhatsApp);
-    if (!eligible.length) return;
+    if (!this.channels?.length || !dtos.length) return;
 
-    const payload = eligible.map((d) => ({
+    const payload = dtos.map((d) => ({
       userId: d.userId,
       title: d.title,
       message: d.message,
       type: d.type,
       link: d.link,
-      waTemplate: d.waTemplate,
-      waData: d.waData,
-      dedupeKey: d.waDedupeKey,
       decision: d.decision,
     }));
 
@@ -234,7 +229,7 @@ export class NotificationsService {
 
   // Helper method to send notification to user.
   // `opts` is an additive trailing argument so all existing call sites compile
-  // unchanged; pass `waTemplate` to also deliver over WhatsApp.
+  // unchanged; it carries the transient fields the delivery channels read.
   async notifyUser(
     userId: string,
     title: string,
@@ -269,9 +264,6 @@ export class NotificationsService {
       type: type as any,
       link,
       ...opts,
-      // The outbox dedupe key is unique per row, so a caller-supplied key must
-      // be made per-recipient or only the first person in the fan-out is messaged.
-      ...(opts?.waDedupeKey ? { waDedupeKey: `${opts.waDedupeKey}:${userId}` } : {}),
     }));
 
     return this.createBulk(notifications);

@@ -80,7 +80,6 @@ function trip(over: Record<string, unknown> = {}) {
     perDiemDays: null,
     estimatedCost: 400,
     advanceAmount: null,
-    advanceLoanId: null,
     status: 'PENDING',
     approverId: null,
     approvedAt: null,
@@ -307,7 +306,7 @@ describe('what a valid filing sends', () => {
 
   it('leaves the optional cash advance off the payload when it is left blank', async () => {
     // `advanceAmount` starts undefined and must stay undefined — sending `0`
-    // or `''` would raise an advance in the loans ledger nobody asked for.
+    // or `''` would record a cash advance nobody asked for.
     create.mockResolvedValue({ data: { id: 'tr-9' } } as never);
     const { user } = await renderPage();
     await openForm(user);
@@ -494,7 +493,7 @@ describe('when the server refuses', () => {
     cancel.mockRejectedValue(
       interceptorRejection(
         400,
-        'This trip has claims already included in a payroll run',
+        'Cannot cancel a completed travel request',
       ) as never,
     );
     const { user } = await renderPage();
@@ -506,7 +505,7 @@ describe('when the server refuses', () => {
       expect(
         toastError,
         'the reason a cancellation was blocked is the server’s to give',
-      ).toHaveBeenCalledWith('This trip has claims already included in a payroll run'),
+      ).toHaveBeenCalledWith('Cannot cancel a completed travel request'),
     );
   });
 });

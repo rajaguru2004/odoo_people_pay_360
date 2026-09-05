@@ -500,10 +500,9 @@ test.describe('an HR budget from draft to closed', () => {
      * and the fallback won. The user was told "Failed to delete the line",
      * which does not say what to do next.
      *
-     * That is the incident recorded in `docs/LOAN-ADVANCES-TEST-CASES.md`,
-     * repeated: nine sites in advance-loans were fixed by routing through
-     * `apiErrorMessage()`, and the budgets and travel screens were never
-     * audited. All fourteen of those sites now go through the same helper.
+     * The same mistake was made everywhere the flat rejection was read as an
+     * axios error. Every one of those sites now routes through
+     * `apiErrorMessage()`, the budgets and travel screens included.
      *
      * The assertion is on the CONTENT of the refusal, not its status code,
      * because the content is the only part the user can act on.
@@ -580,9 +579,9 @@ test.describe('an HR budget from draft to closed', () => {
     /**
      * KNOWN GAP, asserted as it behaves. `useConfirm().handleConfirm` leaves the
      * dialog open on purpose and hands the caller a `closeModal()` to call when
-     * the work finishes — which `advance-loans` does and this screen does not.
-     * So a successful delete leaves "Processing…" on screen over a table that
-     * has already refreshed underneath it.
+     * the work finishes — which this screen does not. So a successful delete
+     * leaves "Processing…" on screen over a table that has already refreshed
+     * underneath it.
      *
      * Intended behaviour: close the dialog once the delete resolves.
      */
@@ -737,8 +736,8 @@ test.describe('budgets are a per-branch view', () => {
     await budgets.open();
     await expect.poll(() => budgets.hasRow(anyBudgetId), { timeout: 15_000 }).toBe(true);
 
-    // `Budget.branchId` is NOT NULL and scoped `direct`, which is exactly what
-    // makes plain scoping safe here where `LoanType` needs direct-or-global: a
+    // `Budget.branchId` is NOT NULL and scoped `direct`, which is what makes
+    // plain scoping safe here where a catalogue table needs direct-or-global: a
     // budget belongs to one branch and must be invisible from the others.
     await selectBranch(page, otherBranchId);
     await budgets.open();

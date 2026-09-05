@@ -1,33 +1,31 @@
 import { test, expect, settle, crashesOnly, ApiClient } from '../../fixtures';
 import { API_URL } from '../../playwright.config';
-import { ReimbursementsPage, ToastArea, selectBranch } from '../../pages';
+import { ToastArea, selectBranch } from '../../pages';
 import { MyTravelPage, TravelPage } from '../../pages/travel';
 
 /**
  * A business trip, from the request to the money it moves.
  *
  * The step that carries the money is APPROVAL, not submission. Approving a trip
- * raises a per-diem claim that the next payroll run pays, disburses any cash
- * advance as a real loan in the repayment ledger, and commits the estimated cost
- * against the branch's budget. Three irreversible-ish side effects, all fired by
- * one button, none of them visible on the screen that fires them — which is
- * exactly the shape of change that a per-screen test watches happen and still
- * reports green.
+ * commits its estimated cost against the branch's budget — an irreversible-ish
+ * side effect fired by one button and not visible on the screen that fires it,
+ * which is exactly the shape of change that a per-screen test watches happen and
+ * still reports green. The commitment itself is pinned from the budget side, in
+ * `finance-budget.admin-manager-employee.spec.ts` (BUD-UI-04/05).
  *
  * ── The product change this file exists to hold ─────────────────────────────
  *
  * Until recently a trip filed where no approval chain governs TRAVEL was
  * approved ON SUBMIT. The engine answers `engaged: false` for "no chain governs
  * this", and travel read that as "nobody needs to approve it" — so an employee
- * pressing Submit raised their own per-diem claim, disbursed their own advance
- * and spent their own department's budget. Deactivating a workflow did not fall
- * back to manual approval; it fell back to no approval.
+ * pressing Submit spent their own department's budget. Deactivating a workflow
+ * did not fall back to manual approval; it fell back to no approval.
  *
- * It now matches Advances & Loans, which always read the same answer as "a human
- * still decides": **the request stays PENDING and waits for an approver**.
- * `TRV-UI-02` is the case that pins it, and it asserts the absence of the side
- * effects rather than only the status — a trip that says PENDING while a claim
- * for it already exists would pass a status check and still be the bug.
+ * It now reads the same answer as "a human still decides": **the request stays
+ * PENDING and waits for an approver**. `TRV-UI-02` is the case that pins it, and
+ * it asserts that nobody has decided the trip rather than only its label — a trip
+ * that says PENDING while an approver is already stamped on it would pass a
+ * status check and still be the bug.
  *
  * ── Two authorization facts, both easy to break from either side ────────────
  *
@@ -42,8 +40,8 @@ import { MyTravelPage, TravelPage } from '../../pages/travel';
  *     which is the intended shape and is asserted as such.
  *
  * Everything created here is withdrawn in `afterAll`, which releases the budget
- * commitment and the claims along with it — a suite that leaves approved trips
- * behind slowly consumes the seeded budget and the employee's loan allowance.
+ * commitment along with it — a suite that leaves approved trips behind slowly
+ * consumes the seeded budget.
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -69,13 +67,10 @@ interface TravelRecord {
   perDiemDays: number | null;
   estimatedCost: string;
   advanceAmount: string | null;
-  advanceLoanId: string | null;
   approverId: string | null;
   approvedAt: string | null;
   rejectedReason: string | null;
   employee?: { id: string; branchId: string; departmentId: string | null };
-  /** Only on the detail endpoint: the reimbursement rows this trip spawned. */
-  claims?: Array<{ id: string; type: string; amount: string; status: string }>;
 }
 
 interface DestinationItem {
@@ -100,8 +95,8 @@ async function destinations(api: ApiClient): Promise<DestinationItem[]> {
  *
  * Not hardcoded, because the destination list is admin-configured and naming one
  * would make this file fail the day a client renames their destinations. Above
- * zero specifically: the baseline deliberately carries a destination rated 0,
- * and approving a trip to it raises no claim at all — correct behaviour, and a
+ * zero specifically: the baseline deliberately carries a destination rated 0, so
+ * a trip to it snapshots no per-diem figure at all — correct behaviour, and a
  * silent no-op for every assertion here that expects one.
  */
 async function ratedDestination(api: ApiClient): Promise<DestinationItem> {
@@ -118,9 +113,8 @@ async function ratedDestination(api: ApiClient): Promise<DestinationItem> {
  * Withdraws one trip this file created.
  *
  * Cancelling is the operation that undoes the whole approval: it abandons any
- * approval trail, cancels the claims the trip raised (never one already in a
- * payroll) and releases the budget commitment. Deliberately targeted at a known
- * id rather than sweeping the employee's trips — the halves of this journey run
+ * approval trail and releases the budget commitment. Deliberately targeted at a
+ * known id rather than sweeping the employee's trips — the halves of this journey run
  * in different Playwright projects, which are different workers, so a blanket
  * tidy-up in one could cancel the trip another is halfway through approving.
  */
@@ -204,7 +198,7 @@ test.describe('an employee raises a trip', () => {
       settle(problems, 'the trip request form');
     });
 
-    test('TRV-UI-02 a filed trip lands PENDING and has spent nothing yet', async ({
+    test('TRV-UI-02 a filed trip lands PENDING and nobody has decided it', async ({
       page,
       problems,
     }) => {
@@ -226,9 +220,6 @@ test.describe('an employee raises a trip', () => {
         departureDate: isoDay(90),
         returnDate: isoDay(92),
         estimatedCost: 400,
-        // Deliberate: an advance is the loudest of the three side effects, so a
-        // trip that carries one is the sharpest way to prove submission fires none.
-        advanceAmount: 50,
       });
 
       await expect
@@ -248,20 +239,12 @@ test.describe('an employee raises a trip', () => {
       travelId = created!.id;
 
       // The claim this whole file is built around: with no chain governing
-      // TRAVEL, submitting asks for a decision — it does not make one.
+      // TRAVEL, submitting asks for a decision — it does not make one. The
+      // budget half of "submitting spends nothing" is BUD-UI-04's, which reads
+      // Committed as zero while a filed trip is sitting in the queue.
       expect(created!.status, 'a trip approved itself on submit').toBe('PENDING');
       expect(created!.approverId, 'a PENDING trip carries an approver').toBeFalsy();
       expect(created!.approvedAt, 'a PENDING trip carries an approval time').toBeFalsy();
-
-      const detail = await employeeApi.get<TravelRecord>(`/travel-requests/${travelId}`);
-      expect(
-        detail.claims ?? [],
-        'a per-diem claim was raised before anyone approved the trip',
-      ).toHaveLength(0);
-      expect(
-        detail.advanceLoanId,
-        'a cash advance was disbursed before anyone approved the trip',
-      ).toBeFalsy();
 
       await mine.open();
       await mine.expectRowStatus(travelId, 'PENDING');
@@ -372,7 +355,7 @@ test.describe('an employee raises a trip', () => {
       test.skip(!isProject('employee'), 'the requesting role');
     });
 
-    test('TRV-UI-06 cancelling warns that claims already in a payroll are untouched', async ({
+    test('TRV-UI-06 cancelling asks first, then withdraws the trip', async ({
       page,
       problems,
     }) => {
@@ -383,15 +366,13 @@ test.describe('an employee raises a trip', () => {
       await mine.open();
 
       await mine.openCancel(travelId);
-      // Cancelling a trip withdraws the money it raised — except the part that is
-      // already in a payroll run, which payroll owns. Somebody cancelling a trip
-      // on the assumption that everything unwinds is the reason this sentence has
-      // to be in front of them BEFORE they confirm, not in a toast afterwards.
-      const warning = await mine.cancelWarning();
+      // Cancelling releases the budget the approval committed, so it is not an
+      // action to fire from a stray click: the dialog has to be in front of the
+      // requester BEFORE the withdrawal, not announced in a toast afterwards.
       expect(
-        warning,
-        'the cancel dialog never says what happens to claims already in a payroll',
-      ).toMatch(/payroll/i);
+        await mine.cancelWarning(),
+        'the cancel dialog said nothing before asking for a confirmation',
+      ).not.toBe('');
 
       await mine.confirmCancel();
 
@@ -428,7 +409,6 @@ test.describe('HR decides a trip', () => {
   let destination: DestinationItem | null = null;
   let approveId = '';
   let rejectId = '';
-  let claimId = '';
   let setupError = '';
 
   const DEPARTURE_IN = 100;
@@ -455,8 +435,6 @@ test.describe('HR decides a trip', () => {
           departureDate: isoDay(DEPARTURE_IN),
           returnDate: isoDay(RETURN_IN),
           estimatedCost: ESTIMATED_COST,
-          // No advance: approving one mints a real loan against the employee's
-          // live-loan allowance, which the loans journey also spends from.
         });
         return created.id;
       };
@@ -509,7 +487,7 @@ test.describe('HR decides a trip', () => {
       settle(problems, "the approver's travel list");
     });
 
-    test('TRV-UI-08 approving raises the per-diem claim the trip was owed', async ({
+    test('TRV-UI-08 approving stamps the decision and keeps the per-diem snapshot', async ({
       page,
       problems,
     }) => {
@@ -531,46 +509,21 @@ test.describe('HR decides a trip', () => {
         .toBe('APPROVED');
 
       const record = await hrApi.get<TravelRecord>(`/travel-requests/${approveId}`);
-      const claims = record.claims ?? [];
 
-      // The trip having a status is not the outcome anyone cares about. The
-      // outcome is that a claim exists, for the rate snapshotted at submit times
-      // the inclusive day count — a claim raised at the WRONG amount is money,
-      // and it is invisible on this screen.
-      expect(claims, 'approving the trip raised no per-diem claim').toHaveLength(1);
-      expect(Number(claims[0].amount)).toBeCloseTo(
-        Number(record.perDiemRate) * (record.perDiemDays ?? 0),
-        2,
-      );
-      expect(claims[0].status, 'the per-diem claim needs approving a second time').toBe(
-        'APPROVED',
-      );
-      claimId = claims[0].id;
+      // The trip having a status is not the whole outcome. WHO decided it and
+      // WHEN are what an auditor asks for later, and neither is visible on this
+      // screen — so a decision that lands without them passes a status check and
+      // is still the bug.
+      expect(record.approverId, 'an approved trip records nobody as the approver').toBeTruthy();
+      expect(record.approvedAt, 'an approved trip records no decision time').toBeTruthy();
+
+      // The rate is snapshotted at SUBMIT (LibraryItem.remove is a hard delete,
+      // so a live read would lose it). Deciding the trip must not recompute or
+      // drop the figure the requester was quoted.
+      expect(Number(record.perDiemRate), 'approving lost the per-diem rate').toBeGreaterThan(0);
+      expect(record.perDiemDays, 'approving lost the per-diem day count').toBeGreaterThan(0);
 
       settle(problems, 'approving a trip');
-    });
-
-    test('TRV-UI-09 the per-diem claim appears in the reimbursements queue', async ({
-      page,
-      problems,
-    }) => {
-      test.skip(!claimId, 'the approval raised no claim');
-
-      await selectBranch(page, branchId);
-      // The point of feeding travel into the existing expense module rather than
-      // building a second payout path: the claim is an ordinary reimbursement and
-      // is paid by the machinery that already works. If it were invisible here,
-      // it would never be reconciled by the person who reconciles claims.
-      const reimbursements = new ReimbursementsPage(page);
-      await reimbursements.open();
-      await reimbursements.openTab('all');
-
-      await expect
-        .poll(() => reimbursements.hasRow(claimId), { timeout: 15_000 })
-        .toBe(true);
-      expect(await reimbursements.rowStatus(claimId)).toBe('APPROVED');
-
-      settle(problems, 'the per-diem claim in the reimbursements list');
     });
 
     test('TRV-UI-10 an approved trip can no longer be decided', async ({ page, problems }) => {
@@ -587,8 +540,8 @@ test.describe('HR decides a trip', () => {
         'a decided trip still offered an approval control',
       ).toBe(false);
 
-      // Without the server's half of this, two approvers racing would each raise
-      // their own per-diem claim against the same trip.
+      // Without the server's half of this, two approvers racing would each
+      // commit the trip's cost against the budget a second time.
       await expect(
         hrApi.post(`/travel-requests/${approveId}/approve`, { remarks: 'again' }),
       ).rejects.toThrow(/Cannot decide/i);
@@ -616,7 +569,7 @@ test.describe('HR decides a trip', () => {
 
       const record = await hrApi.get<TravelRecord>(`/travel-requests/${rejectId}`);
       expect(record.rejectedReason, 'the rejection reason was not stored').toContain(marker);
-      expect(record.claims ?? [], 'a rejected trip raised a claim').toHaveLength(0);
+      expect(record.approverId, 'a rejected trip records nobody as the decider').toBeTruthy();
 
       settle(problems, 'rejecting a trip');
     });

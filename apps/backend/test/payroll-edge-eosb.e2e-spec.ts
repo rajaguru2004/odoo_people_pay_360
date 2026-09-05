@@ -289,8 +289,6 @@ describe('Payroll edge — end of service (PE-EOSB)', () => {
         deduction: num(i.deduction),
         overtimePay: num(i.overtimePay),
         foodAllowance: num(i.foodAllowance),
-        reimbursement: num(i.reimbursement),
-        advanceLoanDeduction: num(i.advanceLoanDeduction),
         garnishment: num(i.garnishment),
         insurance: num(i.insurance),
         tax: num(i.tax),
@@ -346,8 +344,8 @@ describe('Payroll edge — end of service (PE-EOSB)', () => {
         const rows = await ctx.prisma.gratuityAccrual.findMany({
           where: { payrollId: r.id },
         });
-        // Still there, and stamped. Same reasoning as the loan ledger beside it:
-        // after a reversal there must still be a record that it happened.
+        // Still there, and stamped. Same reasoning as the recovery ledger beside
+        // it: after a reversal there must still be a record that it happened.
         expect(rows).toHaveLength(1);
         expect(rows[0].status).toBe('REVERSED');
         expect(rows[0].reversedAt).not.toBeNull();

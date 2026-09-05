@@ -202,27 +202,6 @@ export class RemindersService {
               message,
               type: source.notificationType as any,
               link: candidate.link,
-              // WhatsApp. Named explicitly rather than left to the `type` lookup
-              // because two of the four sources (asset warranty, training
-              // certificate) declare the generic WARNING type, which cannot
-              // discriminate an expiry from any other warning in the system.
-              // This one block therefore covers visa, contract, asset warranty
-              // and training certificate.
-              waTemplate: 'expiry_reminder',
-              waData: {
-                entityLabel: candidate.entityLabel,
-                subjectName: candidate.subjectName,
-                expiryDate: expiry.toISOString(),
-                daysRemaining,
-                fields: candidate.fields,
-                isOwner: recipient.isOwner,
-              },
-              // ReminderDispatch already prevents duplicate *triggering*; this
-              // gives the outbox its own belt-and-braces identity for the same
-              // (source, record, tier, expiry, recipient).
-              waDedupeKey: `reminder:${source.key}:${candidate.id}:${tier}:${expiry
-                .toISOString()
-                .slice(0, 10)}:${recipient.userId}`,
             })
             .catch((e) =>
               this.logger.error(`reminder notification failed: ${e.message}`),

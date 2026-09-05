@@ -267,11 +267,10 @@ export class TravelPage {
    * Answers the dialog — and leaves it on screen.
    *
    * `useConfirm().handleConfirm` deliberately does not close: it hands the
-   * caller a `closeModal()` to call when the work is done, which the
-   * advance-loans screen does and this one does not. So the panel stays up
-   * showing "Processing…" over the reloaded list, and anything a caller does
-   * next has to be after a fresh navigation or it will be clicking through a
-   * modal backdrop.
+   * caller a `closeModal()` to call when the work is done, which this screen
+   * does not. So the panel stays up showing "Processing…" over the reloaded
+   * list, and anything a caller does next has to be after a fresh navigation or
+   * it will be clicking through a modal backdrop.
    */
   async confirmCancel(): Promise<void> {
     await this.page.getByTestId('confirm-modal-confirm').click();

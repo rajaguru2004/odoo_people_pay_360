@@ -240,7 +240,7 @@
     "legend": [
       "How many are waiting",
       "The queue, and the decided history beside it",
-      "Clearance — outstanding loans and assets block a leaver",
+      "Clearance — unreturned company assets block a leaver",
       "Approves the termination",
       "Sends it back"
     ],
@@ -469,7 +469,7 @@
     "legend": [
       "Where each run has reached",
       "What still blocks payment",
-      "Oman compliance — WPS, PASI, overtime and end-of-service",
+      "Oman compliance — PASI, overtime and end-of-service",
       "Go to the runs themselves"
     ],
     "missing": [],
@@ -611,20 +611,6 @@
     "height": 1400
   },
   {
-    "name": "reimbursements-admin",
-    "file": "shots/reimbursements-admin.png",
-    "caption": "Reimbursement claims",
-    "legend": [
-      "Claims waiting for a decision",
-      "Every claim, whatever its state",
-      "Approves the claim for payment",
-      "Sends it back with a reason"
-    ],
-    "missing": [],
-    "width": 1440,
-    "height": 653
-  },
-  {
     "name": "travel-admin",
     "file": "shots/travel-admin.png",
     "caption": "Travel requests",
@@ -636,37 +622,6 @@
     "missing": [],
     "width": 1440,
     "height": 560
-  },
-  {
-    "name": "loans-admin",
-    "file": "shots/loans-admin.png",
-    "caption": "Advances and loans",
-    "legend": [
-      "Requests waiting for a decision",
-      "Settle a loan early",
-      "Outstanding, overdue and portfolio reports",
-      "Approves the request"
-    ],
-    "missing": [
-      "The loan types and their rules"
-    ],
-    "width": 1440,
-    "height": 676
-  },
-  {
-    "name": "loan-reports",
-    "file": "shots/loan-reports.png",
-    "caption": "Loan reports",
-    "legend": [
-      "What is still owed",
-      "Instalments due this cycle",
-      "Instalments that were missed",
-      "The date the report is drawn to",
-      "Export to CSV"
-    ],
-    "missing": [],
-    "width": 1440,
-    "height": 668
   },
   {
     "name": "budgets",

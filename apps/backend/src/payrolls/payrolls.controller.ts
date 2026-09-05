@@ -167,8 +167,7 @@ export class PayrollsController {
     description:
       'Runs every check generation would run, plus the ones it cannot — pending ' +
       'leave, missing contracts, post-cut-off inputs — BEFORE any payroll ' +
-      'exists. Writes nothing. Same finding shape as the WPS pre-flight, so one ' +
-      'screen renders both.',
+      'exists. Writes nothing.',
   })
   preflight(@Body() dto: any) {
     return this.validation
@@ -211,8 +210,8 @@ export class PayrollsController {
     description:
       'Kept for existing integrations. Delegates to the same code path as ' +
       'POST :id/lock, so the payroll must be APPROVED first. It previously ' +
-      'locked from any status without flipping reimbursements or advance/loan ' +
-      'installments to PAID, which left LOCKED meaning nothing. Prefer ' +
+      'locked from any status without running any of the settlements a lock ' +
+      'is responsible for, which left LOCKED meaning nothing. Prefer ' +
       'submit -> approve -> lock.',
   })
   @ApiParam({ name: 'id', description: 'Payroll UUID' })
@@ -309,21 +308,19 @@ export class PayrollsController {
   @Post(':id/unlock')
   @Roles('ADMIN')
   @ApiOperation({
-    summary: 'Unlock a locked payroll and reverse its loan recovery',
+    summary: 'Unlock a locked payroll and reverse its settlements',
     description:
-      'Returns the payroll to APPROVED so it can be corrected. Every PAID ' +
-      'advance/loan recovery is REVERSED (never deleted) with a matching ' +
-      'REVERSAL ledger entry, balances and schedule rows are restored, and any ' +
-      'loan this run auto-closed is reopened. Refused when a LATER run has ' +
-      'already recovered against the same loans, or when a locked revision ' +
-      'descends from this payroll.',
+      'Returns the payroll to APPROVED so it can be corrected. Court-order ' +
+      'collections, end-of-service accruals, employer recoveries and leave ' +
+      'encashments settled by the lock are all reversed. Refused when a ' +
+      'locked revision descends from this payroll.',
   })
   @ApiParam({ name: 'id', description: 'Payroll UUID' })
   @ApiResponse({ status: 200, description: 'Payroll unlocked' })
   @ApiResponse({ status: 400, description: 'Payroll is not LOCKED' })
   @ApiResponse({
     status: 409,
-    description: 'A later run or a locked revision must be reversed first',
+    description: 'A locked revision must be reversed first',
   })
   unlockPayroll(
     @Param('id', ParseUUIDPipe) id: string,

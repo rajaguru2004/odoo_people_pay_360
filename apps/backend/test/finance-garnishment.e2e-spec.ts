@@ -3,20 +3,21 @@ import {
   setupFinanceFixtures,
   FinanceFixtures,
 } from './utils/finance-fixtures';
-import { bearer, withSettings } from './utils/settings';
+import { bearer } from './utils/settings';
 
 /**
  * Court orders, and the recovery ladder they complete.
  *
- * The requirement doc's headline case is "statutory deductions, garnishments,
- * advances and loans compete for a limited net salary". Three of those four
- * were implemented; the garnishment rung was `garnishment: 0`, hard-coded in
+ * The requirement doc's headline case is "statutory deductions and garnishments
+ * compete for a limited net salary". Only the statutory half was implemented;
+ * the garnishment rung was `garnishment: 0`, hard-coded in
  * `payrolls.service.ts`, because there was nowhere to record that an order
  * existed. `PayrollItem.garnishment` had been a column of zeroes since v2.
  *
  * The ordering claim is structural, not a sort: payroll subtracts the order
- * from the pool BEFORE the loan allocator is given it, so a loan cannot reach
- * money a court has already claimed. That is what the payroll cases here check.
+ * from the pool BEFORE any other recovery is offered it, so nothing else can
+ * reach money a court has already claimed. That is what the payroll cases here
+ * check.
  */
 describe('Finance — garnishment orders (e2e)', () => {
   let ctx: E2EContext;
@@ -72,9 +73,6 @@ describe('Finance — garnishment orders (e2e)', () => {
     await ctx.prisma.garnishmentDeduction.deleteMany({
       where: { payrollItemId: { not: null } },
     });
-    await ctx.prisma.advanceLoanDeduction.deleteMany({
-      where: { payrollItem: { payrollId: { in: ids } } },
-    });
     await ctx.prisma.payrollItem.deleteMany({ where: { payrollId: { in: ids } } });
     await ctx.prisma.payroll.deleteMany({ where: { id: { in: ids } } });
   };
@@ -84,22 +82,6 @@ describe('Finance — garnishment orders (e2e)', () => {
       where: { order: { employeeId: fx.earnerId } },
     });
     await ctx.prisma.garnishmentOrder.deleteMany({ where: { employeeId: fx.earnerId } });
-  };
-
-  const clearLoans = async () => {
-    const ids = (
-      await ctx.prisma.advanceLoanRequest.findMany({
-        where: { employeeId: fx.earnerId },
-        select: { id: true },
-      })
-    ).map((r) => r.id);
-    if (!ids.length) return;
-    const where = { requestId: { in: ids } };
-    await ctx.prisma.advanceLoanNotificationLog.deleteMany({ where });
-    await ctx.prisma.loanTransaction.deleteMany({ where });
-    await ctx.prisma.advanceLoanDeduction.deleteMany({ where });
-    await ctx.prisma.loanSchedule.deleteMany({ where });
-    await ctx.prisma.advanceLoanRequest.deleteMany({ where: { id: { in: ids } } });
   };
 
   beforeAll(async () => {
@@ -123,13 +105,11 @@ describe('Finance — garnishment orders (e2e)', () => {
   afterEach(async () => {
     await clearPayrolls();
     await clearOrders();
-    await clearLoans();
   });
 
   afterAll(async () => {
     await clearPayrolls();
     await clearOrders();
-    await clearLoans();
     await ctx.prisma.attendance.deleteMany({
       where: {
         employeeId: fx.earnerId,
@@ -177,7 +157,7 @@ describe('Finance — garnishment orders (e2e)', () => {
     it.each([
       ['manager', () => fx.manager.token],
       ['employee', () => fx.employee.token],
-    ])('refuses %s — an order takes pay ahead of every loan', async (_who, token) => {
+    ])('refuses %s — an order takes pay ahead of everything else', async (_who, token) => {
       const res = await order({ amount: 100 }, token());
       expectStatus(res, 403);
     });
@@ -201,209 +181,132 @@ describe('Finance — garnishment orders (e2e)', () => {
   // ── The ladder ────────────────────────────────────────────────────────────
 
   describe('what payroll does with one', () => {
-    /** v2 recovery on, no take-home floor, so the ladder is the only actor. */
-    const RECOVERY_ON = {
-      loan_module_v2_enabled: 'true',
-      loan_min_net_pay_amount: '0',
-      loan_min_net_pay_percent: '0',
-      loan_max_total_deduction_percent_of_net: '100',
-    };
-
     it('deducts the order and writes it on the payslip', async () => {
       // The column had been zero on every payslip ever produced.
-      await withSettings(ctx, RECOVERY_ON, async () => {
-        const made = await order({ amount: 100 });
-        expectStatus(made, 201);
+      const made = await order({ amount: 100 });
+      expectStatus(made, 201);
 
-        const created = await runPayroll();
-        expectStatus(created, 201, 'payroll create');
+      const created = await runPayroll();
+      expectStatus(created, 201, 'payroll create');
 
-        const item = await itemFor(dataOf(created).id);
-        expect(Number(item!.garnishment)).toBe(100);
-      });
+      const item = await itemFor(dataOf(created).id);
+      expect(Number(item!.garnishment)).toBe(100);
     });
 
     it('takes it out of net pay', async () => {
-      await withSettings(ctx, RECOVERY_ON, async () => {
-        const noOrder = await runPayroll();
-        const before = Number((await itemFor(dataOf(noOrder).id))!.netSalary);
-        await clearPayrolls();
+      const noOrder = await runPayroll();
+      const before = Number((await itemFor(dataOf(noOrder).id))!.netSalary);
+      await clearPayrolls();
 
-        await order({ amount: 100 });
-        const withOrder = await runPayroll();
-        const after = Number((await itemFor(dataOf(withOrder).id))!.netSalary);
+      await order({ amount: 100 });
+      const withOrder = await runPayroll();
+      const after = Number((await itemFor(dataOf(withOrder).id))!.netSalary);
 
-        expect(after).toBe(before - 100);
-      });
-    });
-
-    it('is taken BEFORE the loan, so a loan cannot reach money a court has claimed', async () => {
-      // The ladder, in one case. The employee earns 1000; a court takes 800; a
-      // loan instalment of 500 can only reach what is left.
-      await withSettings(ctx, RECOVERY_ON, async () => {
-        await order({ amount: 800 });
-
-        const loan = await ctx.prisma.advanceLoanRequest.create({
-          data: {
-            employeeId: fx.earnerId,
-            type: 'LOAN',
-            amount: 5000,
-            installments: 10,
-            installmentAmount: 500,
-            status: 'ACTIVE',
-            scheduleVersion: 1,
-          },
-        });
-        await ctx.prisma.loanSchedule.create({
-          data: {
-            requestId: loan.id,
-            version: 1,
-            installmentNo: 1,
-            dueDate: new Date(Date.UTC(YEAR, MONTH - 1, 28)),
-            dueCycleKey: YEAR * 12 + MONTH,
-            dueMonth: MONTH,
-            dueYear: YEAR,
-            openingBalance: 5000,
-            principalComponent: 500,
-            emiAmount: 500,
-            closingBalance: 4500,
-            status: 'SCHEDULED',
-          },
-        });
-
-        const created = await runPayroll();
-        expectStatus(created, 201, 'payroll create');
-        const item = await itemFor(dataOf(created).id);
-
-        expect(Number(item!.garnishment)).toBe(800);
-        // Whatever the loan recovered, the two together cannot exceed the pay.
-        expect(
-          Number(item!.garnishment) + Number(item!.advanceLoanDeduction),
-        ).toBeLessThanOrEqual(1000);
-        expect(Number(item!.netSalary)).toBeGreaterThanOrEqual(0);
-      });
+      expect(after).toBe(before - 100);
     });
 
     it('never drives a payslip negative', async () => {
-      await withSettings(ctx, RECOVERY_ON, async () => {
-        await order({ amount: 999999 });
+      await order({ amount: 999999 });
 
-        const created = await runPayroll();
-        expectStatus(created, 201);
-        const item = await itemFor(dataOf(created).id);
+      const created = await runPayroll();
+      expectStatus(created, 201);
+      const item = await itemFor(dataOf(created).id);
 
-        // The payslip is emptied, never overdrawn: what the order could not
-        // take this cycle it takes in the next one.
-        expect(Number(item!.netSalary)).toBe(0);
-        expect(Number(item!.garnishment)).toBeGreaterThan(0);
-        expect(Number(item!.garnishment)).toBeLessThan(999999);
-      });
+      // The payslip is emptied, never overdrawn: what the order could not
+      // take this cycle it takes in the next one.
+      expect(Number(item!.netSalary)).toBe(0);
+      expect(Number(item!.garnishment)).toBeGreaterThan(0);
+      expect(Number(item!.garnishment)).toBeLessThan(999999);
     });
 
     it('ignores an order that has not started, and one that has ended', async () => {
-      await withSettings(ctx, RECOVERY_ON, async () => {
-        await order({ amount: 100, startDate: '2032-01-01' });
-        await order({ amount: 100, startDate: '2030-01-01', endDate: '2030-12-31' });
+      await order({ amount: 100, startDate: '2032-01-01' });
+      await order({ amount: 100, startDate: '2030-01-01', endDate: '2030-12-31' });
 
-        const created = await runPayroll();
-        const item = await itemFor(dataOf(created).id);
-        expect(Number(item!.garnishment)).toBe(0);
-      });
+      const created = await runPayroll();
+      const item = await itemFor(dataOf(created).id);
+      expect(Number(item!.garnishment)).toBe(0);
     });
 
     it('ignores a deactivated order', async () => {
-      await withSettings(ctx, RECOVERY_ON, async () => {
-        const made = await order({ amount: 100 });
-        await ctx
-          .http()
-          .patch(`/garnishments/${dataOf(made).id}`)
-          .set(bearer(fx.hrGlobal.token))
-          .send({ isActive: false })
-          .expect((r: any) => expectStatus(r, 200));
+      const made = await order({ amount: 100 });
+      await ctx
+        .http()
+        .patch(`/garnishments/${dataOf(made).id}`)
+        .set(bearer(fx.hrGlobal.token))
+        .send({ isActive: false })
+        .expect((r: any) => expectStatus(r, 200));
 
-        const created = await runPayroll();
-        const item = await itemFor(dataOf(created).id);
-        expect(Number(item!.garnishment)).toBe(0);
-      });
+      const created = await runPayroll();
+      const item = await itemFor(dataOf(created).id);
+      expect(Number(item!.garnishment)).toBe(0);
     });
   });
 
   // ── Collection history ────────────────────────────────────────────────────
 
   describe('what a locked payroll records', () => {
-    const RECOVERY_ON = {
-      loan_module_v2_enabled: 'true',
-      loan_min_net_pay_amount: '0',
-      loan_min_net_pay_percent: '0',
-    };
-
     it('records the collection against the order when the run prices it, and reverses it if the draft is deleted', async () => {
-      await withSettings(ctx, RECOVERY_ON, async () => {
-        const made = await order({ amount: 100 });
-        const orderId = dataOf(made).id;
+      const made = await order({ amount: 100 });
+      const orderId = dataOf(made).id;
 
-        const created = await runPayroll();
+      const created = await runPayroll();
 
-        // BEHAVIOUR CHANGED IN THE MERGE, deliberately.
-        //
-        // This used to record at lock, on the reasoning that a draft can be
-        // deleted and money that never moved must not count against a cap. The
-        // carry-forward ledger needs the allocation at generation instead — a
-        // shortfall has to be priced against the same net the payslip was — so
-        // the collection is now written in the same transaction as the items,
-        // and the cap is protected by REVERSAL rather than by deferral:
-        // deleting or unlocking the run rolls each order back by exactly what
-        // the ledger says it took (`PE-GARN-15`, `-16`, `-23`).
-        //
-        // The one visible cost is that an unlocked draft reads as collected on
-        // the orders screen until it is locked or deleted.
-        let row = await ctx.prisma.garnishmentOrder.findUnique({ where: { id: orderId } });
-        expect(Number(row!.collected)).toBe(100);
+      // BEHAVIOUR CHANGED IN THE MERGE, deliberately.
+      //
+      // This used to record at lock, on the reasoning that a draft can be
+      // deleted and money that never moved must not count against a cap. The
+      // carry-forward ledger needs the allocation at generation instead — a
+      // shortfall has to be priced against the same net the payslip was — so
+      // the collection is now written in the same transaction as the items,
+      // and the cap is protected by REVERSAL rather than by deferral:
+      // deleting or unlocking the run rolls each order back by exactly what
+      // the ledger says it took (`PE-GARN-15`, `-16`, `-23`).
+      //
+      // The one visible cost is that an unlocked draft reads as collected on
+      // the orders screen until it is locked or deleted.
+      let row = await ctx.prisma.garnishmentOrder.findUnique({ where: { id: orderId } });
+      expect(Number(row!.collected)).toBe(100);
 
-        expectStatus(await lock(dataOf(created).id), [200, 201], 'lock');
+      expectStatus(await lock(dataOf(created).id), [200, 201], 'lock');
 
-        // Locking is idempotent against the cycle's unique (order, month, year):
-        // it does not collect a second time.
-        row = await ctx.prisma.garnishmentOrder.findUnique({ where: { id: orderId } });
-        expect(Number(row!.collected)).toBe(100);
+      // Locking is idempotent against the cycle's unique (order, month, year):
+      // it does not collect a second time.
+      row = await ctx.prisma.garnishmentOrder.findUnique({ where: { id: orderId } });
+      expect(Number(row!.collected)).toBe(100);
 
-        const history = await ctx.prisma.garnishmentDeduction.findMany({
-          where: { orderId },
-        });
-        expect(history).toHaveLength(1);
-        expect(history[0].month).toBe(MONTH);
-        expect(history[0].year).toBe(YEAR);
+      const history = await ctx.prisma.garnishmentDeduction.findMany({
+        where: { orderId },
       });
+      expect(history).toHaveLength(1);
+      expect(history[0].month).toBe(MONTH);
+      expect(history[0].year).toBe(YEAR);
     });
 
     it('stops at the total cap', async () => {
-      await withSettings(ctx, RECOVERY_ON, async () => {
-        const made = await order({ amount: 100, totalCap: 60 });
-        const orderId = dataOf(made).id;
+      const made = await order({ amount: 100, totalCap: 60 });
+      const orderId = dataOf(made).id;
 
-        const created = await runPayroll();
-        const item = await itemFor(dataOf(created).id);
-        // Only what is left of the cap is taken, not the stated instalment.
-        expect(Number(item!.garnishment)).toBe(60);
+      const created = await runPayroll();
+      const item = await itemFor(dataOf(created).id);
+      // Only what is left of the cap is taken, not the stated instalment.
+      expect(Number(item!.garnishment)).toBe(60);
 
-        expectStatus(await lock(dataOf(created).id), [200, 201]);
-        const row = await ctx.prisma.garnishmentOrder.findUnique({ where: { id: orderId } });
-        expect(Number(row!.collected)).toBe(60);
-      });
+      expectStatus(await lock(dataOf(created).id), [200, 201]);
+      const row = await ctx.prisma.garnishmentOrder.findUnique({ where: { id: orderId } });
+      expect(Number(row!.collected)).toBe(60);
     });
 
     it('takes nothing once the cap is already collected', async () => {
-      await withSettings(ctx, RECOVERY_ON, async () => {
-        const made = await order({ amount: 100, totalCap: 100 });
-        await ctx.prisma.garnishmentOrder.update({
-          where: { id: dataOf(made).id },
-          data: { collected: 100 },
-        });
-
-        const created = await runPayroll();
-        const item = await itemFor(dataOf(created).id);
-        expect(Number(item!.garnishment)).toBe(0);
+      const made = await order({ amount: 100, totalCap: 100 });
+      await ctx.prisma.garnishmentOrder.update({
+        where: { id: dataOf(made).id },
+        data: { collected: 100 },
       });
+
+      const created = await runPayroll();
+      const item = await itemFor(dataOf(created).id);
+      expect(Number(item!.garnishment)).toBe(0);
     });
   });
 

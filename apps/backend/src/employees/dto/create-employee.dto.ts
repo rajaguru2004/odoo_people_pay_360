@@ -72,8 +72,7 @@ export class CreateEmployeeDto {
     required: false,
     description:
       'ISO-3166 alpha-2 country of the phone number. Only used when `phone` was typed ' +
-      'without a country prefix. Omit to fall back to branch country, then the global ' +
-      'WhatsApp default region.',
+      'without a country prefix. Omit to fall back to the branch country.',
   })
   @IsOptional()
   @IsString()

@@ -186,7 +186,7 @@ describe('phone country through the profile template (e2e)', () => {
 
     it('lets an employee correct their own phone country', async () => {
       // phone has always been self-editable; a number whose country an employee
-      // cannot fix is a number the WhatsApp outbox may not be able to dial.
+      // cannot fix is a number the notification outbox may not be able to dial.
       const self = {
         Authorization: `Bearer ${fx.plainEmployee.token}`,
       };

@@ -11,8 +11,8 @@ export function actualsKey(departmentId: string | null, category: string): strin
 /**
  * Actual spend, computed on read.
  *
- * Nothing is materialised. `Payroll` / `PayrollItem` / `Reimbursement` are
- * already the source of truth, they are already branch-scoped, and a second copy
+ * Nothing is materialised. `Payroll` and `PayrollItem` are already the source
+ * of truth, they are already branch-scoped, and a second copy
  * could only drift — it would need backfilling on every payroll unlock and
  * relock, and any divergence would be invisible until someone reconciled by
  * hand. The variance report is a handful of grouped queries over indexed
@@ -65,7 +65,6 @@ export class BudgetActualsService {
         select: {
           netSalary: true,
           overtimePay: true,
-          reimbursement: true,
           employee: { select: { departmentId: true } },
         },
       });
@@ -73,51 +72,16 @@ export class BudgetActualsService {
       for (const item of items) {
         const dept = item.employee?.departmentId ?? null;
         const overtime = Number(item.overtimePay ?? 0);
-        const reimbursement = Number(item.reimbursement ?? 0);
         // Payroll = the cash cost MINUS the parts attributed to their own
         // categories, so the same money is not counted under two headings.
-        const payrollOnly = Number(item.netSalary ?? 0) - overtime - reimbursement;
+        const payrollOnly = Number(item.netSalary ?? 0) - overtime;
         add(dept, 'Payroll', payrollOnly);
         add(dept, 'Overtime', overtime);
       }
     }
 
-    // Reimbursements carry their own budget category (travel per-diem, training
-    // fees, ordinary claims). PAID is set when the payroll they rode in was
-    // locked, so this cannot double-count against the payroll figures above —
-    // `reimbursement` was already subtracted out of payrollOnly.
-    const claims = await this.prisma.reimbursement.findMany({
-      where: {
-        status: 'PAID',
-        paidAt: { gte: startDate, lte: endDate },
-        employee: { branchId },
-      },
-      select: {
-        amount: true,
-        type: true,
-        budgetCategory: true,
-        employee: { select: { departmentId: true } },
-      },
-    });
-
-    for (const claim of claims) {
-      const category = claim.budgetCategory ?? categoryForType(claim.type);
-      add(claim.employee?.departmentId ?? null, category, Number(claim.amount ?? 0));
-    }
-
     return actuals;
   }
-}
-
-/**
- * Fall-back category for a claim raised before `budgetCategory` existed, or
- * created by hand without one.
- */
-function categoryForType(type: string): string {
-  const normalized = type.trim().toLowerCase();
-  if (normalized === 'travel' || normalized === 'per diem') return 'Travel';
-  if (normalized === 'training') return 'Training';
-  return 'Other';
 }
 
 /** Every (month, year) touched by the window, inclusive. */

@@ -101,7 +101,7 @@ export class TravelTools implements DomainToolProvider {
       {
         name: 'travel_create',
         description:
-          'Raise a trip request. On final approval this automatically creates a per-diem expense claim (an ordinary reimbursement), a cash advance in the loans ledger when advanceAmount is set, and alerts HR if an international trip has no covering visa. Requires confirm:true.',
+          'Raise a trip request. On final approval this alerts HR if an international trip has no covering visa. Requires confirm:true.',
         kind: 'write',
         roles: ['ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'],
         selfScope: { param: 'employeeId', forRoles: ['EMPLOYEE', 'MANAGER'] },
@@ -127,7 +127,7 @@ export class TravelTools implements DomainToolProvider {
             .number()
             .min(0)
             .optional()
-            .describe('Cash advance, recovered through the existing loans ledger'),
+            .describe('Cash advance requested for the trip'),
         },
         auditResourceType: 'TravelRequest',
         preview: async (a) => {
@@ -154,7 +154,7 @@ export class TravelTools implements DomainToolProvider {
       {
         name: 'travel_approve',
         description:
-          'Approve a travel request. On the final approval step this spawns the per-diem claim and any advance. Requires confirm:true.',
+          'Approve a travel request. Requires confirm:true.',
         kind: 'write',
         roles: ['ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'],
         inputSchema: {
@@ -186,25 +186,13 @@ export class TravelTools implements DomainToolProvider {
 
       {
         name: 'travel_cancel',
-        description:
-          'Cancel a travel request and withdraw the expense claims it spawned. Claims already linked to a payroll item are left alone — reversing paid money belongs in payroll. Requires confirm:true.',
+        description: 'Cancel a travel request. Requires confirm:true.',
         kind: 'destructive',
         roles: ['ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'],
         inputSchema: { id: z.string().uuid() },
         auditResourceType: 'TravelRequest',
         resourceIdArg: 'id',
-        preview: async (a) => {
-          const claims = await this.prisma.reimbursement.findMany({
-            where: { sourceType: 'TRAVEL', sourceId: a.id as string },
-            select: { id: true, amount: true, status: true, payrollItemId: true },
-          });
-          return this.tripPreview('Cancel travel request', a.id as string, {
-            claimsToWithdraw: claims.filter(
-              (c) => !c.payrollItemId && ['PENDING', 'APPROVED'].includes(c.status),
-            ).length,
-            claimsUntouchedInPayroll: claims.filter((c) => c.payrollItemId).length,
-          });
-        },
+        preview: (a) => this.tripPreview('Cancel travel request', a.id as string),
         execute: (a, user) => this.travel.cancel(a.id as string, user),
       },
     ];

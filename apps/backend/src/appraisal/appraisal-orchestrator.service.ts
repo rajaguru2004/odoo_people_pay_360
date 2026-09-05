@@ -45,7 +45,6 @@ const DEFAULT_PLAN_TOOLS = [
   'leave_employee_summary',
   'overtime_employee_summary',
   'timesheet_employee_summary',
-  'reimbursement_employee_summary',
   'conduct_records_get',
   'team_membership_get',
 ];
@@ -57,7 +56,6 @@ const TOOL_FRIENDLY: Record<string, string> = {
   leave_employee_summary: 'leave',
   overtime_employee_summary: 'overtime',
   timesheet_employee_summary: 'timesheets',
-  reimbursement_employee_summary: 'expense claims',
   conduct_records_get: 'conduct records',
   team_membership_get: 'team involvement',
 };

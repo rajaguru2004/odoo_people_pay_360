@@ -2,8 +2,8 @@
  * Composing an exit package from parts that were computed elsewhere.
  *
  * Pure: no Prisma, no Nest. Layer 0. Everything expensive — the gratuity
- * entitlement, the encashment quote, the loan balances — is worked out by the
- * services that own those things and handed in here as numbers. This decides
+ * entitlement, the encashment quote — is worked out by the services that own
+ * those things and handed in here as numbers. This decides
  * only what appears, in what order, on which side, and what the totals are.
  *
  * The ordering is fixed rather than incidental so that two compositions of the
@@ -43,8 +43,6 @@ export interface ComposeInput {
   /** Anything else owed to the employee, already named. */
   otherEarnings: Array<{ code: string; label: string; amount: number; sourceId?: string | null }>;
 
-  /** Outstanding loan and advance balances to recover. */
-  loanRecovery: number;
   /** Court-ordered amounts still attached. */
   garnishment: number;
   /** Company recoveries: asset damage, training bonds, notice shortfall. */
@@ -111,8 +109,7 @@ export function totalsFor(
     //
     // A payslip cannot go negative because you do not collect money through
     // one. A settlement can: an employee who owes more than they are due leaves
-    // with a debt, and the document has to be able to say so — that is exactly
-    // what `CARRY_AS_RECEIVABLE` on the loan side is for.
+    // with a debt, and the document has to be able to say so.
     netPayable,
     isReceivable: netPayable < 0,
   };
@@ -162,7 +159,6 @@ export function composeSettlement(input: ComposeInput): ComposeResult {
 
   // Deductions, strongest claim first — the same ladder payroll recovers in.
   add('GARNISHMENT', 'Court-ordered deduction', 'DEDUCTION', input.garnishment, 'GARNISHMENT');
-  add('LOAN_RECOVERY', 'Outstanding loans and advances', 'DEDUCTION', input.loanRecovery, 'LOAN');
   for (const r of input.recoveries) {
     add(r.code, r.label, 'DEDUCTION', r.amount, 'RECOVERY', r.sourceId);
   }

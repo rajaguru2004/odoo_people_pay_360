@@ -11,7 +11,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { ApprovalEngineService } from '../approvals/approval-engine.service';
 import { assertInBranch } from '../common/branch/branch-scope.util';
 import { isDeptInManagerScope } from '../common/services/manager-scope.util';
-import { getBranchContext, runWithBranchBypass } from '../common/branch/branch-context';
+import { getBranchContext } from '../common/branch/branch-context';
 import { PayrollStatus } from '@prisma/client';
 import {
   CreateBankChangeRequestDto,
@@ -31,7 +31,7 @@ import { maskAccount } from './iban.util';
  * Employee bank details as a change-request workflow. A submission never mutates
  * the employee record — it creates a BankChangeRequest routed through the shared
  * ApprovalEngine. Only on final approval does the app write a new active,
- * versioned EmployeeBankDetail (the single source of truth payroll + WPS read).
+ * versioned EmployeeBankDetail (the single source of truth payroll reads).
  */
 @Injectable()
 export class BankChangeService {
@@ -90,7 +90,7 @@ export class BankChangeService {
     };
   }
 
-  // ── Read API for payroll / WPS ────────────────────────────────────────────
+  // ── Read API for payroll ──────────────────────────────────────────────────
 
   /** The single active bank detail for an employee (source of truth), bank joined. */
   async getActiveBankDetail(employeeId: string) {
@@ -165,54 +165,7 @@ export class BankChangeService {
   // ── Lock guard ────────────────────────────────────────────────────────────
 
   /**
-   * True while a wage file involving this employee is in flight.
-   *
-   * The dangerous window is not the milliseconds of generation — it runs from
-   * GENERATING until the bank has answered. A detail changed after a file is
-   * generated but before it settles means the bank pays the OLD account while our
-   * record shows the new one, and nobody can say which is authoritative.
-   *
-   * Two conditions, because they catch different moments:
-   *   • a row for this employee in a GENERATING / GENERATED / SUBMITTED file, and
-   *   • any GENERATING file for the branch — rows do not exist yet at that instant,
-   *     so without this a change could slip in mid-build.
-   *
-   * REJECTED rows are deliberately exempt: an employee whose row the bank bounced
-   * must be able to fix their details to get into the corrected version. That is
-   * the entire point of recording per-row rejections.
-   *
-   * Runs with the branch filter bypassed: WpsFile and WpsFileRow are branch-scoped,
-   * and this guard must see the truth regardless of the calling employee's own
-   * (self-service) scope.
-   */
-  async isWpsGenerating(
-    branchId?: string | null,
-    employeeId?: string,
-  ): Promise<boolean> {
-    return runWithBranchBypass(async () => {
-      const inFlight = { status: { in: ['GENERATING', 'GENERATED', 'SUBMITTED'] } };
-
-      if (employeeId) {
-        const row = await this.prisma.wpsFileRow.findFirst({
-          where: {
-            employeeId,
-            status: { not: 'REJECTED' },
-            wpsFile: inFlight,
-          },
-          select: { id: true },
-        });
-        if (row) return true;
-      }
-
-      const generating = await this.prisma.wpsFile.count({
-        where: { status: 'GENERATING', ...(branchId ? { branchId } : {}) },
-      });
-      return generating > 0;
-    });
-  }
-
-  /**
-   * Throw 409 if a payroll run is in progress or a WPS file is being generated.
+   * Throw 409 if a payroll run is in progress.
    *
    * `exemptFirstTime` skips ONLY the payroll-in-progress half, and only when the
    * employee has no active bank detail at all. That lock exists to stop a
@@ -223,13 +176,9 @@ export class BankChangeService {
    *
    * Used by migrate() only. Leaving it off for the request path keeps the
    * long-standing behaviour there untouched.
-   *
-   * The WPS lock is always enforced: once a file has been generated, even adding a
-   * first detail disagrees with what we already sent to the bank.
    */
   async assertBankEditable(
     employeeId: string,
-    branchId?: string | null,
     opts: { exemptFirstTime?: boolean } = {},
   ) {
     let enforcePayrollLock = true;
@@ -255,12 +204,6 @@ export class BankChangeService {
         );
       }
     }
-
-    if (await this.isWpsGenerating(branchId, employeeId)) {
-      throw new ConflictException(
-        'Bank details are locked while a WPS file is being generated',
-      );
-    }
   }
 
   // ── Submit a change request ───────────────────────────────────────────────
@@ -281,7 +224,7 @@ export class BankChangeService {
     if (!employee) throw new NotFoundException('Employee not found');
     assertInBranch(employee.branchId);
 
-    await this.assertBankEditable(employeeId, employee.branchId);
+    await this.assertBankEditable(employeeId);
 
     const bank = await this.prisma.bank.findUnique({ where: { id: dto.bankId } });
     if (!bank) throw new NotFoundException('Selected bank not found');
@@ -443,7 +386,7 @@ export class BankChangeService {
     const request = await this.getRequestOrThrow(requestId);
 
     // Re-check the guards at apply time — state may have moved during approval.
-    await this.assertBankEditable(request.employeeId, request.branchId);
+    await this.assertBankEditable(request.employeeId);
     const bank = await this.prisma.bank.findUnique({ where: { id: request.bankId } });
     if (!bank || !bank.isActive) {
       throw new BadRequestException(
@@ -574,9 +517,7 @@ export class BankChangeService {
     // payroll lock unconditionally deadlocked the screen — one open company-wide
     // run blocked onboarding for the entire company, protecting nothing. The lock
     // still applies when migrate() is used to overwrite an existing detail.
-    await this.assertBankEditable(dto.employeeId, employee.branchId, {
-      exemptFirstTime: true,
-    });
+    await this.assertBankEditable(dto.employeeId, { exemptFirstTime: true });
 
     await this.prisma.$transaction(async (tx) => {
       await tx.employeeBankDetail.updateMany({

@@ -26,11 +26,11 @@ import {
  * table. Each of those is a property worth a test, because none of them is
  * visible from the route table.
  *
- * `applyLock` is the single money-finalizing path in the product: it is where
- * reimbursements become PAID and loan instalments are actually claimed. `unlock`
- * is the only way back, and it reverses append-only. Both are asserted through
- * their LEDGER EFFECTS, not just their status column — a lock that moved the
- * status and settled nothing is exactly the defect this file exists to prevent.
+ * `applyLock` is the single money-finalizing path in the product: it is where a
+ * run stops being a draft and the money is claimed. `unlock` is the only way
+ * back, and it reverses append-only. Both are asserted through their RECORDED
+ * EFFECTS, not just their status column — a lock that moved the status and
+ * settled nothing is exactly the defect this file exists to prevent.
  */
 describe('Payroll lifecycle (e2e)', () => {
   let ctx: E2EContext;
@@ -194,9 +194,9 @@ describe('Payroll lifecycle (e2e)', () => {
 
     it('PL-API-08: finalize is a true alias of lock', async () => {
       // Kept for existing integrations. It used to lock from ANY status without
-      // settling reimbursements or loan instalments, which left LOCKED meaning
-      // nothing — so the alias must be proved to share lock's guard AND its
-      // stamps, not merely its name.
+      // running lock's own settlement, which left LOCKED meaning nothing — so the
+      // alias must be proved to share lock's guard AND its stamps, not merely its
+      // name.
       const { id } = await freshDraft();
       expect(
         (await asAdmin(api().post(`/payrolls/${id}/finalize`))).status,
@@ -347,29 +347,6 @@ describe('Payroll lifecycle (e2e)', () => {
 
   // ── PL-API-21..24  What locking actually settles ─────────────────────────
   describe('PL-API-21..24 — lock side effects', () => {
-    it('PL-API-21: locking pays out an APPROVED reimbursement', async () => {
-      const reimbursement = await ctx.prisma.reimbursement.create({
-        data: {
-          employeeId: fx.monthlyEmpId,
-          type: 'TRAVEL',
-          amount: 250,
-          expenseDate: new Date('2026-01-15'),
-          status: 'APPROVED',
-          approvedAt: new Date(),
-        },
-      });
-
-      const { id } = await lockedRun();
-
-      const settled = await ctx.prisma.reimbursement.findUnique({
-        where: { id: reimbursement.id },
-      });
-      expect(settled!.status).toBe('PAID');
-      expect(settled!.paidAt).toBeTruthy();
-      expect(settled!.payrollItemId).toBeTruthy();
-      expect(id).toBeTruthy();
-    });
-
     it('PL-API-22: the lock stamps who and when', async () => {
       const { id } = await lockedRun();
       const row = await ctx.prisma.payroll.findUnique({ where: { id } });
@@ -441,34 +418,6 @@ describe('Payroll lifecycle (e2e)', () => {
       expect(await statusOf(id)).toBe('LOCKED');
     });
 
-    it('PL-API-27: unlock rolls a paid reimbursement back to APPROVED', async () => {
-      const reimbursement = await ctx.prisma.reimbursement.create({
-        data: {
-          employeeId: fx.secondMonthlyEmpId,
-          type: 'TRAVEL',
-          amount: 175,
-          expenseDate: new Date('2026-01-20'),
-          status: 'APPROVED',
-          approvedAt: new Date(),
-        },
-      });
-
-      const { id } = await lockedRun([fx.secondMonthlyEmpId]);
-      expect(
-        (await ctx.prisma.reimbursement.findUnique({
-          where: { id: reimbursement.id },
-        }))!.status,
-      ).toBe('PAID');
-
-      expect((await unlock(id)).status).toBe(201);
-
-      const reversed = await ctx.prisma.reimbursement.findUnique({
-        where: { id: reimbursement.id },
-      });
-      expect(reversed!.status).toBe('APPROVED');
-      expect(reversed!.paidAt).toBeNull();
-    });
-
     it('PL-API-28: an unlocked run can be re-locked, and the count accumulates', async () => {
       const { id } = await lockedRun();
       await unlock(id);
@@ -518,47 +467,6 @@ describe('Payroll lifecycle (e2e)', () => {
       });
       expect(both).toHaveLength(1);
       expect(both[0].version).toBe(2);
-    });
-
-    it('PL-API-36: locking a revision does not settle the same reimbursement twice', async () => {
-      // F17. `createRevision` copies the ITEMS but no ledger rows, and `applyLock`
-      // settles from the ledger. If the revision re-claims what its source already
-      // paid, the employee is paid twice and the loan ledger is charged twice.
-      const reimbursement = await ctx.prisma.reimbursement.create({
-        data: {
-          employeeId: fx.noBankEmpId,
-          type: 'TRAVEL',
-          amount: 400,
-          expenseDate: new Date('2026-02-10'),
-          status: 'APPROVED',
-          approvedAt: new Date(),
-        },
-      });
-
-      const { id } = await lockedRun([fx.noBankEmpId]);
-      const paidOnce = await ctx.prisma.reimbursement.findUnique({
-        where: { id: reimbursement.id },
-      });
-      expect(paidOnce!.status).toBe('PAID');
-      const firstPaidAt = paidOnce!.paidAt;
-
-      const rev = await asAdmin(
-        api().post(`/payrolls/${id}/create-revision`),
-      ).send({ reason: 'restate after the first lock' });
-      expect(rev.status).toBe(201);
-      const revisionId = rev.body.data.id;
-
-      await submit(revisionId);
-      await approve(revisionId);
-      expect((await lock(revisionId)).status).toBe(201);
-
-      const afterSecondLock = await ctx.prisma.reimbursement.findUnique({
-        where: { id: reimbursement.id },
-      });
-      // Already PAID by the source run: the revision must not restate paidAt, and
-      // there must still be exactly one settlement.
-      expect(afterSecondLock!.status).toBe('PAID');
-      expect(afterSecondLock!.paidAt?.getTime()).toBe(firstPaidAt?.getTime());
     });
 
     it('PL-API-32: bulk-approve approves several runs at once', async () => {

@@ -14,10 +14,9 @@ export class FinanceHubController {
 
   /**
    * ADMIN and HR_MANAGER only — the same gate `/dashboard/finance` already
-   * carries on the client and the same one `loan-reports.controller.ts` puts on
-   * every report this payload draws from. MANAGER is a denial path, not a
-   * narrowed one: the loan book and the budget position are company figures,
-   * and there is no per-department version of them to hand back.
+   * carries on the client. MANAGER is a denial path, not a narrowed one: the
+   * budget position is a company figure, and there is no per-department version
+   * of it to hand back.
    *
    * No period parameter. These hubs render without the Today/Week/Month/Year
    * control, so there is no window for a caller to choose and nothing to
@@ -28,10 +27,8 @@ export class FinanceHubController {
   @ApiOperation({
     summary: 'Finance module hub summary',
     description:
-      "The organisation's exposure to employee money in one payload: the claim " +
-      'queue and what was actually reimbursed this month, travel per diem, the ' +
-      'loan book with its arrears aging, budget plan against spend, and twelve ' +
-      'months of settled employee expense split by category.',
+      'The travel request queue and the budget plan against spend, with the ' +
+      "previous month's utilisation as a baseline, in one payload.",
   })
   @ApiResponse({ status: 200, description: 'Finance hub summary' })
   @ApiResponse({ status: 403, description: 'Caller is not ADMIN or HR_MANAGER' })

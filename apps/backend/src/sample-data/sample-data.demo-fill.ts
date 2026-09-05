@@ -13,9 +13,7 @@ import { NO_BRANCH_EMPLOYEE_INDEX } from './sample-data.constants';
  *  - Payroll wrote DRAFT runs only, and every payroll report reads LOCKED runs
  *    exclusively — so net pay, the variance waterfall and cost-by-department
  *    were all blank on a database with 54 payroll items in it.
- *  - Gratuity, settlements and WPS files were never seeded at all.
- *  - Loans existed with no amortisation schedule, so nothing was ever due or
- *    overdue.
+ *  - Gratuity and settlements were never seeded at all.
  *  - Nobody joined this month and no contract expired inside 30 days, so the
  *    People hub's two lead cards were zero by construction.
  *  - No shift ever landed on a holiday or a weekly off, so the roster-conflict
@@ -49,24 +47,17 @@ function monthsBack(period: { year: number; month: number }, n: number) {
 }
 
 export async function seedDemoFill(ctx: ExtrasContext): Promise<void> {
-  const { prisma, employees, branchIds, hrUserId, months, say, info } = ctx;
+  const { prisma, employees, hrUserId, months, say, info } = ctx;
   if (!employees.length) return;
 
   const cur = months[months.length - 1];
   const prev = months.length > 1 ? months[0] : monthsBack(cur, 1);
 
-  say('Filling the module dashboards (locked payroll, gratuity, WPS, loan schedules)…');
+  say('Filling the module dashboards (locked payroll, gratuity, settlements)…');
 
   await lockPayrolls(prisma, cur, prev, hrUserId, info);
   await seedOpenPayroll(prisma, ctx, cur, hrUserId, info);
   await seedGratuityAndSettlements(prisma, ctx, cur, info);
-  // PREVIOUS month, not the current one. The row stands for a file already sent
-  // to the bank, and a wage file on a run is exclusive — `generate` refuses with
-  // "a wage file for this payroll already exists (version 1, SUBMITTED)". Filing
-  // it against the current month would leave the demo unable to produce the one
-  // thing the screen exists for.
-  await seedWpsFile(prisma, ctx, prev, info);
-  await seedLoanSchedules(prisma, ctx, cur, info);
   await seedPeopleLifecycle(prisma, ctx, info);
   await seedRosterConflicts(prisma, ctx, info);
   await seedTalentAndAudit(prisma, ctx, info);
@@ -119,7 +110,7 @@ async function seedOrgGovernance(
   // joiners (an INACTIVE employee is excluded from the no-branch count, so the
   // card this row exists to light up would read zero), and the tail of the
   // roster is Muscat — whose per-branch payroll would then carry someone with
-  // no branch and refuse to produce a wage file. See NO_BRANCH_EMPLOYEE_INDEX.
+  // no branch and fail pre-flight. See NO_BRANCH_EMPLOYEE_INDEX.
   const stray = employees.find((e) => e.index === NO_BRANCH_EMPLOYEE_INDEX);
   if (stray) {
     await prisma.employee.update({ where: { id: stray.id }, data: { branchId: null } });
@@ -401,7 +392,7 @@ async function branchOf(prisma: PrismaClient, employeeId: string): Promise<strin
   return emp?.branchId ?? undefined;
 }
 
-/* ── Gratuity, settlements, WPS ──────────────────────────────────────────── */
+/* ── Gratuity and settlements ────────────────────────────────────────────── */
 
 async function seedGratuityAndSettlements(
   prisma: PrismaClient,
@@ -476,7 +467,7 @@ async function seedGratuityAndSettlements(
       { category: 'EARNING', code: 'GRATUITY', label: 'End of service', amount: round2(e.baseSalary * 1.5) },
       { category: 'EARNING', code: 'LEAVE_ENCASH', label: 'Leave encashment', amount: round2(e.baseSalary * 0.6) },
       { category: 'EARNING', code: 'NOTICE', label: 'Notice pay', amount: round2(e.baseSalary * 0.3) },
-      { category: 'DEDUCTION', code: 'LOAN', label: 'Outstanding loan', amount: deductions },
+      { category: 'DEDUCTION', code: 'GARNISHMENT', label: 'Court-ordered deduction', amount: deductions },
     ];
     const earnings = round2(
       parts.filter((p) => p.category === 'EARNING').reduce((sum, p) => sum + p.amount, 0),
@@ -518,124 +509,6 @@ async function seedGratuityAndSettlements(
     });
   }
   info(`Accrued gratuity for ${accruing.length} and opened ${leavers.length} settlements.`);
-}
-
-async function seedWpsFile(
-  prisma: PrismaClient,
-  ctx: ExtrasContext,
-  period: { year: number; month: number },
-  info: (m: string) => void,
-): Promise<void> {
-  const cur = period;
-  // Prefer the Oman run: the row carries OMR minor units and an Omani file
-  // name, so hanging it off an Indian branch's payroll was a wage file that
-  // could not have been produced by the branch it claimed.
-  const where = { batch: { name: { startsWith: 'SMP' } }, month: cur.month, year: cur.year };
-  const locked =
-    (await prisma.payroll.findFirst({
-      where: { ...where, branch: { country: 'OM' } },
-      select: { id: true, branchId: true },
-    })) ??
-    (await prisma.payroll.findFirst({ where, select: { id: true, branchId: true } }));
-  const branchId = locked?.branchId ?? ctx.branchIds[0];
-  if (!locked || !branchId) return;
-
-  const items = await prisma.payrollItem.aggregate({
-    where: { payrollId: locked.id },
-    _sum: { netSalary: true },
-    _count: { _all: true },
-  });
-
-  await prisma.wpsFile.create({
-    data: {
-      branchId,
-      payrollId: locked.id,
-      // The registry key, not a made-up one: a file row whose format no adapter
-      // answers to cannot be re-opened, re-generated or explained afterwards.
-      format: 'om-cbo-v1',
-      specVersion: 'OM-CBO-SIF/PROVISIONAL-2026-08',
-      status: 'SUBMITTED',
-      periodMonth: cur.month,
-      periodYear: cur.year,
-      generatedBy: ctx.hrUserId,
-      fileName: `WPS_${cur.year}${String(cur.month).padStart(2, '0')}.sif`,
-      employeeCount: items._count._all,
-      // Minor units throughout WPS — the caller formats it, never the store.
-      totalMinor: Math.round(Number(items._sum.netSalary ?? 0) * 1000),
-      currency: 'OMR',
-      currencyExponent: 3,
-      paymentDate: dU(cur.year, cur.month, 28),
-    },
-  });
-  info('Filed one wage file so the payroll hub can show when the bank last saw one.');
-}
-
-/* ── Loans ───────────────────────────────────────────────────────────────── */
-
-/**
- * Amortisation rows for the loans the seed already approved.
- *
- * Without them nothing is ever due, so "overdue" and "due this cycle" are both
- * zero and the aging panel has no buckets. Two instalments are deliberately
- * left unpaid and backdated — one recently, one deep into the 61–90 bucket — so
- * the escalation the panel is built to show actually appears.
- */
-async function seedLoanSchedules(
-  prisma: PrismaClient,
-  ctx: ExtrasContext,
-  cur: { year: number; month: number },
-  info: (m: string) => void,
-): Promise<void> {
-  const loans = await prisma.advanceLoanRequest.findMany({
-    where: { employee: { email: { endsWith: '@sample.hrms.local' } }, status: 'APPROVED' },
-    select: { id: true, amount: true, createdAt: true },
-    take: 6,
-  });
-  if (!loans.length) return;
-
-  let overdue = 0;
-  for (let li = 0; li < loans.length; li++) {
-    const loan = loans[li];
-    const principal = Number(loan.amount);
-    const terms = 12;
-    const emi = round2(principal / terms);
-    let balance = principal;
-
-    for (let n = 1; n <= terms; n++) {
-      // Instalments run from five months before the current period, so the
-      // early ones are in the past and the rest still ahead.
-      const due = new Date(Date.UTC(cur.year, cur.month - 1 - 5 + n, 5));
-      const opening = round2(balance);
-      balance = round2(balance - emi);
-      const isPast = due.getTime() < Date.now();
-
-      // Loan 0 skips two past instalments; the oldest lands ~75 days back so
-      // the aging panel gets a 61–90 bucket rather than one flat "overdue".
-      const missed = li === 0 && (n === 1 || n === 4);
-      const status = !isPast ? 'SCHEDULED' : missed ? 'SCHEDULED' : 'PAID';
-      if (isPast && missed) overdue += 1;
-
-      await prisma.loanSchedule.create({
-        data: {
-          requestId: loan.id,
-          installmentNo: n,
-          dueDate: due,
-          dueCycleKey: due.getUTCFullYear() * 100 + (due.getUTCMonth() + 1),
-          dueMonth: due.getUTCMonth() + 1,
-          dueYear: due.getUTCFullYear(),
-          openingBalance: opening,
-          principalComponent: emi,
-          emiAmount: emi,
-          closingBalance: Math.max(0, round2(balance)),
-          status: status as never,
-          paidAmount: status === 'PAID' ? emi : 0,
-          paidPrincipal: status === 'PAID' ? emi : 0,
-          settledAt: status === 'PAID' ? due : null,
-        },
-      });
-    }
-  }
-  info(`Amortised ${loans.length} loans, ${overdue} instalment(s) deliberately unpaid.`);
 }
 
 /* ── People lifecycle ────────────────────────────────────────────────────── */

@@ -37,7 +37,7 @@ export class EmployeeRecoveriesController {
     summary: 'Raise a recovery',
     description:
       'Asset damage, an unreturned asset, a training bond or a notice ' +
-      'shortfall. Recovered after loans and never below the take-home floor.',
+      'shortfall. Recovered last and never below the take-home floor.',
   })
   create(@Body() dto: Record<string, unknown>, @CurrentUser() user: any) {
     return this.service.create(dto, user);

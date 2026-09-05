@@ -7,18 +7,11 @@
  *
  * Position in the ladder:
  *
- *   statutory -> garnishment -> protected-net -> advance -> loan -> RECOVERY
+ *   statutory -> garnishment -> protected-net -> RECOVERY
  *
- * A recovery yields to a loan, and the reason is worth stating: a loan is money
- * the employee ASKED for on an agreed schedule, while a recovery is a claim the
- * EMPLOYER has asserted. When pay is short, honouring the agreed schedule and
- * deferring the disputed claim is the defensible order, and it means a recovery
- * can never be the reason a loan instalment is missed. The opposite order is
- * defensible too, which is why `payroll_recovery_ladder_position` exists rather
- * than this being hard-coded.
- *
- * A recovery is NEVER exempt from the take-home floor. A court order may ignore
- * it; an employer's own claim may not.
+ * A recovery is a claim the EMPLOYER has asserted, so it comes last and is
+ * NEVER exempt from the take-home floor. A court order may ignore that floor;
+ * an employer's own claim may not.
  */
 
 export interface RecoveryOrder {
@@ -37,7 +30,7 @@ export interface RecoveryOrder {
 
 export interface RecoveryContext {
   employeeId: string;
-  /** What is left after statutory, garnishment, advance and loan. */
+  /** What is left after statutory deductions and any garnishment. */
   available: number;
   periodStart: Date;
   periodEnd: Date;

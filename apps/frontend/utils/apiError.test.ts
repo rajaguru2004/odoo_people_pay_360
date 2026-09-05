@@ -8,9 +8,10 @@
  * axios tutorial evaluates to `undefined` here, the caller's fallback string
  * wins, and a precise backend refusal reaches the user as a shrug.
  *
- * That is exactly how "Instalment not found on the live schedule" was shown in
- * production as "The operation could not be completed". The backend was right,
- * had a test for it, and returned a good sentence; the frontend threw it away.
+ * That is exactly how "This payroll run is locked and can no longer be changed"
+ * was shown in production as "The operation could not be completed". The backend
+ * was right, had a test for it, and returned a good sentence; the frontend threw
+ * it away.
  *
  * The first test below is written as the counter-example on purpose: it asserts
  * that the WRONG access path is undefined on the shape we really produce. If
@@ -31,7 +32,7 @@ function interceptorRejection(
     statusCode,
     message: body.message ?? 'An error occurred',
     timestamp: new Date().toISOString(),
-    path: '/advance-loans/abc/skip-installment',
+    path: '/payrolls/abc/items/def',
     errors: body.errors ?? null,
     details: body,
   };
@@ -40,15 +41,15 @@ function interceptorRejection(
 describe('the shape our interceptor actually rejects with', () => {
   it('has no `.response`, which is why the tutorial access path silently fails', () => {
     const err: any = interceptorRejection(404, {
-      message: 'Instalment not found on the live schedule',
+      message: 'Payroll item not found on this run',
     });
 
-    // The bug, pinned. This is what the loan screen used to read.
+    // The bug, pinned. This is what the payroll screen used to read.
     expect(err?.response?.data?.message).toBeUndefined();
 
     // And this is what it reads now.
     expect(apiErrorMessage(err, 'The operation could not be completed')).toBe(
-      'Instalment not found on the live schedule',
+      'Payroll item not found on this run',
     );
   });
 });
@@ -56,29 +57,29 @@ describe('the shape our interceptor actually rejects with', () => {
 describe('apiErrorMessage', () => {
   it('surfaces the backend sentence instead of the fallback', () => {
     const cases: Array<[number, string]> = [
-      [404, 'Instalment not found on the live schedule'],
-      [400, 'Instalment 2 is paid and cannot be skipped'],
+      [404, 'Payroll item not found on this run'],
+      [400, 'This run is locked and cannot be recalculated'],
       [400, 'This request has not been approved yet'],
-      [400, 'This loan is completed and can no longer be changed'],
+      [400, 'This termination request is already approved and can no longer be changed'],
       [
         409,
-        'Payroll 8/2026 is in progress and already includes an instalment for this loan. Lock or delete that run first.',
+        'Payroll 8/2026 is in progress and already includes this employee. Lock or delete that run first.',
       ],
-      [409, 'This loan was modified by another operation. Reload and retry.'],
+      [409, 'This record was modified by another operation. Reload and retry.'],
       [409, 'This payment has already been recorded (duplicate idempotency key).'],
       [
         400,
-        'Prepayment of 5000 exceeds the payoff amount of 1500. Pay exactly 1500 to close the loan.',
+        'A garnishment of 5000 exceeds the attachable amount of 1500 for this period.',
       ],
       [
         400,
-        'Outstanding balance is 1500, above the rounding tolerance of 1. Use prepay, waive or write-off instead of a manual close.',
+        'Net pay is 1500, above the rounding tolerance of 1. Correct the run instead of overriding it.',
       ],
-      [400, 'Write-off of 9000 exceeds the outstanding balance of 1500'],
-      [400, 'Waiver of 900 exceeds the interest balance of 0'],
-      [400, 'Only an advance can be converted to a loan'],
-      [400, 'This loan has nothing written off to reinstate'],
-      [400, 'This loan is not on hold'],
+      [400, 'Leave encashment of 9000 exceeds the accrued balance of 1500'],
+      [400, 'Departure date must fall before the return date'],
+      [400, 'Only a pending trip can be approved'],
+      [400, 'This department still has employees and cannot be deleted'],
+      [400, 'This contract is not on hold'],
       [
         403,
         'Your role is not permitted to perform this operation (allowed: ADMIN, HR_MANAGER)',

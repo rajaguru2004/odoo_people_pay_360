@@ -11,13 +11,12 @@ import { cn } from '@/utils/cn';
  * colours are worth sharing. **The labels are not, and this component
  * deliberately cannot take a status string.**
  *
- * `components/advance-loans/loanStatus.ts` already argues the reason at length:
- * a partial lookup keyed by an enum is the shape of a bug, because adding a
- * status server-side silently degrades every screen that forgot to update its
- * map. A single app-wide `status → label` table would be exactly that, times
- * twenty domains, and it would also have to be i18n'd for vocabulary that is
- * domain-specific ("Refused" for leave, "Rejected" for a loan, "Void" for a
- * payslip).
+ * The reason: a partial lookup keyed by an enum is the shape of a bug, because
+ * adding a status server-side silently degrades every screen that forgot to
+ * update its map. A single app-wide `status → label` table would be exactly
+ * that, times twenty domains, and it would also have to be i18n'd for
+ * vocabulary that is domain-specific ("Refused" for leave, "Cancelled" for a
+ * trip, "Void" for a payslip).
  *
  * So each domain keeps its own map, which TypeScript can make exhaustive:
  *

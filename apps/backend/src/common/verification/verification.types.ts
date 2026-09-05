@@ -57,28 +57,15 @@ export function parseVerificationMode(raw: string | null | undefined): Verificat
  * Per-channel policy key.
  *
  * A channel absent from this map can NEVER be exempt and can never mint a
- * verification capability, whatever settings exist. `web`, `copilot`, `mcp` and
- * `system` are absent on purpose.
+ * verification capability, whatever settings exist. Every channel is absent
+ * today: `web`, `copilot`, `mcp` and `system` all punch through the ordinary
+ * authenticated paths, so none of them may claim an exemption. A conversational
+ * channel that needs one adds its key here and nowhere else.
  *
- * Moved here from AttendancesService so the enforcement site and its test read
- * the same map instead of the test hand-copying one that can silently drift.
+ * Kept out of AttendancesService so the enforcement site and its test read the
+ * same map instead of the test hand-copying one that can silently drift.
  */
-export const VERIFICATION_SETTING_KEYS: Partial<Record<ActorChannelName, string>> = {
-  whatsapp: 'whatsapp.attendanceVerification',
-  discord: 'discord.attendanceVerification',
-};
-
-/**
- * The booleans this enum replaces. Read ONLY when no enum value exists, so an
- * admin who deliberately switched the old toggle on keeps exactly the behaviour
- * they had. Removed one release after rollout.
- *
- * @deprecated
- */
-export const LEGACY_FACE_OVERRIDE_KEYS: Partial<Record<ActorChannelName, string>> = {
-  whatsapp: 'whatsapp.attendanceFaceOverride',
-  discord: 'discord.attendanceFaceOverride',
-};
+export const VERIFICATION_SETTING_KEYS: Partial<Record<ActorChannelName, string>> = {};
 
 /**
  * Global kill switch. Not namespaced to any channel, so no channel's own
@@ -94,7 +81,7 @@ export const VERIFICATION_KILL_SWITCH_KEY = 'attendance_channel_verification_ena
  * `purpose` IS a parameter, but every value of it is a literal written at an
  * enforcement site, so it is not reachable from the wire either.
  *
- * Precedence: kill switch > per-action key > channel key > legacy boolean > OFF.
+ * Precedence: kill switch > per-action key > channel key > OFF.
  *
  * This function is the single resolver the whole feature reads through. Before
  * it, three call sites disagreed about the default — the settings service said
@@ -119,10 +106,7 @@ export async function resolveVerificationMode(
   const channelWide = await getSetting(base, '');
   if (channelWide) return parseVerificationMode(channelWide);
 
-  const legacy = LEGACY_FACE_OVERRIDE_KEYS[channel];
-  return legacy && (await getSetting(legacy, 'false')) === 'true'
-    ? VERIFICATION_MODE.IDENTITY_ONLY
-    : VERIFICATION_MODE.OFF;
+  return VERIFICATION_MODE.OFF;
 }
 
 /** Which proofs a mode demands before the punch may run. */

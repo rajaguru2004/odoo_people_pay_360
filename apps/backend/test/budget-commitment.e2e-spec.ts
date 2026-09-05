@@ -159,7 +159,6 @@ describe('HR budgeting & commitment ledger (e2e)', () => {
     });
     await prisma.budgetLine.deleteMany({ where: { budget: { branchId } } });
     await prisma.budget.deleteMany({ where: { branchId } });
-    await prisma.reimbursement.deleteMany({ where: { employee: { branchId } } });
     await prisma.travelRequest.deleteMany({ where: { employee: { branchId } } });
     await prisma.attendance.deleteMany({ where: { branchId } });
     await prisma.payrollItem.deleteMany({ where: { employee: { branchId } } });

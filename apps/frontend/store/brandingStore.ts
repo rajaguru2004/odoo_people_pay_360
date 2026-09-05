@@ -45,7 +45,6 @@ export interface BrandingData {
   overtime_require_reason: boolean;
   attendance_day_end_time: string;
   leave_approval_hierarchy_enabled: boolean;
-  reimbursement_enabled: boolean;
 
   // ── Payroll extensions ──────────────────────────────────────────────
   // Each is additive on top of the base payroll and each defaults OFF, so
@@ -80,16 +79,6 @@ export interface BrandingData {
   payroll_reports_enabled: boolean;
   employee_transfer_enabled: boolean;
   employee_grade_enabled: boolean;
-  reimbursement_approver_roles: string;
-  reimbursement_types: string;
-  advance_loan_enabled: boolean;
-  advance_loan_approver_roles: string;
-  /** Roles allowed to write off a loan balance; gates the action in the UI. */
-  advance_loan_writeoff_roles: string;
-  advance_loan_max_installments: string;
-  /** Whether interest terms may be offered on the request form at all. */
-  loan_interest_enabled: boolean;
-  advance_max_percent_of_salary: string;
   theme_preset: string;
   theme_font: string;
   theme_custom_colors: string;      // JSON: { brandPrimary, brandPrimaryDark, ... }
@@ -158,7 +147,6 @@ export const useBrandingStore = create<BrandingState>((set) => ({
     overtime_require_reason: true,
     attendance_day_end_time: '23:59',
     leave_approval_hierarchy_enabled: false,
-    reimbursement_enabled: true,
     payroll_item_lines_enabled: false,
     payroll_eosb_enabled: false,
     // Left unset, not false — see the type. `loaded` is what tells a screen
@@ -174,14 +162,6 @@ export const useBrandingStore = create<BrandingState>((set) => ({
     payroll_reports_enabled: false,
     employee_transfer_enabled: false,
     employee_grade_enabled: false,
-    reimbursement_approver_roles: 'HR_MANAGER,ADMIN',
-    reimbursement_types: 'Travel,Medical,Food,Office Supplies,Other',
-    advance_loan_enabled: true,
-    advance_loan_approver_roles: 'HR_MANAGER,ADMIN',
-    advance_loan_writeoff_roles: 'ADMIN',
-    advance_loan_max_installments: '12',
-    loan_interest_enabled: false,
-    advance_max_percent_of_salary: '100',
     theme_preset: 'default',
     theme_font: 'montserrat',
     theme_custom_colors: '',
@@ -236,7 +216,6 @@ export const useBrandingStore = create<BrandingState>((set) => ({
             overtime_require_reason: res.data.overtime_require_reason !== false,
             attendance_day_end_time: res.data.attendance_day_end_time || '23:59',
             leave_approval_hierarchy_enabled: res.data.leave_approval_hierarchy_enabled === true,
-            reimbursement_enabled: res.data.reimbursement_enabled !== false,
             payroll_item_lines_enabled: res.data.payroll_item_lines_enabled === true,
             payroll_eosb_enabled: res.data.payroll_eosb_enabled === true,
             // Boolean-or-undefined, deliberately not `=== true`: the
@@ -263,17 +242,6 @@ export const useBrandingStore = create<BrandingState>((set) => ({
             payroll_reports_enabled: res.data.payroll_reports_enabled === true,
             employee_transfer_enabled: res.data.employee_transfer_enabled === true,
             employee_grade_enabled: res.data.employee_grade_enabled === true,
-            reimbursement_approver_roles: res.data.reimbursement_approver_roles || 'HR_MANAGER,ADMIN',
-            reimbursement_types: res.data.reimbursement_types || 'Travel,Medical,Food,Office Supplies,Other',
-            advance_loan_enabled: res.data.advance_loan_enabled !== false,
-            advance_loan_approver_roles: res.data.advance_loan_approver_roles || 'HR_MANAGER,ADMIN',
-            advance_loan_writeoff_roles: res.data.advance_loan_writeoff_roles || 'ADMIN',
-            advance_loan_max_installments: res.data.advance_loan_max_installments || '12',
-            advance_max_percent_of_salary: res.data.advance_max_percent_of_salary || '100',
-            // Defaults FALSE when the server does not publish it: offering an
-            // interest field the server would refuse is worse than hiding one
-            // it would have honoured.
-            loan_interest_enabled: res.data.loan_interest_enabled === true,
             theme_preset: res.data.theme_preset || 'default',
             theme_font: res.data.theme_font || 'montserrat',
             theme_custom_colors: res.data.theme_custom_colors || '',

@@ -14,7 +14,6 @@ import rewardService from '@/services/rewardService';
 import disciplineService from '@/services/disciplineService';
 import attendanceService from '@/services/attendanceService';
 import payrollService from '@/services/payrollService';
-import reimbursementService from '@/services/reimbursementService';
 
 import OverviewCardsV2 from '@/components/dashboard-v2/OverviewCardsV2';
 import AttendanceOverviewV2 from '@/components/dashboard-v2/AttendanceOverviewV2';
@@ -83,7 +82,6 @@ export default function DashboardV2Page() {
     payrollSparkData: [] as number[],
     payrollYtdPaid: 0,
     pendingPayrollRuns: 0,
-    pendingReimbursementsAmount: 0,
 
     // Turnover
     turnoverRate: 0,
@@ -126,7 +124,6 @@ export default function DashboardV2Page() {
         attendanceSummaryRes,
         payrollSummaryRes,
         payrollsRes,
-        pendingReimbursementsRes,
         turnoverStatsRes,
       ] = await Promise.all([
         dashboardService.getOverview().catch(() => null),
@@ -142,7 +139,6 @@ export default function DashboardV2Page() {
         dashboardService.getAttendanceSummary().catch(() => null),
         dashboardService.getPayrollSummary().catch(() => null),
         payrollService.getAll().catch(() => null),
-        reimbursementService.getPending().catch(() => null),
         dashboardService.getTurnoverStats().catch(() => null),
       ]);
 
@@ -414,12 +410,6 @@ export default function DashboardV2Page() {
         ).length;
       }
 
-      // Pending reimbursements total (endpoint resolves to a raw array, not {success,data})
-      const pendingReimbList = Array.isArray(pendingReimbursementsRes) ? pendingReimbursementsRes : [];
-      updatedData.pendingReimbursementsAmount = pendingReimbList.reduce(
-        (sum: number, r: any) => sum + (Number(r.amount) || 0), 0
-      );
-
       // Turnover stats
       if (turnoverStatsRes?.data) {
         const tv = turnoverStatsRes.data;
@@ -516,7 +506,6 @@ export default function DashboardV2Page() {
             sparkData={data.payrollSparkData}
             ytdPaid={data.payrollYtdPaid}
             pendingRuns={data.pendingPayrollRuns}
-            pendingReimbursements={data.pendingReimbursementsAmount}
           />
         </div>
       </div>

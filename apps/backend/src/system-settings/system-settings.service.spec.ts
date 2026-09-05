@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import {
+  SETTING_VALUE_RULES,
   SystemSettingsService,
   validateSettingValue,
 } from './system-settings.service';
@@ -448,22 +449,21 @@ describe('SystemSettingsService - system_timezone', () => {
 
 
 /**
- * Loan & advance settings: the read path and the write path.
+ * The settings registry and the write path.
  *
  * Two defects met here.
  *
- *   §13 — nine keys the engine READS were absent from `getSettingsList()`, the
- *   only thing GET /system-settings returns. They could be written and never
- *   read back, so an administrator could not see what they had set and nothing
+ *   A key the engine READS could be absent from `getSettingsList()`, the only
+ *   thing GET /system-settings returns. It could be written and never read
+ *   back, so an administrator could not see what they had set and nothing
  *   could restore a previous value.
  *
- *   §12 — `setSetting()` stored whatever it was given, and every reader coerces
- *   at use time with a silent fallback. `loan_shortfall_policy: 'BANANA'` read
- *   back as BANANA and ran as PARTIAL; a negative `loan_min_net_pay_percent`
- *   normalised to NO take-home floor; a 500% deduction cap lifted the cap. The
+ *   `setSetting()` stored whatever it was given, and every reader coerces at
+ *   use time with a silent fallback. An out-of-set enum read back verbatim and
+ *   ran as the fallback; an out-of-range bound normalised away entirely. The
  *   screen showed a protection the engine was not applying.
  */
-describe('SystemSettingsService - loan settings registry and validation', () => {
+describe('SystemSettingsService - settings registry and value validation', () => {
   let service: SystemSettingsService;
   let db: Record<string, string>;
   let prisma: any;
@@ -512,54 +512,6 @@ describe('SystemSettingsService - loan settings registry and validation', () => 
     return new Map(rows.map((r: any) => [r.key, r]));
   };
 
-  describe('§13 — the nine write-only keys are now readable', () => {
-    /**
-     * Key → the default the ENGINE falls back to. Cross-checked against
-     * DEFAULT_LOAN_POLICY in advance-loans/loan-policy.service.ts and against
-     * the `getSetting(key, default)` call sites for the two keys that do not
-     * go through the policy resolver.
-     */
-    const ENGINE_DEFAULTS: Record<string, string> = {
-      loan_rounding_unit: '0.01', // LoanScheduleService.roundingUnit()
-      loan_grace_period_cycles: '0',
-      loan_deferral_mode: 'CARRY_FORWARD',
-      loan_payment_allocation_order: 'INTEREST_FIRST',
-      loan_priority_tiebreak: 'OLDEST_FIRST',
-      loan_auto_close_on_full_recovery: 'true',
-      loan_min_partial_recovery_amount: '1',
-      loan_final_settlement_ignores_min_net: 'true',
-      advance_loan_auditor_user_ids: '', // LoanAccessService.auditorUserIds()
-    };
-
-    it('lists every one of them', async () => {
-      const map = await listed();
-      const missing = Object.keys(ENGINE_DEFAULTS).filter((k) => !map.has(k));
-      expect(missing).toEqual([]);
-    });
-
-    it('reports the default the engine actually falls back to', async () => {
-      const map = await listed();
-      for (const [key, expected] of Object.entries(ENGINE_DEFAULTS)) {
-        expect([key, map.get(key)!.value]).toEqual([key, expected]);
-      }
-    });
-
-    it('describes each one well enough to act on', async () => {
-      const map = await listed();
-      for (const key of Object.keys(ENGINE_DEFAULTS)) {
-        expect(map.get(key)!.description.length).toBeGreaterThan(30);
-      }
-    });
-
-    it('reads back what was written — the point of the fix', async () => {
-      await service.setSetting('loan_deferral_mode', 'EXTEND_TENURE');
-      await service.setSetting('loan_grace_period_cycles', '2');
-      const map = await listed();
-      expect(map.get('loan_deferral_mode')!.value).toBe('EXTEND_TENURE');
-      expect(map.get('loan_grace_period_cycles')!.value).toBe('2');
-    });
-  });
-
   it('ships defaults that its own validator accepts', async () => {
     // A registry default that the write path would refuse is a trap: the admin
     // screen renders it, the admin presses Save without touching it, and the
@@ -576,93 +528,83 @@ describe('SystemSettingsService - loan settings registry and validation', () => 
     expect(bad).toEqual([]);
   });
 
-  describe('§12 — a value the engine would discard is refused on write', () => {
+  it('lists every key with a declared shape, so none is write-only', async () => {
+    // A key the write path validates but the read path never returns is
+    // invisible to the admin screen: it can be saved and never seen again.
+    const map = await listed();
+    const missing = Object.keys(SETTING_VALUE_RULES).filter((k) => !map.has(k));
+    expect(missing).toEqual([]);
+  });
+
+  it('reads back what was written', async () => {
+    await service.setSetting('payroll_cutoff_enforcement', 'BLOCK');
+    await service.setSetting('document_bulk_max_items', '250');
+    const map = await listed();
+    expect(map.get('payroll_cutoff_enforcement')!.value).toBe('BLOCK');
+    expect(map.get('document_bulk_max_items')!.value).toBe('250');
+  });
+
+  describe('a value the engine would discard is refused on write', () => {
     it('refuses an enum value that is not in the set', async () => {
       await expect(
-        service.setSetting('loan_shortfall_policy', 'BANANA'),
-      ).rejects.toThrow(/loan_shortfall_policy.*PARTIAL, DEFER, SKIP/s);
+        service.setSetting('payroll_cutoff_enforcement', 'BANANA'),
+      ).rejects.toThrow(/payroll_cutoff_enforcement.*WARN, BLOCK/s);
       expect(prisma.systemSetting.upsert).not.toHaveBeenCalled();
     });
 
-    it('refuses a negative take-home floor (it normalised to NO floor)', async () => {
+    it('refuses a negative amount where negative is meaningless', async () => {
       await expect(
-        service.setSetting('loan_min_net_pay_percent', '-10'),
-      ).rejects.toThrow(/loan_min_net_pay_percent/);
-      await expect(
-        service.setSetting('loan_min_net_pay_amount', '-500'),
-      ).rejects.toThrow(/loan_min_net_pay_amount/);
+        service.setSetting('overtime_site_allowance_max', '-500'),
+      ).rejects.toThrow(/overtime_site_allowance_max/);
     });
 
-    it('refuses a deduction cap above 100% (it lifted the cap entirely)', async () => {
+    it('refuses a value above the declared ceiling', async () => {
       await expect(
-        service.setSetting('loan_max_total_deduction_percent_of_net', '500'),
-      ).rejects.toThrow(/loan_max_total_deduction_percent_of_net.*at most 100/s);
+        service.setSetting('document_bulk_max_items', '9000'),
+      ).rejects.toThrow(/document_bulk_max_items.*at most 2000/s);
       // The boundary itself stays legal.
-      await service.setSetting('loan_max_total_deduction_percent_of_net', '100');
-      expect(db.loan_max_total_deduction_percent_of_net).toBe('100');
+      await service.setSetting('document_bulk_max_items', '2000');
+      expect(db.document_bulk_max_items).toBe('2000');
     });
 
     it('refuses a non-numeric value in a numeric key', async () => {
       await expect(
-        service.setSetting('loan_min_net_pay_amount', 'not-a-number'),
-      ).rejects.toThrow(/loan_min_net_pay_amount/);
+        service.setSetting('overtime_site_allowance_max', 'not-a-number'),
+      ).rejects.toThrow(/overtime_site_allowance_max/);
     });
 
     it('refuses a non-boolean in a kill switch', async () => {
       await expect(
-        service.setSetting('loan_module_v2_enabled', 'yes'),
-      ).rejects.toThrow(/loan_module_v2_enabled.*"true" or "false"/s);
+        service.setSetting('payroll_item_lines_enabled', 'yes'),
+      ).rejects.toThrow(/payroll_item_lines_enabled.*"true" or "false"/s);
     });
 
-    it('refuses a fractional or zero count where a count is required', async () => {
+    it('refuses a fractional or out-of-range count where a count is required', async () => {
       await expect(
-        service.setSetting('loan_grace_period_cycles', '1.5'),
+        service.setSetting('document_render_concurrency', '1.5'),
       ).rejects.toThrow(/whole number/);
       await expect(
-        service.setSetting('advance_loan_max_installments', '0'),
-      ).rejects.toThrow(/advance_loan_max_installments/);
-      // A rounding unit of 0 reads back as 0.01, so it must not be storable.
-      await expect(
-        service.setSetting('loan_rounding_unit', '0'),
-      ).rejects.toThrow(/greater than 0/);
+        service.setSetting('payroll_eosb_service_year_days', '0'),
+      ).rejects.toThrow(/payroll_eosb_service_year_days/);
     });
 
     it('refuses a role that does not exist, and accepts blank', async () => {
       await expect(
-        service.setSetting('advance_loan_finance_roles', 'ADMIN,WIZARD'),
-      ).rejects.toThrow(/advance_loan_finance_roles.*ADMIN, HR_MANAGER, MANAGER, EMPLOYEE/s);
-      await service.setSetting('advance_loan_auditor_roles', '');
-      expect(db.advance_loan_auditor_roles).toBe('');
-    });
-
-    it('refuses an auditor user id that is not a UUID', async () => {
-      await expect(
-        service.setSetting('advance_loan_auditor_user_ids', 'bob'),
-      ).rejects.toThrow(/advance_loan_auditor_user_ids.*UUID/s);
-      await service.setSetting(
-        'advance_loan_auditor_user_ids',
-        '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+        service.setSetting('document_bulk_generate_roles', 'ADMIN,WIZARD'),
+      ).rejects.toThrow(
+        /document_bulk_generate_roles.*ADMIN, HR_MANAGER, MANAGER, EMPLOYEE/s,
       );
-      expect(db.advance_loan_auditor_user_ids).toBe(
-        '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
-      );
+      await service.setSetting('document_bulk_generate_roles', '');
+      expect(db.document_bulk_generate_roles).toBe('');
     });
 
-    it('refuses a run type payroll does not have', async () => {
-      await expect(
-        service.setSetting('loan_recover_on_run_types', 'REGULAR,PAYDAY'),
-      ).rejects.toThrow(/loan_recover_on_run_types/);
-      await service.setSetting('loan_recover_on_run_types', 'REGULAR,BONUS');
-      expect(db.loan_recover_on_run_types).toBe('REGULAR,BONUS');
-    });
-
-    it('stores enums and lists in the case the engine compares against', async () => {
+    it('stores enums and role lists in the case the engine compares against', async () => {
       // Readers upper-case before comparing; storing the normalised form means
       // the settings screen shows exactly the string that is in force.
-      await service.setSetting('loan_shortfall_policy', ' defer ');
-      expect(db.loan_shortfall_policy).toBe('DEFER');
-      await service.setSetting('advance_loan_writeoff_roles', 'admin, hr_manager');
-      expect(db.advance_loan_writeoff_roles).toBe('ADMIN,HR_MANAGER');
+      await service.setSetting('payroll_cutoff_enforcement', ' block ');
+      expect(db.payroll_cutoff_enforcement).toBe('BLOCK');
+      await service.setSetting('document_bulk_generate_roles', 'admin, hr_manager');
+      expect(db.document_bulk_generate_roles).toBe('ADMIN,HR_MANAGER');
     });
 
     it('leaves a key with no declared shape completely alone', async () => {
@@ -676,10 +618,10 @@ describe('SystemSettingsService - loan settings registry and validation', () => 
     it('refuses the WHOLE payload rather than half-applying it', async () => {
       await expect(
         service.updateSettings({
-          loan_module_v2_enabled: 'true',
-          loan_shortfall_policy: 'BANANA',
+          payroll_item_lines_enabled: 'true',
+          payroll_cutoff_enforcement: 'BANANA',
         }),
-      ).rejects.toThrow(/loan_shortfall_policy/);
+      ).rejects.toThrow(/payroll_cutoff_enforcement/);
       // Neither key was written — a half-applied save is worse than a refused one.
       expect(db).toEqual({});
     });
@@ -687,21 +629,23 @@ describe('SystemSettingsService - loan settings registry and validation', () => 
     it('names every offending key when several are bad', async () => {
       await expect(
         service.updateSettings({
-          loan_shortfall_policy: 'BANANA',
-          loan_min_net_pay_percent: '-10',
+          payroll_cutoff_enforcement: 'BANANA',
+          document_bulk_max_items: '9000',
         }),
-      ).rejects.toThrow(/loan_shortfall_policy[\s\S]*loan_min_net_pay_percent/);
+      ).rejects.toThrow(
+        /payroll_cutoff_enforcement[\s\S]*document_bulk_max_items/,
+      );
     });
 
     it('still applies a payload whose values are all in shape', async () => {
       await service.updateSettings({
-        loan_module_v2_enabled: 'true',
-        loan_shortfall_policy: 'DEFER',
-        loan_min_net_pay_percent: '20',
+        payroll_item_lines_enabled: 'true',
+        payroll_cutoff_enforcement: 'BLOCK',
+        document_bulk_max_items: '20',
       });
-      expect(db.loan_module_v2_enabled).toBe('true');
-      expect(db.loan_shortfall_policy).toBe('DEFER');
-      expect(db.loan_min_net_pay_percent).toBe('20');
+      expect(db.payroll_item_lines_enabled).toBe('true');
+      expect(db.payroll_cutoff_enforcement).toBe('BLOCK');
+      expect(db.document_bulk_max_items).toBe('20');
     });
   });
 
@@ -709,7 +653,7 @@ describe('SystemSettingsService - loan settings registry and validation', () => 
    * Blank is an INSTRUCTION, not a mistake.
    *
    * An administrator who clears an optional numeric field means "no override
-   * here", and that has always worked. The first cut of §12's validation
+   * here", and that has always worked. The first cut of this validation
    * refused it — which would have failed the whole settings save, every
    * unrelated key in the same payload included, because one optional number was
    * emptied. Worse than the bug it was fixing. So a blank on a key with a real
@@ -718,85 +662,77 @@ describe('SystemSettingsService - loan settings registry and validation', () => 
    */
   describe('blank reverts to the engine default', () => {
     it('clears a numeric override instead of storing an empty string', async () => {
-      await service.setSetting('advance_loan_max_installments', '4');
-      expect(db.advance_loan_max_installments).toBe('4');
+      await service.setSetting('document_bulk_max_items', '4');
+      expect(db.document_bulk_max_items).toBe('4');
 
-      await service.setSetting('advance_loan_max_installments', '');
-      expect('advance_loan_max_installments' in db).toBe(false);
+      await service.setSetting('document_bulk_max_items', '');
+      expect('document_bulk_max_items' in db).toBe(false);
       // Absent, so both read paths report the registered default again.
-      expect(await service.getSetting('advance_loan_max_installments', '12')).toBe('12');
-      expect((await listed()).get('advance_loan_max_installments')!.value).toBe('12');
+      expect(await service.getSetting('document_bulk_max_items', '500')).toBe('500');
+      expect((await listed()).get('document_bulk_max_items')!.value).toBe('500');
     });
 
     it('treats whitespace-only the same as blank', async () => {
-      await service.setSetting('loan_min_net_pay_percent', '20');
-      await service.setSetting('loan_min_net_pay_percent', '   ');
-      expect('loan_min_net_pay_percent' in db).toBe(false);
-      expect((await listed()).get('loan_min_net_pay_percent')!.value).toBe('0');
+      await service.setSetting('overtime_site_allowance_max', '20');
+      await service.setSetting('overtime_site_allowance_max', '   ');
+      expect('overtime_site_allowance_max' in db).toBe(false);
+      expect((await listed()).get('overtime_site_allowance_max')!.value).toBe('0');
     });
 
-    it('clears an enum, a boolean and an ordering list too', async () => {
-      await service.setSetting('loan_shortfall_policy', 'SKIP');
-      await service.setSetting('loan_module_v2_enabled', 'true');
-      await service.setSetting('loan_recover_on_run_types', 'REGULAR');
+    it('clears an enum and a boolean too', async () => {
+      await service.setSetting('payroll_cutoff_enforcement', 'BLOCK');
+      await service.setSetting('payroll_item_lines_enabled', 'true');
 
-      await service.setSetting('loan_shortfall_policy', '');
-      await service.setSetting('loan_module_v2_enabled', '');
-      await service.setSetting('loan_recover_on_run_types', '');
+      await service.setSetting('payroll_cutoff_enforcement', '');
+      await service.setSetting('payroll_item_lines_enabled', '');
 
       const map = await listed();
-      expect(map.get('loan_shortfall_policy')!.value).toBe('PARTIAL');
-      expect(map.get('loan_module_v2_enabled')!.value).toBe('false');
-      // `csv()` already resolved an empty value to this fallback, so an empty
-      // list was never a way of saying "recover on nothing".
-      expect(map.get('loan_recover_on_run_types')!.value).toBe(
-        'REGULAR,FINAL_SETTLEMENT',
-      );
+      expect(map.get('payroll_cutoff_enforcement')!.value).toBe('WARN');
+      expect(map.get('payroll_item_lines_enabled')!.value).toBe('false');
     });
 
     it('does NOT clear an access list — blank there means nobody', async () => {
-      // Clearing the row would restore 'HR_MANAGER,ADMIN' and hand approval
+      // Clearing the row would restore 'ADMIN,HR_MANAGER' and hand the grant
       // back to the roles the admin had just removed.
-      await service.setSetting('advance_loan_approver_roles', '');
-      expect(db.advance_loan_approver_roles).toBe('');
-      expect((await listed()).get('advance_loan_approver_roles')!.value).toBe('');
+      await service.setSetting('document_bulk_generate_roles', '');
+      expect(db.document_bulk_generate_roles).toBe('');
+      expect((await listed()).get('document_bulk_generate_roles')!.value).toBe('');
 
-      await service.setSetting('advance_loan_auditor_user_ids', '  ');
-      expect(db.advance_loan_auditor_user_ids).toBe('');
+      await service.setSetting('document_bulk_generate_roles', '  ');
+      expect(db.document_bulk_generate_roles).toBe('');
     });
 
     it('is a no-op on a key that was never overridden', async () => {
       await expect(
-        service.setSetting('loan_grace_period_cycles', ''),
+        service.setSetting('document_render_concurrency', ''),
       ).resolves.toBeDefined();
       expect(db).toEqual({});
     });
 
-    it('saves the whole admin advance-loan tab with both numbers cleared', async () => {
-      // Exactly what app/dashboard/settings/page.tsx posts for that tab: the
-      // toggle and the role multi-select always send a value, the two number
-      // inputs can be empty.
+    it('saves a whole admin tab with its optional numbers cleared', async () => {
+      // What a settings tab posts: the toggle and the role multi-select always
+      // send a value, the number inputs can be empty.
       await service.updateSettings({
-        advance_loan_enabled: 'true',
-        advance_loan_approver_roles: 'HR_MANAGER,ADMIN',
-        advance_loan_max_installments: '',
-        advance_max_percent_of_salary: '',
+        document_bulk_enabled: 'true',
+        document_bulk_generate_roles: 'HR_MANAGER,ADMIN',
+        document_bulk_max_items: '',
+        document_render_concurrency: '',
       });
 
       const map = await listed();
-      expect(map.get('advance_loan_enabled')!.value).toBe('true');
-      expect(map.get('advance_loan_approver_roles')!.value).toBe('HR_MANAGER,ADMIN');
-      expect(map.get('advance_loan_max_installments')!.value).toBe('12');
-      expect(map.get('advance_max_percent_of_salary')!.value).toBe('100');
+      expect(map.get('document_bulk_enabled')!.value).toBe('true');
+      expect(map.get('document_bulk_generate_roles')!.value).toBe('HR_MANAGER,ADMIN');
+      expect(map.get('document_bulk_max_items')!.value).toBe('500');
+      expect(map.get('document_render_concurrency')!.value).toBe('2');
     });
 
     it('still refuses the values that are actually wrong', async () => {
       // The blank allowance must not become a hole: a bad value is still a 400.
       await expect(
-        service.setSetting('advance_loan_max_installments', 'not-a-number'),
+        service.setSetting('document_bulk_max_items', 'not-a-number'),
       ).rejects.toThrow(BadRequestException);
       await expect(
-        service.setSetting('advance_max_percent_of_salary', '-1'),
+        service.setSetting('overtime_site_allowance_max', '-1'),
       ).rejects.toThrow(BadRequestException);
     });
   });

@@ -12,18 +12,7 @@ async function bootstrap() {
     bodyParser: false,
   });
 
-  app.use(
-    json({
-      limit: '1mb',
-      // Keep the exact bytes for signature verification. Discord signs the raw
-      // payload with Ed25519, so a re-serialised `JSON.stringify(req.body)`
-      // will not verify — key order and whitespace both matter. Attached only
-      // for the routes that need it, so no other handler pays the memory.
-      verify: (req: any, _res, buf) => {
-        if (req.url?.startsWith('/discord/')) req.rawBody = Buffer.from(buf);
-      },
-    }),
-  );
+  app.use(json({ limit: '1mb' }));
   app.use(urlencoded({ extended: true, limit: '1mb' }));
 
   // Serve static files from uploads directory

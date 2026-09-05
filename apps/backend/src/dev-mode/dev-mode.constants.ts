@@ -2,11 +2,9 @@
  * Developer mode — a step-up elevation on top of an existing ADMIN session.
  *
  * The settings guarded by this module are operator/vendor controls, not tenant
- * controls: the LLM endpoint and key, the WhatsApp/Evolution credentials, SMTP,
- * the attendance-integration provider configs, the WPS employer profiles, the
- * employee-field template, and the two destructive maintenance actions (load
- * sample data, reset database). A customer ADMIN must not be able to see or
- * reach any of them.
+ * controls: the LLM endpoint and key, SMTP, the employee-field template, and
+ * the two destructive maintenance actions (load sample data, reset database).
+ * A customer ADMIN must not be able to see or reach any of them.
  *
  * The elevation deliberately does NOT introduce a new role. The admin stays
  * signed in as themselves and mints a short-lived second token, so every audit

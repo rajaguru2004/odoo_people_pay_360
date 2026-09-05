@@ -53,17 +53,17 @@ import {
 } from '../payrolls/payroll-earnings.util';
 import { LibraryType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { WhatsAppOutboxService } from '../whatsapp/whatsapp-outbox.service';
-import { WhatsAppSettingsService } from '../whatsapp/whatsapp-settings.service';
-import { toE164, normalisePhoneRegion, firstRegion } from '../whatsapp/utils/phone.util';
-import {
-  bold,
-  escapeWa,
-  kv,
-  lines,
-  WA_SAFE_SYMBOLS,
-} from '../whatsapp/templates/format';
+import { normalisePhoneRegion } from './phone-region.util';
 import { randomInt } from 'crypto';
+
+/**
+ * Symbols a generated credential may contain.
+ *
+ * Deliberately excludes `*`, `_`, `~` and a backtick: they are markup in the
+ * renderers a temporary password travels through, and a stripped character
+ * turns into a login that can never succeed.
+ */
+export const TEMP_PASSWORD_SYMBOLS = '!@#$%^&+=?';
 
 @Injectable()
 export class EmployeesService {
@@ -80,8 +80,6 @@ export class EmployeesService {
     // positionally (employees-pay-basis, employees-phone-country,
     // employees-import-phone-country) — reordering here silently injects the
     // wrong stub into each of them. Append only.
-    private whatsappOutbox: WhatsAppOutboxService,
-    private whatsappSettings: WhatsAppSettingsService,
     private templates: ProfileTemplateResolverService,
     private supervisors: SupervisorsService,
     private readonly garnishments: GarnishmentsService,
@@ -293,13 +291,6 @@ export class EmployeesService {
         mailError.message,
       );
     }
-
-    // The same credentials over WhatsApp. Previously only "Resend credentials"
-    // did this, so the one moment an employee is guaranteed to be waiting for
-    // their login — the moment they were added — was email-only.
-    void this.sendCredentialsWhatsApp(employee, temporaryPassword).catch((e) =>
-      this.logger.warn(`WhatsApp credentials send skipped: ${(e as Error).message}`),
-    );
 
     return {
       success: true,
@@ -770,7 +761,7 @@ export class EmployeesService {
     const updateData: any = { ...effective };
     if (dto.dateOfBirth) updateData.dateOfBirth = new Date(dto.dateOfBirth);
     if (dto.endDate) updateData.endDate = new Date(dto.endDate);
-    // '' is how the form says "clear it and go back to the branch/global default";
+    // '' is how the form says "clear it and go back to the branch country";
     // an unrecognised code becomes null rather than being stored to fail later.
     if (dto.phoneCountryCode !== undefined) {
       updateData.phoneCountryCode = normalisePhoneRegion(dto.phoneCountryCode) || null;
@@ -946,19 +937,6 @@ export class EmployeesService {
     if (employee.status !== 'INACTIVE' && employee.status !== 'TERMINATED') {
       throw new BadRequestException(
         'Only terminated employees can be permanently deleted.',
-      );
-    }
-
-    // Loan/advance history must outlive the person for statutory audit, so the
-    // FK is onDelete: RESTRICT. Check explicitly, or this surfaces as a raw
-    // P2003 that nobody can act on.
-    const loanCount = await this.prisma.advanceLoanRequest.count({
-      where: { employeeId: id },
-    });
-    if (loanCount > 0) {
-      throw new BadRequestException(
-        `Cannot permanently delete: ${loanCount} advance/loan record(s) must be retained ` +
-          `for statutory audit. Keep the employee soft-deleted (INACTIVE) instead.`,
       );
     }
 
@@ -1417,9 +1395,6 @@ export class EmployeesService {
           department: {
             select: { id: true, code: true, name: true },
           },
-          // Second link in the phone-region chain, needed to WhatsApp the
-          // credentials this employee is about to be given.
-          branch: { select: { country: true } },
         },
       });
     } catch (err) {
@@ -2216,14 +2191,12 @@ export class EmployeesService {
   /**
    * A temporary password that survives every channel it is delivered over.
    *
-   * `*`, `_`, `~` and a backtick are WhatsApp's formatting markers and there is
-   * no way to escape them, so escapeWa() strips them from any value it renders.
-   * With `*` in the symbol pool that silently deleted a character from about one
-   * in five credential messages: the hash stored in the database was of the full
-   * password, the employee was shown one character short, and every login came
-   * back "Incorrect password" with nothing in the logs to say why. The pool is
-   * the only place this can be fixed — the alternative, sending `*` unescaped,
-   * makes WhatsApp swallow it into bold formatting instead.
+   * The symbol pool deliberately excludes `*`, `_`, `~` and a backtick: those
+   * are markup in the renderers a credential passes through, and a delivery
+   * layer that eats one hands the employee a password one character shorter
+   * than the string that was hashed. Every login then comes back "Incorrect
+   * password" with nothing in the logs to say why, so the pool is kept narrow
+   * at the source rather than patched per channel.
    *
    * randomInt over Math.random: this is a credential, and Math.random is a
    * predictable PRNG. Fisher-Yates over `sort(() => 0.5 - Math.random())`, which
@@ -2234,7 +2207,7 @@ export class EmployeesService {
     const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const lowercase = 'abcdefghijklmnopqrstuvwxyz';
     const numbers = '0123456789';
-    const symbols = WA_SAFE_SYMBOLS;
+    const symbols = TEMP_PASSWORD_SYMBOLS;
     const allChars = uppercase + lowercase + numbers + symbols;
 
     const pick = (pool: string) => pool[randomInt(pool.length)];
@@ -2264,9 +2237,6 @@ export class EmployeesService {
         department: {
           select: { id: true, code: true, name: true },
         },
-        // Second link in the phone-region chain, for a number typed without a
-        // country prefix — see sendCredentialsWhatsApp.
-        branch: { select: { country: true } },
         user: true,
       },
     });
@@ -2326,69 +2296,10 @@ export class EmployeesService {
       temporaryPassword,
     });
 
-    // Send credentials via WhatsApp (best-effort — never fails the request)
-    void this.sendCredentialsWhatsApp(employee, temporaryPassword).catch((e) =>
-      this.logger.warn(`WhatsApp credentials send skipped: ${(e as Error).message}`),
-    );
-
     return {
       success: true,
       message: 'Welcome email resent successfully',
     };
-  }
-
-  /** Fire off a WhatsApp with the temporary password. Swallows all errors. */
-  private async sendCredentialsWhatsApp(
-    employee: {
-      fullName: string;
-      employeeCode: string;
-      email: string;
-      phone?: string | null;
-      phoneCountryCode?: string | null;
-      branch?: { country?: string | null } | null;
-    },
-    temporaryPassword: string,
-  ): Promise<void> {
-    const cfg = await this.whatsappSettings.get().catch(() => null);
-    if (!cfg?.enabled) return;
-
-    // Most specific wins: what HR typed against this employee's number, then the
-    // country their branch sits in, then the global WhatsApp default. No 'IN'
-    // backstop — guessing a region for a national number is how a message reaches
-    // a stranger who happens to hold that number in India.
-    const region = firstRegion(
-      employee.phoneCountryCode,
-      employee.branch?.country,
-      cfg.defaultRegion,
-    );
-    const phoneE164 = toE164(employee.phone ?? '', region);
-    if (!phoneE164) {
-      this.logger.debug(
-        `Resend credentials: no valid phone for ${employee.employeeCode}, skipping WhatsApp`,
-      );
-      return;
-    }
-
-    const appUrl = process.env.FRONTEND_URL ?? '';
-    const body = lines(
-      bold('\ud83d\udd11 Your HR Portal Credentials'),
-      '',
-      `Hello ${escapeWa(employee.fullName)}, here are your updated login details:`,
-      '',
-      kv('Employee ID', employee.employeeCode),
-      kv('Email', employee.email),
-      kv('Temporary Password', temporaryPassword),
-      '',
-      '_Please log in and change your password immediately._',
-      appUrl ? `${bold('Login:')} ${appUrl}/login` : '',
-    );
-
-    await this.whatsappOutbox.enqueueDirect({
-      toE164: phoneE164,
-      templateKey: 'welcome_credentials',
-      body,
-      dedupeKey: `resend-cred:${employee.employeeCode}:${Date.now()}`,
-    });
   }
 
   /** Helper: fetch just departmentId for a given employee (used for MANAGER scope checks). */
@@ -2502,7 +2413,7 @@ export class EmployeesService {
       salaryType: 'MONTHLY',
       timezone: 'Asia/Ho_Chi_Minh',
       // Left blank on purpose in the second sample: an empty cell is valid and
-      // means "fall back to the branch country / WhatsApp default".
+      // means "fall back to the branch country".
       phoneCountryCode: '',
     });
 
@@ -2706,7 +2617,7 @@ export class EmployeesService {
         const salaryTypeInput = getCellValue(12);
         const timezone = getCellValue(13) || 'Asia/Ho_Chi_Minh';
         // Blank is the honest answer for a sheet written before this column
-        // existed: the branch country and the WhatsApp default then apply.
+        // existed: the branch country then applies.
         const phoneCountryRaw = getCellValue(14);
         const phoneCountryCode = normalisePhoneRegion(phoneCountryRaw);
         if (phoneCountryRaw && !phoneCountryCode) {

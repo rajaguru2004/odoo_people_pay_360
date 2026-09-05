@@ -11,8 +11,6 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SystemSettingsService } from '../system-settings/system-settings.service';
 import { ApprovalEngineService } from '../approvals/approval-engine.service';
-import { ReimbursementsService } from '../reimbursements/reimbursements.service';
-import { AdvanceLoansService } from '../advance-loans/advance-loans.service';
 import { BudgetCommitmentService } from '../budgets/budget-commitment.service';
 import { assertInBranch } from '../common/branch/branch-scope.util';
 import { getBranchContext } from '../common/branch/branch-context';
@@ -21,8 +19,6 @@ import { CreateTravelRequestDto } from './dto/create-travel-request.dto';
 import { QueryTravelDto } from './dto/query-travel.dto';
 import { DecideTravelDto } from './dto/decide-travel.dto';
 
-/** Expense type used for the auto-generated per-diem claim. */
-const PER_DIEM_EXPENSE_TYPE = 'Per Diem';
 /** BUDGET_CATEGORY label travel spend is attributed to. */
 const TRAVEL_BUDGET_CATEGORY = 'Travel';
 
@@ -36,8 +32,6 @@ export class TravelService {
     private readonly notifications: NotificationsService,
     private readonly settings: SystemSettingsService,
     private readonly engine: ApprovalEngineService,
-    private readonly reimbursements: ReimbursementsService,
-    private readonly advanceLoans: AdvanceLoansService,
     private readonly budget: BudgetCommitmentService,
   ) {}
 
@@ -80,8 +74,7 @@ export class TravelService {
   async create(employeeId: string, dto: CreateTravelRequestDto, user: any) {
     // A kill switch an admin can see must do something. `travel_enabled` was
     // seeded, listed in the settings registry and rendered in the admin UI, and
-    // read by nothing — turning Travel off changed nothing at all. Matches the
-    // `reimbursement_enabled` / `advance_loan_enabled` precedent.
+    // read by nothing — turning Travel off changed nothing at all.
     const enabled = await this.settings.getSetting('travel_enabled', 'true');
     if (enabled === 'false') {
       throw new BadRequestException('Travel module is disabled');
@@ -174,16 +167,14 @@ export class TravelService {
     // `engaged: false` — the master switch is off, or no active workflow governs
     // TRAVEL — means "no CHAIN governs this", NOT "nobody needs to approve it".
     // It used to mean the latter, copied from the bank-change precedent, and the
-    // consequence was that approving a trip is what spends money: a per-diem
-    // claim, a real advance in the loans ledger and a budget commitment all
-    // fired the moment the form was submitted. Deactivating a workflow did not
-    // fall back to manual approval, it fell back to NO approval.
+    // consequence was that approving a trip is what spends money: a budget
+    // commitment fired the moment the form was submitted. Deactivating a
+    // workflow did not fall back to manual approval, it fell back to NO
+    // approval.
     //
-    // Advances & Loans, driven by the same engine, always treated the same
-    // answer as "a human still decides". Travel now matches it: the request
-    // waits, and `travel_approver_roles` decides who may settle it. An
-    // all-skipped chain (`finalized` on initiate) still applies immediately —
-    // there the engine really has decided.
+    // A human still decides: the request waits, and `travel_approver_roles`
+    // decides who may settle it. An all-skipped chain (`finalized` on initiate)
+    // still applies immediately — there the engine really has decided.
     const init = await this.engine.initiate('TRAVEL', request.id, employeeId, user?.id);
     if (init.engaged && init.finalized) {
       return this.applyApproved(request.id, user?.id ?? null);
@@ -261,7 +252,7 @@ export class TravelService {
     );
 
     // engaged=false => no chain governs this request; fall back to the legacy
-    // single-approver rule, same shape as reimbursements and advance loans.
+    // single-approver rule.
     if (!result.engaged) {
       await this.assertLegacyApprover(user, request.employee.departmentId);
     }
@@ -320,13 +311,11 @@ export class TravelService {
     // `decide()` reads the status and then acts on it, which is a read-then-write
     // with a window in between. Two approvers deciding the same trip at once both
     // saw PENDING, so an approve and a reject could interleave: the approve arm
-    // raised the per-diem claim and the advance, and the reject arm then won the
-    // status write — leaving a trip that was refused AND paid.
+    // committed the budget, and the reject arm then won the status write —
+    // leaving a trip that was refused AND paid for.
     //
     // A conditional update closes the window: exactly one caller can move the row
-    // out of PENDING, and only that caller goes on to spend. This is the guard
-    // reimbursements have always had (`updateMany where status:'PENDING'`, then
-    // check `count`); travel was the one money path without it.
+    // out of PENDING, and only that caller goes on to spend.
     const claimed = await this.prisma.travelRequest.updateMany({
       where: { id, status: 'PENDING' },
       data: {
@@ -347,61 +336,7 @@ export class TravelService {
       include: this.include,
     });
 
-    // 1. Per-diem becomes an ordinary reimbursement row. This is the whole
-    //    "feeds the existing expense module rather than duplicating it" idea:
-    //    no travel-expense table, no second payout path.
-    // Compare numerically: a Prisma Decimal is an OBJECT, so a rate of 0 is
-    // truthy and a bare `if (request.perDiemRate)` would raise a 0.00 claim for
-    // every local trip — junk rows in every payroll run.
-    if (Number(request.perDiemRate ?? 0) > 0 && (request.perDiemDays ?? 0) > 0) {
-      const amount = request.perDiemRate!.mul(request.perDiemDays!);
-      try {
-        await this.reimbursements.createFromSource({
-          employeeId: request.employeeId,
-          type: PER_DIEM_EXPENSE_TYPE,
-          amount,
-          // Per-diem is earned on the trip; date it at departure so it lands in
-          // the right payroll month rather than the approval month.
-          expenseDate: request.departureDate,
-          description: `Per diem — ${request.destination} (${request.perDiemDays} day(s))`,
-          sourceType: 'TRAVEL',
-          sourceId: request.id,
-          budgetCategory: TRAVEL_BUDGET_CATEGORY,
-          status: 'APPROVED',
-          approverId: approverUserId ?? undefined,
-        });
-      } catch (e: any) {
-        // A failed per-diem claim must not un-approve the trip; HR can raise it
-        // manually from the trip screen.
-        this.logger.error(
-          `Per-diem claim for travel ${id} failed: ${e?.message ?? e}`,
-        );
-      }
-    }
-
-    // 2. A travel advance routes through the EXISTING loans ledger, so it is
-    //    recovered from payroll by machinery that already works.
-    if (request.advanceAmount && Number(request.advanceAmount) > 0 && !request.advanceLoanId) {
-      try {
-        const loan = await this.advanceLoans.create(request.employeeId, {
-          type: 'ADVANCE',
-          amount: Number(request.advanceAmount),
-          reason: `Travel advance — ${request.destination} (${request.purpose.slice(0, 80)})`,
-          installments: 1,
-        } as any);
-        const loanId = (loan as any)?.data?.id ?? (loan as any)?.id;
-        if (loanId) {
-          await this.prisma.travelRequest.update({
-            where: { id },
-            data: { advanceLoanId: loanId },
-          });
-        }
-      } catch (e: any) {
-        this.logger.error(`Travel advance for ${id} failed: ${e?.message ?? e}`);
-      }
-    }
-
-    // 3. International trip without a current visa for the destination country
+    // 1. International trip without a current visa for the destination country
     //    => notify HR. Deliberately a NOTIFICATION, not an auto-created record:
     //    a visa needs a document number and issuing authority that nobody has
     //    at trip-approval time, and a fabricated one is worse than none.
@@ -411,7 +346,7 @@ export class TravelService {
       );
     }
 
-    // 4. Commit the money against the budget. Approved-but-unspent spend has to
+    // 2. Commit the money against the budget. Approved-but-unspent spend has to
     //    consume budget now, or Remaining lags reality by a whole payroll cycle.
     //    Never blocks the approval — a missing budget line logs and moves on.
     await this.budget.commit({
@@ -441,14 +376,6 @@ export class TravelService {
           message: `Your trip to ${request.destination} (${request.departureDate.toDateString()}) was approved.`,
           type: 'SUCCESS' as any,
           link: '/dashboard/my-travel',
-          // 'SUCCESS' is generic, so the WhatsApp template is named explicitly.
-          waTemplate: 'travel_decision',
-          waData: {
-            destination: request.destination,
-            startDate: request.departureDate.toISOString(),
-            status: 'APPROVED',
-          },
-          waDedupeKey: `travel:${id}:approved`,
         })
         .catch(() => undefined);
     }
@@ -460,7 +387,8 @@ export class TravelService {
     const request = await this.getOrThrow(id);
 
     // Same conditional claim as the approval path — see `applyApproved`. Without
-    // it a rejection could overwrite an approval that had already raised a claim.
+    // it a rejection could overwrite an approval that had already committed
+    // budget.
     const claimed = await this.prisma.travelRequest.updateMany({
       where: { id, status: 'PENDING' },
       data: {
@@ -501,9 +429,6 @@ export class TravelService {
           message: `Your trip to ${request.destination} was rejected.${reason ? ` Reason: ${reason}` : ''}`,
           type: 'ERROR' as any,
           link: '/dashboard/my-travel',
-          waTemplate: 'travel_decision',
-          waData: { destination: request.destination, status: 'REJECTED' },
-          waDedupeKey: `travel:${id}:rejected`,
         })
         .catch(() => undefined);
     }
@@ -562,10 +487,6 @@ export class TravelService {
 
     await this.engine.abandon('TRAVEL', id);
 
-    // Withdraw the money the trip spawned — but never anything already linked
-    // to a payroll item; reversing paid money belongs in payroll.
-    const cancelledClaims = await this.reimbursements.cancelBySource('TRAVEL', id);
-
     const updated = await this.prisma.travelRequest.update({
       where: { id },
       data: { status: 'CANCELLED' },
@@ -579,13 +500,12 @@ export class TravelService {
       action: 'TRAVEL_CANCELLED',
       resourceType: 'TravelRequest',
       resourceId: id,
-      newData: { cancelledClaims },
       branchId: getBranchContext()?.effectiveBranchId ?? null,
     });
 
     return {
       success: true,
-      message: `Travel request cancelled.${cancelledClaims > 0 ? ` ${cancelledClaims} linked claim(s) withdrawn.` : ''}`,
+      message: 'Travel request cancelled.',
       data: updated,
     };
   }
@@ -638,12 +558,12 @@ export class TravelService {
   }
 
   /**
-   * Trip detail plus every claim it spawned, so the money is visible in one place.
+   * One trip in full.
    *
    * `user` is required. This used to assert the BRANCH and nothing else — no
    * owner check, no manager-scope check, the two that `decide` performs on the
    * same row — so any employee holding a UUID read a colleague's purpose,
-   * destination, cost and the claims the trip raised.
+   * destination and cost.
    */
   async findOne(id: string, user?: any) {
     const request = await this.getOrThrow(id);
@@ -661,8 +581,7 @@ export class TravelService {
       }
     }
 
-    const claims = await this.reimbursements.findBySource('TRAVEL', id);
-    return { success: true, data: { ...request, claims } };
+    return { success: true, data: request };
   }
 
   /**
