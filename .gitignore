@@ -17,13 +17,18 @@ out
 # Misc
 .DS_Store
 *.pem
+
+# Environment — EVERY env file is ignored, including the local-dev ones that
+# used to be tracked. A file that is safe today acquires a real key the first
+# time somebody points the checkout at something real, and by then it is
+# already in the history. Templates are what ship; fill them in per machine:
+#
+#   cp apps/backend/.env.example  apps/backend/.env
+#   cp apps/frontend/.env.example apps/frontend/.env.local
 .env
-.env*.local
-.env.production
-# The two env files that ARE tracked: they carry local-dev defaults only, never
-# secrets. Anything real goes in .env.example and is filled in per machine.
-!apps/backend/.env
-!apps/frontend/.env.local
+.env.*
+!.env.example
+!.env.*.example
 
 # Debug
 npm-debug.log*

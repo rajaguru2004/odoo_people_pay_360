@@ -109,23 +109,31 @@ audit path.
 
 Node 20+ · Docker · npm 10+
 
-### Five commands to a populated system
+### From clone to a populated system
 
 ```bash
 # 1 — install (npm workspaces installs both apps)
 npm install
 
-# 2 — database (pgvector image: the schema declares a vector(384) column)
+# 2 — environment — the templates carry working local defaults
+cp apps/backend/.env.example  apps/backend/.env
+cp apps/frontend/.env.example apps/frontend/.env.local
+
+# ...then set the one value that has no default. The API refuses to boot
+# without it, deliberately: a shared default signing key is worse than none.
+openssl rand -base64 32          # paste into JWT_SECRET in apps/backend/.env
+
+# 3 — database (pgvector image: the schema declares a vector(384) column)
 docker compose up -d postgres
 npm run db:push
 
-# 3 — bootstrap seed: roles, library masters, three logins
+# 4 — bootstrap seed: roles, library masters, three logins
 npm run db:seed
 
-# 4 — the demo dataset: one fully-populated Bengaluru branch
+# 5 — the demo dataset: one fully-populated Bengaluru branch
 npm run db:seed:bangalore
 
-# 5 — run both apps, prefixed output
+# 6 — run both apps, prefixed output
 npm run dev
 ```
 
@@ -1049,9 +1057,15 @@ answering an out-of-date question.
 
 ## 15. Configuration
 
-`apps/backend/.env` and `apps/frontend/.env.local` are **tracked** and carry
-local-dev defaults only — never secrets. The `.gitignore` un-ignores exactly
-those two paths.
+**No env file is tracked.** `.gitignore` ignores `.env` and `.env.*` at every
+depth and re-includes only `*.example`, so a file that is harmless today cannot
+quietly acquire a real key and carry it into the history.
+
+What ships is a pair of templates — `apps/backend/.env.example` and
+`apps/frontend/.env.example` — carrying the full key set with working local
+defaults. Copy them per machine (see [Quick start](#2-quick-start)). Every value
+is a usable local default except `JWT_SECRET` and `SETTINGS_ENCRYPTION_KEY`,
+which ship empty on purpose.
 
 ### Backend
 
