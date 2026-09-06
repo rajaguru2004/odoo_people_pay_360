@@ -9,7 +9,6 @@ import {
   FileText,
   Settings,
   Building2,
-  FolderKanban,
   Sparkles,
   Award,
   Inbox,
@@ -56,6 +55,18 @@ export interface NavGroup {
    * screens rendered no breadcrumb trail at all.
    */
   basePath?: string;
+  /**
+   * Prefixes this module owns but deliberately does NOT offer in the rail.
+   *
+   * A route can be worth keeping and not worth a permanent line in a nine-item
+   * group — Projects is reached from the Workplace hub's own cards rather than
+   * from the rail. Dropping the nav entry alone would have cost those screens
+   * their breadcrumb trail too, because the trail is derived from this tree:
+   * `findGroupForPathname` would have matched nothing and `PageBreadcrumbs`
+   * renders nothing for a route no module claims. Listing the prefix here keeps
+   * the module's claim on it without putting the entry back.
+   */
+  unlistedPaths?: string[];
   roles: string[];
   children?: NavChild[];
 }
@@ -221,11 +232,13 @@ export const adminMenuItems: NavGroup[] = [
     icon: Boxes,
     labelKey: 'workplace',
     href: '/dashboard/workplace',
+    // The project screens live under the hub's own cards, not in the rail —
+    // still this module's routes, so the trail on them still says so.
+    unlistedPaths: ['/dashboard/projects'],
     roles: ['ADMIN', 'MANAGER'],
     children: [
       { labelKey: 'assets', href: '/dashboard/assets' },
       { labelKey: 'letters', href: '/dashboard/letters' },
-      { labelKey: 'allProjects', href: '/dashboard/projects' },
     ],
   },
   {
@@ -235,14 +248,6 @@ export const adminMenuItems: NavGroup[] = [
     roles: ['ADMIN', 'HR_MANAGER', 'MANAGER'],
     children: [
       { labelKey: 'settings', href: '/dashboard/settings' },
-      // Its own route rather than a settings tab: a template is a record and
-      // needs a URL, and the builder needs a full-bleed canvas with save
-      // semantics of its own.
-      {
-        labelKey: 'documentTemplates',
-        href: '/dashboard/settings/documents',
-        roles: ['ADMIN', 'HR_MANAGER'],
-      },
       // The one genuinely ADMIN-only screen server-side.
       { labelKey: 'auditLogs', href: '/dashboard/audit-logs', roles: ['ADMIN'] },
     ],
@@ -297,7 +302,6 @@ export const employeeMenuItems: NavGroup[] = [
       { labelKey: 'myGrievances', href: '/dashboard/my-grievances' },
     ],
   },
-  { icon: FolderKanban, labelKey: 'projects', href: '/dashboard/projects', roles: ['EMPLOYEE'] },
   { icon: Settings, labelKey: 'settings', href: '/dashboard/settings', roles: ['EMPLOYEE'] },
 ];
 
@@ -370,7 +374,6 @@ export const departmentHeadMenuItems: NavGroup[] = [
     ],
   },
   { icon: Boxes, labelKey: 'assets', href: '/dashboard/assets', roles: ['MANAGER'] },
-  { icon: FolderKanban, labelKey: 'projects', href: '/dashboard/projects', roles: ['MANAGER'] },
   { icon: Settings, labelKey: 'settings', href: '/dashboard/settings', roles: ['MANAGER'] },
 ];
 
@@ -470,8 +473,14 @@ export function findGroupForPathname(
 
   for (const group of menu) {
     // `basePath` defaults to `href`, so a group declaring neither is unchanged
-    // and a group declaring both can match on either.
-    for (const prefix of new Set([group.href, group.basePath ?? group.href])) {
+    // and a group declaring both can match on either. `unlistedPaths` adds the
+    // prefixes the module owns without linking — scored the same way, so a
+    // child href that is longer still wins.
+    for (const prefix of new Set([
+      group.href,
+      group.basePath ?? group.href,
+      ...(group.unlistedPaths ?? []),
+    ])) {
       if (!owns(prefix)) continue;
       const score = prefix.length;
       if (!best || score > best.score) best = { group, score };

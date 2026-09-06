@@ -129,10 +129,12 @@ describe('buildMenu — group hrefs', () => {
 
 describe('buildMenu — pruning', () => {
   it('drops a flag-disabled leaf wherever it appears', () => {
+    // The document builder was the last flag-gated leaf in the rail and its
+    // entry is gone, so the assertion this keeps is the one about the group:
+    // pruning a child must never take the rest of System with it. The flag
+    // itself is still exercised by the `hrefDisabled` cases above.
     const off = hrefsOf('ADMIN', branding({ document_engine_enabled: false }));
     expect(off).not.toContain('/dashboard/settings/documents');
-    // Grouping the route under System must not stop its kill switch working,
-    // and the rest of the group survives.
     expect(off).toContain('/dashboard/settings');
   });
 
@@ -209,6 +211,47 @@ describe('findGroupForPathname', () => {
  * breadcrumb trail at all — the defect `basePath` exists to close. The cases
  * below are the exact routes that were blank.
  */
+describe('findGroupForPathname — unlistedPaths', () => {
+  const menu = buildMenu('ADMIN', branding());
+
+  it('keeps a module claim on a route the rail no longer offers', () => {
+    // Projects moved out of the rail and onto the Workplace hub's own cards.
+    // The screens still exist, so they must still know which module they are
+    // in — a route no group claims renders no breadcrumb trail at all.
+    const at = findGroupForPathname(menu, '/dashboard/projects');
+    expect(at?.group.labelKey).toBe('workplace');
+    // No nav child owns it any more, so the page's own title names it.
+    expect(at?.child).toBeUndefined();
+  });
+
+  it('claims the record pages under it too', () => {
+    expect(findGroupForPathname(menu, '/dashboard/projects/p-1')?.group.labelKey).toBe(
+      'workplace',
+    );
+  });
+
+  it('does not put the entry back in the rail', () => {
+    // The whole point of the field: ownership without a line in the menu.
+    const workplace = findGroupByModuleKey(menu, 'workplace')!;
+    expect(workplace.children!.map((c) => c.href)).not.toContain('/dashboard/projects');
+  });
+
+  it('does not let an owned prefix swallow a sibling', () => {
+    // `/dashboard/projects` must not claim a `/dashboard/projections` that has
+    // its own owner — prefix matching is on path segments, not on characters.
+    const at = findGroupForPathname(menu, '/dashboard/projects-archive');
+    expect(at?.group.labelKey).not.toBe('workplace');
+  });
+
+  it('still lets a longer child href win', () => {
+    // Same ordering rule `basePath` relies on: the extra prefixes are scored by
+    // length like every other, so nothing above loses its middle crumb.
+    const at = findGroupForPathname(menu, '/dashboard/assets/a-1');
+    expect(at?.group.labelKey).toBe('workplace');
+    expect(at?.child?.labelKey).toBe('assets');
+  });
+});
+
 describe('findGroupForPathname — basePath', () => {
   const menu = buildMenu('ADMIN', branding());
 

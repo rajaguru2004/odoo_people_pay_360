@@ -6,8 +6,7 @@ import {
   Sliders, Mail, Server, Hash, User, Lock, Tag, Plus, Trash2,
   Percent, TrendingUp, BarChart2, Building2, CheckCircle2, Info, Edit3, RotateCcw,
   ListTodo, BookOpen, MoreVertical, X, MapPin, AlertTriangle,
-  Loader2, Database, Sparkles, GitBranch, Plug, MessageCircle,
-  FileText,
+  Loader2, Database, Sparkles, GitBranch,
 } from 'lucide-react';
 import { CurrencyIcon } from '@/components/common/CurrencyIcon';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -30,12 +29,8 @@ import { DashboardVersion } from '@/utils/dashboardPreference';
 import { setDefaultCurrency, setDefaultDateFormat } from '@/utils/formatters';
 import HolidaysManager from '@/components/holidays/HolidaysManager';
 import CopilotSettingsSection from '@/components/settings/CopilotSettingsSection';
-import WhatsAppSettingsSection from '@/components/settings/WhatsAppSettingsSection';
-import TelegramSettingsSection from '@/components/settings/TelegramSettingsSection';
 import SupervisorHierarchySection from '@/components/settings/SupervisorHierarchySection';
 import OvertimePolicySection from '@/components/settings/OvertimePolicySection';
-import EmployeeTemplateSection from '@/components/settings/EmployeeTemplateSection';
-import AttendanceIntegrationsSection from '@/components/settings/AttendanceIntegrationsSection';
 import { useDevMode } from '@/hooks/useDevMode';
 import { usePageHeader } from '@/hooks/usePageHeader';
 import PageActionRow from '@/components/common/PageActionRow';
@@ -61,12 +56,7 @@ import {
  */
 const SELF_SAVING_TABS = new Set([
   'libraries',
-  'employee-template',
   'copilot',
-  // Renamed from 'whatsapp' when Telegram joined it: the tab is one place for
-  // every messaging channel, so a per-vendor id would have gone stale again.
-  'messages',
-  'integrations',
   // Added — each has its own panel or its own submit button.
   'holidays',
   'approvals',
@@ -74,7 +64,24 @@ const SELF_SAVING_TABS = new Set([
   'security',
 ]);
 
-const DEVELOPER_TAB_IDS = ['copilot', 'messages', 'integrations', 'employee-template'];
+const DEVELOPER_TAB_IDS = ['copilot'];
+
+/** The one panel every tab renders into — the rail's `aria-controls` target. */
+const SETTINGS_PANEL_ID = 'settings-panel';
+
+interface SettingsTab {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  /** Shown on hover: what the tab holds, so the label need not carry it all. */
+  hint: string;
+}
+
+interface SettingsTabGroup {
+  id: string;
+  label: string;
+  tabs: SettingsTab[];
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -1683,36 +1690,99 @@ export default function SettingsPage() {
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
 
-  const tabs = [
-    { id: 'general', label: 'General', icon: Settings },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'security', label: 'Security', icon: Shield },
-    // { id: 'appearance', label: 'Interface', icon: Palette },
-    ...(user?.role === 'ADMIN' || user?.role === 'HR_MANAGER'
-      ? [
-        { id: 'holidays', label: 'Holidays', icon: Calendar },
-        { id: 'approvals', label: 'Approval Hierarchy', icon: GitBranch },
-      ]
-      : []),
-    ...(user?.role === 'ADMIN' ? [
-      { id: 'system', label: 'System Settings', icon: Sliders },
-      { id: 'branding', label: 'Branding & Theme', icon: Palette },
-      { id: 'payroll', label: 'Payroll Settings', icon: CurrencyIcon },
-      { id: 'overtime-policies', label: 'Overtime Policies', icon: Clock },
-      { id: 'libraries', label: 'Libraries', icon: BookOpen },
-    ] : []),
-    // Operator-owned surfaces. Hidden outright — not greyed out — so an admin
-    // cannot tell they exist. The backend refuses the matching routes with a
-    // flat 403, so hiding these is convenience, not the security boundary.
-    ...(devElevated ? [
-      { id: 'copilot', label: 'HR Copilot', icon: Sparkles },
-      { id: 'messages', label: 'Messages', icon: MessageCircle },
-      { id: 'integrations', label: 'Integrations', icon: Plug },
-      // Sits next to Libraries on purpose: Libraries supplies the option sets
-      // that this template's SELECT fields bind to.
-      { id: 'employee-template', label: 'Employee Fields', icon: ListTodo },
-    ] : []),
-  ];
+  // Keyed by tab id rather than by index: the rail's contents depend on role and
+  // on elevation, so an index would point at a different tab the moment a
+  // developer tab appears or lapses.
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  /**
+   * The rail, grouped by WHOSE settings these are rather than as one flat list.
+   *
+   * Three of these tabs change nothing but the caller's own experience, and the
+   * rest change the company for everybody — a single unbroken column asked the
+   * reader to know which was which from the label alone. The headings are
+   * desktop-only: on a phone the rail is a horizontal scroller, so each group
+   * renders as `display: contents` and its tabs stay in the one flex row.
+   *
+   * A group whose tabs all filtered away renders nothing at all, heading
+   * included — an empty "Company" caption is a promise the rail cannot keep.
+   */
+  const tabGroups: SettingsTabGroup[] = [
+    {
+      id: 'you',
+      label: 'Your account',
+      tabs: [
+        { id: 'general', label: 'General', icon: Settings, hint: 'Language, time zone and date format' },
+        { id: 'notifications', label: 'Notifications', icon: Bell, hint: 'What reaches you, and where' },
+        { id: 'security', label: 'Security', icon: Shield, hint: 'Password and active sessions' },
+      ],
+    },
+    {
+      id: 'company',
+      label: 'Company',
+      tabs: [
+        ...(user?.role === 'ADMIN' || user?.role === 'HR_MANAGER'
+          ? [
+            { id: 'holidays', label: 'Holidays', icon: Calendar, hint: 'The working calendar everybody is measured against' },
+            { id: 'approvals', label: 'Approval Hierarchy', icon: GitBranch, hint: 'Who signs what' },
+          ]
+          : []),
+        ...(user?.role === 'ADMIN' ? [
+          { id: 'system', label: 'System Settings', icon: Sliders, hint: 'Global rules and compliance' },
+          { id: 'branding', label: 'Branding & Theme', icon: Palette, hint: 'Logo, palette and typeface' },
+          { id: 'payroll', label: 'Payroll Settings', icon: CurrencyIcon, hint: 'Currency, statutory rates and brackets' },
+          { id: 'overtime-policies', label: 'Overtime Policies', icon: Clock, hint: 'Rates and limits per employment type' },
+          { id: 'libraries', label: 'Libraries', icon: BookOpen, hint: 'The option sets the forms bind to' },
+        ] : []),
+      ],
+    },
+    {
+      // Operator-owned surfaces. Hidden outright — not greyed out — so an admin
+      // cannot tell they exist. The backend refuses the matching routes with a
+      // flat 403, so hiding these is convenience, not the security boundary.
+      id: 'developer',
+      label: 'Developer',
+      tabs: devElevated
+        ? [{ id: 'copilot', label: 'HR Copilot', icon: Sparkles, hint: 'Model, retrieval and the assistant tone' }]
+        : [],
+    },
+  ].filter((group) => group.tabs.length > 0);
+
+  /** Flat reading order — what the arrow keys walk, headings ignored. */
+  const tabs = tabGroups.flatMap((group) => group.tabs);
+
+  /**
+   * Arrow keys move between tabs, as a tablist is expected to.
+   *
+   * The rail is a column on desktop and a row on a phone, so both axes move and
+   * both wrap; Home/End jump to the ends. Selection follows focus, which is the
+   * right call HERE because every panel is already mounted client-side — there
+   * is no request to fire per tab the key passes through.
+   */
+  const onTabKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const step =
+      event.key === 'ArrowDown' || event.key === 'ArrowRight'
+        ? 1
+        : event.key === 'ArrowUp' || event.key === 'ArrowLeft'
+          ? -1
+          : 0;
+
+    let next = -1;
+    if (step !== 0) {
+      const at = tabs.findIndex((tab) => tab.id === activeTab);
+      next = (at + step + tabs.length) % tabs.length;
+    } else if (event.key === 'Home') {
+      next = 0;
+    } else if (event.key === 'End') {
+      next = tabs.length - 1;
+    }
+    if (next < 0) return;
+
+    event.preventDefault();
+    const target = tabs[next];
+    setActiveTab(target.id);
+    tabRefs.current[target.id]?.focus();
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1729,25 +1799,64 @@ export default function SettingsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-6">
           {/* Sidebar Tabs */}
           <div className="lg:col-span-1 lg:sticky lg:top-4 lg:self-start">
-            <div className="surface-panel p-1.5 flex gap-1 overflow-x-auto no-scrollbar lg:block">
-              {tabs.map(tab => {
-                const Icon = tab.icon;
-                return (
-                  <button
-                    key={tab.id}
-                    // Tabs are client state, not routes, so a test has no href
-                    // to navigate to and the label is translated.
-                    data-testid={`settings-tab-${tab.id}`}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`shrink-0 lg:w-full flex items-center gap-2 h-11 lg:h-9 px-3 rounded-lg transition-all whitespace-nowrap touch-manipulation ${activeTab === tab.id
-                      ? 'bg-brand-primary text-text-on-brand shadow-sm'
-                      : 'text-text-muted hover:bg-surface-page'}`}
+            <div
+              role="tablist"
+              aria-label="Settings sections"
+              aria-orientation="vertical"
+              onKeyDown={onTabKeyDown}
+              className="surface-panel p-1.5 flex gap-1 overflow-x-auto no-scrollbar lg:block lg:space-y-0.5"
+            >
+              {tabGroups.map((group, index) => (
+                // `contents` keeps the phone rail one flat scrolling row: the
+                // wrapper draws no box of its own, so the tabs remain direct
+                // flex children and nothing wraps mid-scroll.
+                <div key={group.id} className="contents lg:block">
+                  <p
+                    className={`hidden lg:block px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted/70 ${index === 0 ? 'pt-1' : 'pt-3'}`}
                   >
-                    <Icon size={16} />
-                    <span className="font-medium text-sm">{tab.label}</span>
-                  </button>
-                );
-              })}
+                    {group.label}
+                  </p>
+                  {group.tabs.map(tab => {
+                    const Icon = tab.icon;
+                    const selected = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        // Tabs are client state, not routes, so a test has no href
+                        // to navigate to and the label is translated.
+                        data-testid={`settings-tab-${tab.id}`}
+                        ref={(node) => { tabRefs.current[tab.id] = node; }}
+                        role="tab"
+                        id={`settings-tab-button-${tab.id}`}
+                        aria-selected={selected}
+                        aria-controls={SETTINGS_PANEL_ID}
+                        // Roving tabindex: one stop for the whole rail, then the
+                        // arrow keys move within it. Nine separate tab stops
+                        // between the header and the form is not navigation.
+                        tabIndex={selected ? 0 : -1}
+                        title={tab.hint}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`relative shrink-0 lg:w-full flex items-center gap-2 h-11 lg:h-9 px-3 rounded-lg transition-colors whitespace-nowrap touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40 ${selected
+                          ? 'text-text-on-brand'
+                          : 'text-text-muted hover:bg-surface-page'}`}
+                      >
+                        {/* One shared element rather than a background per
+                            button, so the highlight travels between tabs
+                            instead of blinking out and in somewhere else. */}
+                        {selected && (
+                          <motion.span
+                            layoutId="settings-tab-highlight"
+                            transition={{ type: 'spring', stiffness: 500, damping: 40 }}
+                            className="absolute inset-0 rounded-lg bg-brand-primary shadow-sm"
+                          />
+                        )}
+                        <Icon size={16} className="relative shrink-0" />
+                        <span className="relative font-medium text-sm">{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1755,9 +1864,16 @@ export default function SettingsPage() {
           <div className="lg:col-span-4">
             <motion.div
               key={activeTab}
+              // One panel that swaps contents rather than one node per tab: the
+              // rail's `aria-controls` then has a single stable target, and the
+              // remount is what replays the enter animation on every switch.
+              id={SETTINGS_PANEL_ID}
+              role="tabpanel"
+              aria-labelledby={`settings-tab-button-${activeTab}`}
+              tabIndex={-1}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="space-y-4 sm:space-y-5"
+              className="space-y-4 sm:space-y-5 focus:outline-none"
             >
               {/* ── Holidays ── */}
               {activeTab === 'holidays' && <HolidaysManager />}
@@ -2163,76 +2279,11 @@ export default function SettingsPage() {
                       }}
                     />
                   </SectionCard>
-
-                  {/* ─ Documents & Letterhead ─
-                      The kill switch lives HERE rather than in System Settings
-                      because this is where an admin is already working on how
-                      the company looks on paper. Without a toggle the flag
-                      would be a setting nothing can reach: registered, read by
-                      the engine, and impossible to turn on. */}
-                  <SectionCard
-                    title="Documents & Letterhead"
-                    icon={FileText}
-                    badge="Design the letters, payslips and certificates the system issues"
-                    collapsible
-                  >
-                    <div className="p-4 space-y-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-slate-800">
-                            Document template engine
-                          </p>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            Generate letters, certificates and payslips as PDFs from templates you
-                            control. Off by default — existing documents are unaffected either way.
-                          </p>
-                        </div>
-                        <Toggle
-                          checked={systemSettings.document_engine_enabled === 'true'}
-                          onChange={(v) =>
-                            setSystemSettings((s) => ({
-                              ...s,
-                              document_engine_enabled: v ? 'true' : 'false',
-                            }))
-                          }
-                        />
-                      </div>
-
-                      {systemSettings.document_engine_enabled === 'true' ? (
-                        <a
-                          href="/dashboard/settings/documents"
-                          className="inline-flex items-center gap-2 h-10 px-4 rounded-[--radius-button] bg-brand-primary text-text-on-brand text-sm"
-                        >
-                          <FileText size={16} />
-                          Manage document templates
-                        </a>
-                      ) : (
-                        // Save first: the nav entry and the routes are both
-                        // gated on the SAVED value, so a link that appeared on
-                        // the unsaved toggle would lead to a 404.
-                        <p className="text-xs text-slate-500">
-                          Turn this on and press <strong>Save changes</strong> to open the template
-                          designer.
-                        </p>
-                      )}
-                    </div>
-                  </SectionCard>
                 </div>
               )}
 
               {activeTab === 'copilot' && devElevated && (
                 <CopilotSettingsSection />
-              )}
-
-              {/* One tab per PURPOSE, not per vendor: WhatsApp and Telegram
-                  deliver the same HR updates through the same template
-                  allowlist, so an admin turning an update off expects it off
-                  everywhere and should not have to find two screens to do it. */}
-              {activeTab === 'messages' && devElevated && (
-                <div className="space-y-6">
-                  <WhatsAppSettingsSection />
-                  <TelegramSettingsSection />
-                </div>
               )}
 
               {activeTab === 'approvals' &&
@@ -2242,10 +2293,6 @@ export default function SettingsPage() {
 
               {activeTab === 'overtime-policies' && user?.role === 'ADMIN' && (
                 <OvertimePolicySection />
-              )}
-
-              {activeTab === 'integrations' && devElevated && (
-                <AttendanceIntegrationsSection />
               )}
 
 
@@ -3510,11 +3557,6 @@ export default function SettingsPage() {
               {/* ── Libraries Settings ── */}
               {activeTab === 'libraries' && user?.role === 'ADMIN' && (
                 <LibrariesManagement />
-              )}
-
-              {/* ── Employee Profile Template ── */}
-              {activeTab === 'employee-template' && devElevated && (
-                <EmployeeTemplateSection />
               )}
 
               {/* ── Overtime Settings ── */}

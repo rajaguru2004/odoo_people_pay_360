@@ -20,13 +20,12 @@ import { test, expect, settle, ApiClient, runId } from '../../fixtures';
  * then uses that field's presence as the evidence: absent while off, rendered
  * while on, absent again once restored.
  *
- * ## Why the Settings assertion reads the toggle, not the tab
+ * ## Why nothing here reads a Settings screen
  *
- * The "Employee Fields" tab is gated by DEVELOPER MODE (`useDevMode().elevated`),
- * not by this flag — it is visible to an ADMIN whether the flag is on or off, so
- * its presence is not evidence of anything. What the flag does own on that
- * screen is the kill-switch control itself, so the spec asserts the switch
- * reports the state the API was set to.
+ * The "Employee Fields" tab was removed from Settings, so the flag has no
+ * control surface left in the portal — it is set through the API. The evidence
+ * is therefore the FORM alone: the configured field is absent while off and
+ * rendered while on.
  *
  * ## Shared state, and the rule that follows from it
  *
@@ -75,18 +74,6 @@ async function openNewEmployee(page: import('@playwright/test').Page): Promise<v
   // Step 1 is rendered from the template, so this is also the proof that the
   // template resolved at all rather than leaving the wizard on its skeleton.
   await expect(page.getByTestId(BASELINE_TESTID)).toBeVisible({ timeout: 20_000 });
-}
-
-/** Opens Settings → Employee Fields and returns the kill-switch control. */
-async function openTemplateSettings(page: import('@playwright/test').Page) {
-  await page.goto('/dashboard/settings', { waitUntil: 'domcontentloaded' });
-  await page.waitForLoadState('networkidle').catch(() => {});
-  const tab = page.getByTestId('settings-tab-employee-template');
-  await expect(tab).toBeVisible({ timeout: 20_000 });
-  await tab.click();
-  const toggle = page.getByRole('switch');
-  await expect(toggle).toBeVisible({ timeout: 20_000 });
-  return toggle;
 }
 
 test.describe('the employee profile template kill switch', () => {
@@ -239,16 +226,6 @@ test.describe('the employee profile template kill switch', () => {
     settle(problems, 'the new-employee wizard with the template on');
   });
 
-  test('the Settings switch reports the state the API was set to', async ({ page, problems }) => {
-    test.skip(!!setupError, 'setup failed');
-
-    // Still on from the previous test — this file runs serially.
-    const toggle = await openTemplateSettings(page);
-    await expect(toggle).toHaveAttribute('aria-checked', 'true');
-
-    settle(problems, 'the Employee Fields builder with the template on');
-  });
-
   test('switching it back off restores the previous form', async ({ page, problems }) => {
     test.skip(!!setupError, 'setup failed');
 
@@ -261,9 +238,6 @@ test.describe('the employee profile template kill switch', () => {
     // field disappears and the baseline form is back, with nothing deleted.
     await expect(page.getByTestId(MARKER_TESTID)).toHaveCount(0);
     await expect(page.getByTestId('onboard-next')).toBeVisible();
-
-    const toggle = await openTemplateSettings(page);
-    await expect(toggle).toHaveAttribute('aria-checked', 'false');
 
     settle(problems, 'the new-employee wizard after the template was switched back off');
   });

@@ -20,8 +20,17 @@ describe('ModuleNavTiles', () => {
     renderWithProviders(<ModuleNavTiles moduleKey="workplace" />, { role: 'ADMIN' });
 
     expect(hrefs()).toEqual(
-      expect.arrayContaining(['/dashboard/assets', '/dashboard/letters', '/dashboard/projects']),
+      expect.arrayContaining(['/dashboard/assets', '/dashboard/letters']),
     );
+  });
+
+  it('draws no tile for a prefix the module merely owns', () => {
+    // `unlistedPaths` exists so a module can keep the breadcrumb trail on a
+    // route the rail no longer offers. Tiles come from `children`, so it must
+    // not put the entry back here either — the hub's own cards link Projects.
+    renderWithProviders(<ModuleNavTiles moduleKey="workplace" />, { role: 'ADMIN' });
+
+    expect(hrefs()).not.toContain('/dashboard/projects');
   });
 
   it('mirrors a feature kill switch', () => {

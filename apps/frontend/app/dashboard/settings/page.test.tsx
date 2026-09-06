@@ -64,18 +64,8 @@ vi.mock('@/lib/axios', () => ({
 }));
 vi.mock('@/components/holidays/HolidaysManager', () => ({ default: () => null }));
 vi.mock('@/components/settings/CopilotSettingsSection', () => ({ default: () => null }));
-// Rendered as markers rather than null: the Messages tab has to be shown to
-// hold BOTH channels, and a null mock cannot tell the two apart.
-vi.mock('@/components/settings/WhatsAppSettingsSection', () => ({
-  default: () => <div>WhatsApp panel</div>,
-}));
-vi.mock('@/components/settings/TelegramSettingsSection', () => ({
-  default: () => <div>Telegram panel</div>,
-}));
 vi.mock('@/components/settings/SupervisorHierarchySection', () => ({ default: () => null }));
 vi.mock('@/components/settings/OvertimePolicySection', () => ({ default: () => null }));
-vi.mock('@/components/settings/EmployeeTemplateSection', () => ({ default: () => null }));
-vi.mock('@/components/settings/AttendanceIntegrationsSection', () => ({ default: () => null }));
 vi.mock('@/components/settings/WpsSection', () => ({ default: () => null }));
 vi.mock('@/components/dev-mode/DevModeToggle', () => ({ default: () => null }));
 
@@ -188,63 +178,111 @@ describe('Settings page — developer-key write gate', () => {
     for (const key of MAIL_KEYS) expect(payload).not.toHaveProperty(key);
   });
 });
-
 /**
- * The messaging tab.
+ * The rail.
  *
- * It was called "WhatsApp" while WhatsApp was the only channel. Telegram
- * delivers the same HR updates through the same template allowlist, so an admin
- * switching an update off expects it off everywhere — two vendor-named tabs
- * would have made that two screens and invited them to drift.
+ * Nine tabs in one unbroken column asked the reader to work out from the label
+ * alone which ones change their own experience and which change the company for
+ * everybody, so the rail is grouped and the groups are captioned. The captions
+ * are derived from the same filtered lists the buttons come from — an empty
+ * heading over no tabs would be the one thing worse than no heading at all.
  */
-describe('Settings page — Messages tab', () => {
+describe('Settings page — the tab rail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     respondWith(TENANT_ROWS);
-    devStatus.mockResolvedValue({ data: { available: true, enforced: true } } as any);
     useDevModeStore.setState({
-      devToken: 't',
-      expiresAt: Date.now() + 600_000,
-      available: true,
-      enforced: true,
-      checked: true,
+      devToken: null, expiresAt: null, available: false, enforced: true, checked: true,
     });
+    devStatus.mockResolvedValue({ data: { available: true, enforced: true } } as any);
   });
 
-  it('is labelled "Messages", not after any one vendor', async () => {
+  it('captions the personal tabs apart from the company-wide ones', async () => {
     renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
     await waitFor(() => expect(getAll).toHaveBeenCalled());
 
-    expect(await screen.findByTestId('settings-tab-messages')).toHaveTextContent('Messages');
-    expect(screen.queryByTestId('settings-tab-whatsapp')).toBeNull();
+    expect(await screen.findByText('Your account')).toBeTruthy();
+    expect(screen.getByText('Company')).toBeTruthy();
   });
 
-  it('holds both channels on the one tab', async () => {
+  it('captions no group it has no tabs for', async () => {
+    // Developer mode is enforced and not unlocked, so HR Copilot — the whole of
+    // that group — is filtered out. The heading has to go with it.
     renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
     await waitFor(() => expect(getAll).toHaveBeenCalled());
 
-    await userEvent.click(await screen.findByTestId('settings-tab-messages'));
-
-    expect(await screen.findByText('WhatsApp panel')).toBeInTheDocument();
-    expect(await screen.findByText('Telegram panel')).toBeInTheDocument();
+    expect(await screen.findByText('Your account')).toBeTruthy();
+    expect(screen.queryByText('Developer')).toBeNull();
   });
 
-  it('offers no footer save bar — each channel saves through its own controls', async () => {
-    // `messages` is in SELF_SAVING_TABS. Without that the footer renders and
-    // handleSave does nothing except report success.
+  it('drops the Company group entirely for a role that owns none of it', async () => {
+    // An EMPLOYEE gets the three personal tabs and nothing else, so the rail
+    // must not caption a section that would render empty beneath it.
+    renderWithProviders(<SettingsPage />, { role: 'EMPLOYEE' });
+
+    // No `getAll` wait here: an employee owns none of the settings the page
+    // fetches, so the request never fires and the rail is the only signal.
+    expect(await screen.findByTestId('settings-tab-general')).toBeTruthy();
+    expect(screen.queryByText('Company')).toBeNull();
+    expect(screen.queryByTestId('settings-tab-system')).toBeNull();
+  });
+
+  it('exposes the rail as a tablist, with the open tab selected', async () => {
     renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
     await waitFor(() => expect(getAll).toHaveBeenCalled());
 
-    await userEvent.click(await screen.findByTestId('settings-tab-messages'));
+    const general = await screen.findByTestId('settings-tab-general');
+    expect(general.getAttribute('role')).toBe('tab');
+    expect(general.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('settings-tab-security').getAttribute('aria-selected')).toBe('false');
 
-    expect(screen.queryByRole('button', { name: /^save changes$/i })).toBeNull();
+    await userEvent.click(screen.getByTestId('settings-tab-security'));
+
+    expect(screen.getByTestId('settings-tab-security').getAttribute('aria-selected')).toBe('true');
+    expect(general.getAttribute('aria-selected')).toBe('false');
   });
 
-  it('hides the tab entirely from an admin who has not unlocked developer mode', async () => {
-    useDevModeStore.setState({ devToken: null, expiresAt: null, enforced: true, available: true, checked: true });
+  it('keeps one tab stop for the whole rail and moves within it on the arrows', async () => {
+    // Roving tabindex. Without it every tab is its own stop, which puts nine
+    // presses between the page header and the form the user came to fill in.
     renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
     await waitFor(() => expect(getAll).toHaveBeenCalled());
 
-    expect(screen.queryByTestId('settings-tab-messages')).toBeNull();
+    const general = await screen.findByTestId('settings-tab-general');
+    expect(general.getAttribute('tabindex')).toBe('0');
+    expect(screen.getByTestId('settings-tab-security').getAttribute('tabindex')).toBe('-1');
+
+    general.focus();
+    await userEvent.keyboard('{ArrowDown}');
+
+    expect(screen.getByTestId('settings-tab-notifications').getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('settings-tab-notifications').getAttribute('tabindex')).toBe('0');
+  });
+
+  it('walks the arrows across a group boundary, and wraps at the ends', async () => {
+    // The headings are captions, not stops: the reading order the keys follow is
+    // the flat one, so the last personal tab steps straight into Company.
+    renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
+    await waitFor(() => expect(getAll).toHaveBeenCalled());
+
+    const general = await screen.findByTestId('settings-tab-general');
+    general.focus();
+    // general → notifications → security, the last of "Your account"…
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}');
+    expect(screen.getByTestId('settings-tab-holidays').getAttribute('aria-selected')).toBe('true');
+
+    // …and back off the top of the rail onto the last tab of the last group.
+    await userEvent.keyboard('{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}');
+    expect(screen.getByTestId('settings-tab-libraries').getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('points the rail at the panel it actually swaps', async () => {
+    renderWithProviders(<SettingsPage />, { role: 'ADMIN' });
+    await waitFor(() => expect(getAll).toHaveBeenCalled());
+
+    const general = await screen.findByTestId('settings-tab-general');
+    const panel = screen.getByRole('tabpanel');
+    expect(general.getAttribute('aria-controls')).toBe(panel.id);
+    expect(panel.getAttribute('aria-labelledby')).toBe(general.id);
   });
 });
