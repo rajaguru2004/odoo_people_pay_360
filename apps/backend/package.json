@@ -43,6 +43,7 @@
     "sample:branches:clean": "SAMPLE_CLEANUP=1 ts-node test/live/sample-scenario.ts",
     "prisma:studio": "prisma studio",
     "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:seed:e2e": "ts-node --transpile-only prisma/seed-e2e-baseline.ts",
